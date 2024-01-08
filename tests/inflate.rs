@@ -486,7 +486,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     let mut ret = unsafe {
         inflateInit2_(
             &mut strm,
-            if (err as i32) < 0 { 47 } else { -15 },
+            if err < 0 { 47 } else { -15 },
             VERSION,
             STREAM_SIZE,
         )
@@ -537,7 +537,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     //        mem_done(&strm, prefix);
     //    }
 
-    return ret;
+    ret
 }
 
 #[test]

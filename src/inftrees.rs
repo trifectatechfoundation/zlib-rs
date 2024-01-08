@@ -169,7 +169,7 @@ pub(crate) fn inflate_table(
             Code {
                 bits: (len - drop_) as u8,
                 op: extra[(work[sym] - match_) as usize] as u8,
-                val: base[(work[sym] - match_) as usize] as u16,
+                val: base[(work[sym] - match_) as usize],
             }
         } else if work[sym] + 1 < match_ {
             Code {
@@ -187,11 +187,11 @@ pub(crate) fn inflate_table(
 
         // replicate for those indices with low len bits equal to huff
         let incr = 1 << (len - drop_);
-        let mut fill = (1 << curr) as i32;
+        let mut fill = 1 << curr;
 
         let min = fill as usize;
         loop {
-            fill -= incr as i32;
+            fill -= incr;
             table[next..][((huff >> drop_) as i32 + fill) as usize] = here;
 
             if fill == 0 {
@@ -233,7 +233,7 @@ pub(crate) fn inflate_table(
 
             /* determine length of next table */
             curr = len - drop_;
-            let mut left = (1 << curr) as i32;
+            let mut left = 1 << curr;
             while curr + drop_ < max {
                 left -= count[curr + drop_] as i32;
                 if left <= 0 {
@@ -278,7 +278,7 @@ pub(crate) fn inflate_table(
     }
 
     /* set return parameters */
-    return InflateTable::Success(root);
+    InflateTable::Success(root)
 }
 
 #[cfg(test)]
