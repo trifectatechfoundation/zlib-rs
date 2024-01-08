@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
@@ -116,7 +117,7 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
 }
 
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
-    crate::inflate::inflateEnd(strm)
+    crate::inflate::end(strm)
 }
 
 pub unsafe extern "C" fn inflateBackInit_(
@@ -160,7 +161,11 @@ pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> libc::c_long {
 }
 
 pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
-    crate::inflate::inflateSync(strm)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::sync(stream) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 // undocumented
@@ -177,7 +182,7 @@ pub unsafe extern "C" fn inflateInit_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> c_int {
-    crate::inflate::inflateInit(strm)
+    crate::inflate::init(strm)
 }
 
 pub unsafe extern "C" fn inflateInit2_(

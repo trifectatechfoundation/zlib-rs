@@ -1,3 +1,4 @@
+#![allow(unused)]
 // taken from https://docs.rs/tokio/latest/src/tokio/io/read_buf.rs.html#23-27
 // based on https://rust-lang.github.io/rfcs/2930-read-buf.html
 use std::fmt;
@@ -486,7 +487,7 @@ trait ChunkSet {
 
         while *dist < *len && *dist < Self::N {
             Self::loadchunk(from, &mut chunk);
-            Self::storechunk(out, &mut chunk);
+            Self::storechunk(out, &chunk);
 
             out = out.add(*dist);
             *len -= *dist;

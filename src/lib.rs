@@ -1,4 +1,4 @@
-use std::ffi::{c_void};
+use std::ffi::c_void;
 
 mod adler32;
 pub mod allocate;
@@ -26,6 +26,7 @@ pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State
 /// inflate_table() calls in inflate.c and infback.c.  If the root table size is
 /// changed, then these maximum sizes would be need to be recalculated and
 /// updated.
+#[allow(unused)]
 pub(crate) const ENOUGH: usize = ENOUGH_LENS + ENOUGH_DISTS;
 pub(crate) const ENOUGH_LENS: usize = 1332;
 pub(crate) const ENOUGH_DISTS: usize = 592;
@@ -33,6 +34,7 @@ pub(crate) const ENOUGH_DISTS: usize = 592;
 /// initial adler-32 hash value
 pub(crate) const ADLER32_INITIAL_VALUE: usize = 1;
 /// initial crc-32 hash value
+#[allow(unused)]
 pub(crate) const CRC32_INITIAL_VALUE: usize = 0;
 
 pub(crate) const MIN_WBITS: i32 = 8; // 256b LZ77 window
@@ -76,10 +78,6 @@ impl z_stream {
         }
     }
 
-    unsafe fn alloc<T>(&self) -> *mut T {
-        self.alloc_layout(std::alloc::Layout::new::<T>()).cast()
-    }
-
     pub(crate) unsafe fn alloc_value<T>(&self, value: T) -> *mut T {
         let ptr = self.alloc_layout(std::alloc::Layout::new::<T>()).cast();
 
@@ -95,28 +93,6 @@ impl z_stream {
             None => unreachable!("zfree no initialized"),
             Some(f) => f(self.opaque, ptr.cast()),
         }
-    }
-
-    fn inflate_state_check(strm: *const z_stream) -> bool {
-        if strm.is_null() {
-            return true;
-        }
-
-        let strm = unsafe { &*strm };
-
-        if strm.zalloc.is_none() || strm.zfree.is_none() {
-            return true;
-        }
-
-        if strm.state as usize == 0 {
-            return true;
-        }
-
-        // TODO check that the strm.state  == state.strm
-
-        // TODO check state.mode?
-
-        false
     }
 }
 

@@ -26,7 +26,7 @@ impl<'a> Window<'a> {
 
     pub unsafe fn from_raw_parts(ptr: *mut MaybeUninit<u8>, len: usize) -> Self {
         Self {
-            buf: std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len),
+            buf: std::slice::from_raw_parts_mut(ptr, len),
             have: 0,
             next: 0,
         }

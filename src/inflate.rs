@@ -148,7 +148,7 @@ pub(crate) unsafe fn uncompress(
         reserved: 0,
     };
 
-    let err = inflateInit(&mut stream);
+    let err = init(&mut stream);
     if err != ReturnCode::Ok as _ {
         return err;
     }
@@ -184,14 +184,13 @@ pub(crate) unsafe fn uncompress(
         left = 1;
     }
 
-    inflateEnd(&mut stream);
+    end(&mut stream);
 
-    let return_code = unsafe { std::mem::transmute(err) };
-    match return_code {
+    match err {
         ReturnCode::StreamEnd => ReturnCode::Ok as _,
         ReturnCode::NeedDict => ReturnCode::DataError as _,
         ReturnCode::BufError if (left + stream.avail_out as u64) != 0 => ReturnCode::DataError as _,
-        _ => return_code as _,
+        _ => err as _,
     }
 }
 
@@ -1284,10 +1283,20 @@ pub(crate) fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> Return
     ReturnCode::Ok
 }
 
-pub unsafe extern "C" fn inflateInit(strm: *mut z_stream) -> i32 {
+/// Initialize the stream in an inflate state
+///
+/// # Safety
+///
+/// The `strm` must be either NULL or a valid mutable reference to a `z_stream`.
+pub(crate) unsafe fn init(strm: *mut z_stream) -> i32 {
     init2(strm, DEF_WBITS)
 }
 
+/// Initialize the stream in an inflate state
+///
+/// # Safety
+///
+/// The `strm` must be either NULL or a valid mutable reference to a `z_stream`.
 pub(crate) unsafe fn init2(strm: *mut z_stream, windowBits: i32) -> i32 {
     let stream = strm;
 
@@ -1500,11 +1509,7 @@ fn syncsearch(mut got: usize, buf: &[u8]) -> (usize, usize) {
     (got, next)
 }
 
-pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
-    let Some(stream) = InflateStream::from_stream_mut(strm) else {
-        return ReturnCode::StreamError as _;
-    };
-
+pub(crate) fn sync(stream: &mut InflateStream) -> ReturnCode {
     let state = &mut stream.state;
 
     if stream.avail_in == 0 && state.bit_reader.bits_in_buffer() < 8 {
@@ -1524,7 +1529,7 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
 
     let len;
     (state.have, len) = syncsearch(state.have, slice);
-    stream.next_in = stream.next_in.add(len);
+    stream.next_in = unsafe { stream.next_in.add(len) };
     stream.avail_in -= len as u32;
     stream.total_in += len as u64;
 
@@ -1543,7 +1548,7 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     let total_in = stream.total_in;
     let total_out = stream.total_out;
 
-    unsafe { reset(stream) };
+    reset(stream);
 
     stream.total_in = total_in;
     stream.total_out = total_out;
@@ -1706,7 +1711,7 @@ pub(crate) fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> R
     let err = 'blk: {
         // initialize the window if needed
         if stream.state.window.size() == 0 {
-            match init_window_new(
+            match init_window(
                 |layout| unsafe { stream.alloc_layout(layout) },
                 stream.state.wbits,
                 stream.state.chunksize,
@@ -1734,36 +1739,30 @@ pub(crate) fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> R
     ReturnCode::Ok
 }
 
-pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
-    if strm.is_null() {
+/// # Safety
+///
+/// The `strm` must be either NULL or a valid mutable reference to a z_stream value where the state
+/// has been initialized with `inflateInit_` or `inflateInit2_`.
+pub unsafe extern "C" fn end(strm: *mut z_stream) -> i32 {
+    let Some(stream) = InflateStream::from_stream_mut(strm) else {
         return ReturnCode::StreamError as _;
+    };
+
+    let mut state = State::new(&[], ReadBuf::new(&mut []));
+    std::mem::swap(&mut state, stream.state);
+
+    let mut window = Window::empty();
+    std::mem::swap(&mut window, &mut state.window);
+
+    if window.size() != 0 {
+        stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8);
     }
 
-    let mut stream = unsafe { std::ptr::read(strm) };
+    // safety: a valid &mut InflateStream is also a valid &mut z_stream
+    let stream = unsafe { &mut *strm };
 
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    {
-        let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
-        // deallocate the inflate state
-        let stream_state_ptr = std::mem::replace(&mut stream.state, std::ptr::null_mut());
-
-        let mut window = Window::empty();
-        std::mem::swap(&mut window, &mut state.window);
-
-        if window.size() != 0 {
-            stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8);
-        }
-
-        stream.dealloc(stream_state_ptr);
-    }
+    let state_ptr = std::mem::replace(&mut stream.state, std::ptr::null_mut());
+    stream.dealloc(state_ptr);
 
     ReturnCode::Ok as _
 }
@@ -1771,7 +1770,7 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode {
     // initialize the window if needed
     if stream.state.window.size() == 0 {
-        match init_window_new(
+        match init_window(
             |layout| unsafe { stream.alloc_layout(layout) },
             stream.state.wbits,
             stream.state.chunksize,
@@ -1789,30 +1788,11 @@ fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode
     ReturnCode::Ok
 }
 
-fn init_window<'b>(
-    stream: &mut z_stream,
-    wbits: usize,
-    chunk_size: usize,
-) -> Result<Window<'b>, ReturnCode> {
-    // TODO check whether not including the chunk_size bytes in Window causes UB
-    let wsize = (1 << wbits) as usize;
-    let layout = Layout::from_size_align(wsize + chunk_size, 1).unwrap();
-    let ptr = unsafe { stream.alloc_layout(layout) } as *mut u8;
-
-    if ptr.is_null() {
-        return Err(ReturnCode::MemError);
-    }
-
-    let window = unsafe { Window::from_raw_parts(ptr as *mut MaybeUninit<u8>, wsize) };
-
-    Ok(window)
-}
-
-fn init_window_new<'a, 'b>(
+fn init_window<'a>(
     alloc_layout: impl FnOnce(Layout) -> *mut libc::c_void,
     wbits: usize,
     chunk_size: usize,
-) -> Result<Window<'b>, ReturnCode> {
+) -> Result<Window<'a>, ReturnCode> {
     // TODO check whether not including the chunk_size bytes in Window causes UB
     let wsize = (1 << wbits) as usize;
     let layout = Layout::from_size_align(wsize + chunk_size, 1).unwrap();
