@@ -1081,7 +1081,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                         let dist = here.val + bit_reader.bits(op as usize) as u16;
 
                         if dist as usize > state.dmax {
-                            bad = Some("invalid distance too far back");
+                            bad = Some("invalid distance too far back\0");
                             state.mode = Mode::Bad;
                             break 'outer;
                         }
@@ -1095,7 +1095,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             // copy fropm the window
                             if (dist as usize - written) > state.window.have() {
                                 if state.sane {
-                                    bad = Some("invalid distance too far back");
+                                    bad = Some("invalid distance too far back\0");
                                     state.mode = Mode::Bad;
                                     break 'outer;
                                 }
@@ -1135,7 +1135,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                         here = dcode[(here.val + bit_reader.bits(op as usize) as u16) as usize];
                         continue 'dodist;
                     } else {
-                        bad = Some("invalid distance code");
+                        bad = Some("invalid distance code\0");
                         state.mode = Mode::Bad;
                         break 'outer;
                     }
@@ -1151,7 +1151,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                 state.mode = Mode::Type;
                 break 'outer;
             } else {
-                bad = Some("invalid literal/length code");
+                bad = Some("invalid literal/length code\0");
                 state.mode = Mode::Bad;
                 break 'outer;
             }
