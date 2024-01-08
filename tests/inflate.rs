@@ -60,9 +60,6 @@ unsafe extern "C" fn mem_alloc(mem: *mut c_void, count: u32, size: u32) -> *mut 
     // insert item
     zone.items.push(item);
 
-    // make sure the zone is not free'd
-    std::mem::forget(zone);
-
     // return the allocated memory
     ptr
 }
@@ -100,8 +97,6 @@ unsafe extern "C" fn mem_free(mem: *mut c_void, ptr: *mut c_void) {
     } else {
         zone.rogue += 1;
     }
-
-    std::mem::forget(zone);
 
     unsafe { libc::free(ptr) }
 }
@@ -142,7 +137,6 @@ fn mem_limit(stream: &mut z_stream, limit: usize) {
 
     let mut zone = ManuallyDrop::new(unsafe { Box::from_raw(stream.opaque as *mut MemZone) });
     zone.limit = limit;
-    std::mem::forget(zone);
 }
 
 fn mem_done(stream: &mut z_stream) {
@@ -214,7 +208,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         }
 
         let mut copy = z_stream::default();
-        let ret = unsafe { inflateCopy(&mut copy, &mut stream) };
+        let ret = unsafe { inflateCopy(&mut copy, &stream) };
         assert_eq!(ret, Z_OK);
 
         let ret = unsafe { inflateEnd(&mut copy) };
@@ -353,7 +347,7 @@ fn cover_wrap() {
     ret = unsafe { inflateUndermine(&mut strm, 1) };
     assert_eq!(ret, Z_OK);
 
-    let _ = unsafe { inflateMark(&mut strm) };
+    let _ = unsafe { inflateMark(&strm) };
     ret = unsafe { inflateEnd(&mut strm) };
     assert_eq!(ret, Z_OK);
     mem_done(&mut strm);

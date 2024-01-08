@@ -220,6 +220,7 @@ pub enum Mode {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 enum Codes {
     Fixed(&'static [Code]),
     Codes,
