@@ -1,6 +1,9 @@
 use std::ffi::{c_uint, c_void};
 
-pub fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, ptr: *mut c_void) {
+/// # Safety
+///
+/// The `ptr` must be allocated with the allocator that the `zfree` function belongs to.
+pub unsafe fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, ptr: *mut c_void) {
     if zfree as usize == zcfree as usize {
         // safety: only unsafe because of the public interface
         unsafe { zcfree(opaque, ptr) }
@@ -18,11 +21,17 @@ pub fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, ptr: *m
     }
 }
 
+/// # Safety
+///
+/// This function is safe, but must have this type signature to be used elsewhere in the library
 pub unsafe extern "C" fn zcalloc(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
     zng_alloc(items as libc::size_t * size as libc::size_t)
 }
 
+/// # Safety
+///
+/// The `ptr` must be allocated with the allocator that is used internally by `zcfree`
 pub unsafe extern "C" fn zcfree(opaque: *mut c_void, ptr: *mut c_void) {
     let _ = opaque;
     zng_free(ptr)
