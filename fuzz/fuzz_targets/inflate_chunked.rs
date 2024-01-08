@@ -114,7 +114,7 @@ fuzz_target!(|input: (String, usize)| {
     let output = String::from_utf8(output).unwrap();
 
     unsafe {
-        let err = zlib::inflate::inflateEnd(&mut stream);
+        let err = zlib::inflateEnd(&mut stream);
         let return_code: ReturnCode = ReturnCode::from(err);
         assert_eq!(ReturnCode::Ok, return_code);
     }
