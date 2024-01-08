@@ -515,10 +515,8 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
-            if self.wrap & 4 != 0 {
-                if !self.writer.filled().is_empty() {
-                    self.checksum = adler32(self.checksum, self.writer.filled());
-                }
+            if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
+                self.checksum = adler32(self.checksum, self.writer.filled());
             }
 
             // TODO gzip
@@ -564,7 +562,7 @@ impl<'a> State<'a> {
                 self.bit_reader.drop_bits(2);
 
                 self.mode = Mode::Stored;
-                return self.stored();
+                self.stored()
             }
             1 => {
                 // eprintln!("inflate:     fixed codes block{last}");
@@ -582,10 +580,10 @@ impl<'a> State<'a> {
                 self.bit_reader.drop_bits(2);
 
                 if let Flush::Trees = self.flush {
-                    return self.inflate_leave(ReturnCode::Ok);
+                    self.inflate_leave(ReturnCode::Ok)
                 } else {
                     self.mode = Mode::Len;
-                    return self.len();
+                    self.len()
                 }
             }
             2 => {
@@ -594,7 +592,7 @@ impl<'a> State<'a> {
                 self.bit_reader.drop_bits(2);
 
                 self.mode = Mode::Table;
-                return self.table();
+                self.table()
             }
             3 => {
                 eprintln!("inflate:     invalid block type");
@@ -617,7 +615,7 @@ impl<'a> State<'a> {
 
         // eprintln!("hold {hold:#x}");
 
-        if hold as u16 & 0xFFFF != !((hold >> 16) as u16) {
+        if hold as u16 != !((hold >> 16) as u16) {
             self.mode = Mode::Bad;
             return self.bad("invalid stored block lengths\0");
         }
@@ -944,7 +942,7 @@ impl<'a> State<'a> {
     fn code_lens(&mut self) -> ReturnCode {
         while self.have < self.nlen + self.ndist {
             let here = loop {
-                let bits = self.bit_reader.bits(self.len_table.bits as usize);
+                let bits = self.bit_reader.bits(self.len_table.bits);
                 let here = self.len_table_get(bits as usize);
                 if here.bits <= self.bit_reader.bits_in_buffer() {
                     break here;
@@ -979,7 +977,7 @@ impl<'a> State<'a> {
                     }
 
                     for _ in 0..copy {
-                        self.lens[self.have] = len as u16;
+                        self.lens[self.have] = len;
                         self.have += 1;
                     }
                 }
@@ -1465,11 +1463,9 @@ pub(crate) unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> Return
             && valid_mode(state.mode)
             && (not_done(state.mode) || !matches!(state.flush, Flush::Finish)));
 
-    if must_update_window {
-        if update_window(stream, out_written) != ReturnCode::Ok {
-            stream.state.mode = Mode::Mem;
-            err = ReturnCode::MemError;
-        }
+    if must_update_window && update_window(stream, out_written) != ReturnCode::Ok {
+        stream.state.mode = Mode::Mem;
+        err = ReturnCode::MemError;
     }
 
     if let Some(msg) = stream.state.error_message {
@@ -1528,7 +1524,7 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
 
     let len;
     (state.have, len) = syncsearch(state.have, slice);
-    stream.next_in = stream.next_in.add(len as usize);
+    stream.next_in = stream.next_in.add(len);
     stream.avail_in -= len as u32;
     stream.total_in += len as u64;
 
@@ -1609,8 +1605,8 @@ pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> Return
         mode: state.mode,
         last: state.last,
         wrap: state.wrap,
-        len_table: state.len_table.clone(),
-        dist_table: state.dist_table.clone(),
+        len_table: state.len_table,
+        dist_table: state.dist_table,
         wbits: state.wbits,
         window: Window::empty(),
         ncode: state.ncode,
@@ -1618,7 +1614,7 @@ pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> Return
         ndist: state.ndist,
         have: state.have,
         next: state.next,
-        bit_reader: state.bit_reader.clone(),
+        bit_reader: state.bit_reader,
         writer: ReadBuf::new(&mut []),
         length: state.length,
         offset: state.offset,
@@ -1793,8 +1789,8 @@ fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode
     ReturnCode::Ok
 }
 
-fn init_window<'a, 'b>(
-    stream: &'a mut z_stream,
+fn init_window<'b>(
+    stream: &mut z_stream,
     wbits: usize,
     chunk_size: usize,
 ) -> Result<Window<'b>, ReturnCode> {

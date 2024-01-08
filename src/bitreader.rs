@@ -55,7 +55,7 @@ impl<'a> BitReader<'a> {
 
     #[inline(always)]
     pub fn bits_in_buffer(&self) -> u8 {
-        self.bits_used as u8
+        self.bits_used
     }
 
     #[inline(always)]
@@ -106,7 +106,7 @@ impl<'a> BitReader<'a> {
         let read = unsafe { std::ptr::read_unaligned(self.ptr.cast::<u64>()) };
 
         self.bit_buffer |= read << self.bits_used;
-        let increment = 7 - (self.bits_used >> 3) & 7;
+        let increment = (7 - (self.bits_used >> 3)) & 7;
         self.ptr = unsafe { self.ptr.add(increment as usize) };
         self.bits_used |= 56;
     }

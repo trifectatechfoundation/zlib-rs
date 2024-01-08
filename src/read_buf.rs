@@ -552,7 +552,7 @@ trait ChunkSet {
             out = out.add(len);
         }
 
-        return out;
+        out
     }
 
     unsafe fn chunkmemset_safe(
@@ -590,7 +590,7 @@ trait ChunkSet {
             return Self::chunkmemset(out, dist, len);
         }
 
-        return out;
+        out
     }
 }
 

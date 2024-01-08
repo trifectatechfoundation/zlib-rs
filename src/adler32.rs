@@ -85,7 +85,7 @@ fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     let mut it = buf.chunks_exact(NMAX as usize);
-    while let Some(big_chunk) = it.next() {
+    for big_chunk in it.by_ref() {
         const N: usize = if UNROLL_MORE { 16 } else { 8 } as usize;
         let it = big_chunk.chunks_exact(N);
         for chunk in it {
@@ -127,7 +127,7 @@ fn adler32_len_16(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
 fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     const N: usize = if UNROLL_MORE { 16 } else { 8 };
     let mut it = buf.chunks_exact(N);
-    while let Some(chunk) = it.next() {
+    for chunk in it.by_ref() {
         if N == 16 {
             do16!(adler, sum2, chunk);
         } else {

@@ -1,4 +1,4 @@
-use std::ffi::{c_int, c_ulong, c_void};
+use std::ffi::{c_void};
 
 mod adler32;
 pub mod allocate;
