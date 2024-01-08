@@ -1,41 +1,9 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
+use zlib::ReturnCode;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[repr(i32)]
-enum ReturnCode {
-    Ok = 0,
-    StreamEnd = 1,
-    NeedDict = 2,
-    ErrNo = -1,
-    StreamError = -2,
-    DataError = -3,
-    MemError = -4,
-    BufError = -5,
-    VersionError = -6,
-}
-
-unsafe fn deflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
-    let lib = libloading::Library::new("/home/folkertdev/rust/zlib-ng/libz-ng.so").unwrap();
-
-    type Func =
-        unsafe extern "C" fn(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_deflate").unwrap();
-
-    f(strm, flush)
-}
-
-unsafe fn inflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
-    let lib = libloading::Library::new("/home/folkertdev/rust/zlib-ng/libz-ng.so").unwrap();
-
-    type Func =
-        unsafe extern "C" fn(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_inflate").unwrap();
-
-    f(strm, flush)
-}
+const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
+const STREAM_SIZE: libc::c_int = std::mem::size_of::<zlib::z_stream>() as libc::c_int;
 
 fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
     // first, deflate the data using the standard zlib
@@ -75,21 +43,21 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
             b"1.3.0\0".as_ptr() as *const i8,
             std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
         );
-        let return_code = std::mem::transmute::<_, ReturnCode>(err);
+        let return_code = ReturnCode::from(err);
 
         assert_eq!(ReturnCode::Ok, return_code);
     };
 
     let error = unsafe { libz_ng_sys::deflate(&mut stream, zlib::Flush::Finish as _) };
 
-    let error: ReturnCode = unsafe { std::mem::transmute(error as i32) };
+    let error: ReturnCode = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::StreamEnd, error);
 
     deflated.truncate(stream.total_out as _);
 
     unsafe {
         let err = libz_ng_sys::deflateEnd(&mut stream);
-        let return_code = std::mem::transmute::<_, ReturnCode>(err);
+        let return_code: ReturnCode = ReturnCode::from(err);
         assert_eq!(ReturnCode::Ok, return_code);
     }
 
@@ -111,8 +79,8 @@ fuzz_target!(|input: (String, usize)| {
     let mut stream = zlib::z_stream::default();
 
     unsafe {
-        let err = zlib::inflate::inflateInit2(&mut stream, window_bits as i32);
-        let return_code = std::mem::transmute::<_, ReturnCode>(err);
+        let err = zlib::inflateInit2_(&mut stream, window_bits as i32, VERSION, STREAM_SIZE);
+        let return_code: ReturnCode = ReturnCode::from(err);
 
         assert_eq!(ReturnCode::Ok, return_code);
     };
@@ -125,8 +93,8 @@ fuzz_target!(|input: (String, usize)| {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { zlib::inflate::inflate(&mut stream, ::zlib::Flush::NoFlush as _) };
-        let return_code = unsafe { std::mem::transmute::<_, ReturnCode>(err) };
+        let err = unsafe { zlib::inflate(&mut stream, ::zlib::Flush::NoFlush as _) };
+        let return_code: ReturnCode = ReturnCode::from(err);
 
         match return_code {
             ReturnCode::Ok => continue,
@@ -147,7 +115,7 @@ fuzz_target!(|input: (String, usize)| {
 
     unsafe {
         let err = zlib::inflate::inflateEnd(&mut stream);
-        let return_code = std::mem::transmute::<_, ReturnCode>(err);
+        let return_code: ReturnCode = ReturnCode::from(err);
         assert_eq!(ReturnCode::Ok, return_code);
     }
 

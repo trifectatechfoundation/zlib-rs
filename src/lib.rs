@@ -51,6 +51,23 @@ pub enum Flush {
     Trees = 6,
 }
 
+impl TryFrom<i32> for Flush {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Flush::NoFlush),
+            1 => Ok(Flush::PartialFlush),
+            2 => Ok(Flush::SyncFlush),
+            3 => Ok(Flush::FullFlush),
+            4 => Ok(Flush::Finish),
+            5 => Ok(Flush::Block),
+            6 => Ok(Flush::Trees),
+            _ => Err(()),
+        }
+    }
+}
+
 impl z_stream {
     unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut c_void {
         match self.zalloc {

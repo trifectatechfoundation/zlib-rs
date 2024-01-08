@@ -1,19 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[repr(i32)]
-enum ReturnCode {
-    Ok = 0,
-    StreamEnd = 1,
-    NeedDict = 2,
-    ErrNo = -1,
-    StreamError = -2,
-    DataError = -3,
-    MemError = -4,
-    BufError = -5,
-    VersionError = -6,
-}
+use zlib::ReturnCode;
 
 fuzz_target!(|source: Vec<u8>| {
     let mut dest_ng = vec![0u8; 1 << 16];
@@ -40,8 +27,8 @@ fuzz_target!(|source: Vec<u8>| {
         )
     };
 
-    let err_ng = unsafe { std::mem::transmute::<_, ReturnCode>(err_ng) };
-    let err_rs = unsafe { std::mem::transmute::<_, ReturnCode>(err_rs) };
+    let err_ng = ReturnCode::from(err_ng);
+    let err_rs = ReturnCode::from(err_rs);
 
     assert_eq!(err_ng, err_rs);
 

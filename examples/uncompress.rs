@@ -68,7 +68,7 @@ fn main() {
             let err = unsafe { ::zlib::uncompress(dest, &mut dest_len, source, source_len) };
 
             if err != 0 {
-                panic!();
+                panic!("error {err}");
             }
 
             dest_vec.truncate(dest_len as usize);
