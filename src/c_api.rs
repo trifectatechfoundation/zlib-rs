@@ -3,6 +3,8 @@
 
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
+use crate::{inflate::InflateStream, ReturnCode};
+
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type Bytef = u8;
 pub type free_func = unsafe extern "C" fn(voidpf, voidpf);
@@ -105,7 +107,12 @@ pub unsafe extern "C" fn uncompress(
 }
 
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
-    crate::inflate::inflate(strm, flush)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        let flush = crate::Flush::try_from(flush).unwrap_or_default();
+        crate::inflate::inflate(stream, flush) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
@@ -137,11 +144,19 @@ pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
 }
 
 pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
-    crate::inflate::inflateCopy(dest, source)
+    if let Some(source) = InflateStream::from_stream_ref(source) {
+        crate::inflate::copy(dest, source) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> libc::c_long {
-    crate::inflate::inflateMark(strm)
+    if let Some(stream) = InflateStream::from_stream_ref(strm) {
+        crate::inflate::mark(stream)
+    } else {
+        libc::c_long::MIN
+    }
 }
 
 pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
@@ -150,7 +165,11 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
 
 // undocumented
 pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
-    crate::inflate::inflateSyncPoint(strm)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::sync_point(stream) as i32
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateInit_(
@@ -167,19 +186,31 @@ pub unsafe extern "C" fn inflateInit2_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> c_int {
-    crate::inflate::inflateInit2(strm, windowBits)
+    crate::inflate::init2(strm, windowBits)
 }
 
 pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
-    crate::inflate::inflatePrime(strm, bits, value)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::prime(stream, bits, value) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
-    crate::inflate::inflateReset(strm)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::reset(stream) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
-    crate::inflate::inflateReset2(strm, windowBits)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::reset2(stream, windowBits) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 pub unsafe extern "C" fn inflateSetDictionary(
@@ -187,7 +218,17 @@ pub unsafe extern "C" fn inflateSetDictionary(
     dictionary: *const u8,
     dictLength: libc::c_uint,
 ) -> libc::c_int {
-    crate::inflate::inflateSetDictionary(strm, dictionary, dictLength)
+    let Some(stream) = InflateStream::from_stream_mut(strm) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let dict = if dictLength == 0 || dictionary.is_null() {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(dictionary, dictLength as usize) }
+    };
+
+    crate::inflate::set_dictionary(stream, dict) as _
 }
 
 // pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
@@ -196,12 +237,20 @@ pub unsafe extern "C" fn inflateSetDictionary(
 
 // undocumented but exposed function
 pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> libc::c_int {
-    crate::inflate::inflateUndermine(strm, subvert)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::undermine(stream, subvert) as i32
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 // undocumented but exposed function
 pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
-    crate::inflate::inflateResetKeep(strm)
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        crate::inflate::reset_keep(stream) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
 }
 
 // undocumented but exposed function

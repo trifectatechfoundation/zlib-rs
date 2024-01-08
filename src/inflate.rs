@@ -12,6 +12,93 @@ use crate::{
     z_stream, Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
+#[repr(C)]
+pub(crate) struct InflateStream<'a> {
+    pub next_in: *mut crate::c_api::Bytef,
+    pub avail_in: crate::c_api::uInt,
+    pub total_in: crate::c_api::z_size,
+    pub next_out: *mut crate::c_api::Bytef,
+    pub avail_out: crate::c_api::uInt,
+    pub total_out: crate::c_api::z_size,
+    pub msg: *mut libc::c_char,
+    pub state: &'a mut State<'a>,
+    pub zalloc: crate::c_api::alloc_func,
+    pub zfree: crate::c_api::free_func,
+    pub opaque: crate::c_api::voidpf,
+    pub data_type: libc::c_int,
+    pub adler: crate::c_api::z_checksum,
+    pub reserved: crate::c_api::uLong,
+}
+
+impl<'a> InflateStream<'a> {
+    const _S: () = assert!(core::mem::size_of::<z_stream>() == core::mem::size_of::<Self>());
+    const _A: () = assert!(core::mem::align_of::<z_stream>() == core::mem::align_of::<Self>());
+
+    /// # Safety
+    ///
+    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
+    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
+    /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
+    #[inline(always)]
+    pub(crate) unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
+        if strm.is_null() {
+            return None;
+        }
+
+        // safety: ptr points to a valid value of type z_stream (if non-null)
+        let stream = unsafe { &*strm };
+
+        if stream.zalloc.is_none() || stream.zfree.is_none() {
+            return None;
+        }
+
+        if stream.state.is_null() {
+            return None;
+        }
+
+        // safety: InflateStream has the same layout as z_stream
+        let stream = unsafe { &*(strm as *const InflateStream) };
+
+        Some(stream)
+    }
+
+    /// # Safety
+    ///
+    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
+    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
+    /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
+    #[inline(always)]
+    pub(crate) unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
+        if strm.is_null() {
+            return None;
+        }
+
+        // safety: ptr points to a valid value of type z_stream (if non-null)
+        let stream = unsafe { &mut *strm };
+
+        if stream.zalloc.is_none() || stream.zfree.is_none() {
+            return None;
+        }
+
+        if stream.state.is_null() {
+            return None;
+        }
+
+        // safety: InflateStream has the same layout as z_stream
+        let stream = unsafe { &mut *(strm as *mut InflateStream) };
+
+        Some(stream)
+    }
+
+    unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut libc::c_void {
+        (self.zalloc)(self.opaque, 1, layout.size() as u32)
+    }
+
+    unsafe fn dealloc<T>(&self, ptr: *mut T) {
+        (self.zfree)(self.opaque, ptr.cast())
+    }
+}
+
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
 const MAX_DIST_EXTRA_BITS: u8 = 13; // maximum number of extra distance bits
 
@@ -80,7 +167,11 @@ pub(crate) unsafe fn uncompress(
             len -= stream.avail_in as u64;
         }
 
-        let err = inflate(&mut stream, Flush::NoFlush as _);
+        let err = if let Some(stream) = InflateStream::from_stream_mut(&mut stream) {
+            inflate(stream, Flush::NoFlush)
+        } else {
+            ReturnCode::StreamError
+        };
 
         if err != ReturnCode::Ok as _ {
             break err;
@@ -143,7 +234,7 @@ impl Default for Codes {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct Table {
     codes: Codes,
     bits: usize,
@@ -1181,49 +1272,25 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     }
 }
 
-pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
-    if strm.is_null() {
-        eprintln!("stream.is_null()");
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        eprintln!("invalid stream.zalloc or stream.zfree");
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        eprintln!("invalid stream.state");
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
+pub(crate) fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> ReturnCode {
     if bits == 0 {
         /* fall through */
     } else if bits < 0 {
-        state.bit_reader.init_bits();
-    } else if bits > 16 || state.bit_reader.bits_in_buffer() + bits as u8 > 32 {
-        return ReturnCode::StreamError as _;
+        stream.state.bit_reader.init_bits();
+    } else if bits > 16 || stream.state.bit_reader.bits_in_buffer() + bits as u8 > 32 {
+        return ReturnCode::StreamError;
     } else {
-        state.bit_reader.prime(bits as u8, value as u64);
+        stream.state.bit_reader.prime(bits as u8, value as u64);
     }
 
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
-
-    ReturnCode::Ok as _
+    ReturnCode::Ok
 }
 
 pub unsafe extern "C" fn inflateInit(strm: *mut z_stream) -> i32 {
-    inflateInit2(strm, DEF_WBITS)
+    init2(strm, DEF_WBITS)
 }
 
-pub unsafe extern "C" fn inflateInit2(strm: *mut z_stream, windowBits: i32) -> i32 {
+pub(crate) unsafe fn init2(strm: *mut z_stream, windowBits: i32) -> i32 {
     let stream = strm;
 
     if stream.is_null() {
@@ -1258,7 +1325,11 @@ pub unsafe extern "C" fn inflateInit2(strm: *mut z_stream, windowBits: i32) -> i
         return ReturnCode::MemError as _;
     }
 
-    let ret = inflateReset2(strm, windowBits);
+    let ret = if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        reset2(stream, windowBits)
+    } else {
+        ReturnCode::StreamError
+    };
 
     if ret != ReturnCode::Ok as _ {
         let ptr = stream.state;
@@ -1266,125 +1337,65 @@ pub unsafe extern "C" fn inflateInit2(strm: *mut z_stream, windowBits: i32) -> i
         stream.dealloc(ptr);
     }
 
-    ret
+    ret as i32
 }
 
-pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: i32) -> i32 {
-    if strm.is_null() {
-        eprintln!("stream.is_null()");
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        eprintln!("invalid stream.zalloc or stream.zfree");
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        eprintln!("invalid stream.state");
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
-    let mut windowBits = windowBits;
+pub(crate) fn reset2(stream: &mut InflateStream, mut window_bits: i32) -> ReturnCode {
     let wrap;
 
-    if windowBits < 0 {
+    if window_bits < 0 {
         wrap = 0;
 
-        if windowBits < -MAX_WBITS {
-            return ReturnCode::StreamError as _;
+        if window_bits < -MAX_WBITS {
+            return ReturnCode::StreamError;
         }
 
-        windowBits = -windowBits;
+        window_bits = -window_bits;
     } else {
-        wrap = (windowBits >> 4) + 5; // TODO wth?
+        wrap = (window_bits >> 4) + 5; // TODO wth?
 
-        if windowBits < 48 {
-            windowBits &= MAX_WBITS;
+        if window_bits < 48 {
+            window_bits &= MAX_WBITS;
         }
     }
 
-    if windowBits != 0 && !(MIN_WBITS..=MAX_WBITS).contains(&windowBits) {
+    if window_bits != 0 && !(MIN_WBITS..=MAX_WBITS).contains(&window_bits) {
         eprintln!("invalid windowBits");
-        return ReturnCode::StreamError as _;
+        return ReturnCode::StreamError;
     }
 
-    if state.window.size() != 0 && state.wbits != windowBits as usize {
+    if stream.state.window.size() != 0 && stream.state.wbits != window_bits as usize {
         let mut window = Window::empty();
-        std::mem::swap(&mut window, &mut state.window);
+        std::mem::swap(&mut window, &mut stream.state.window);
 
         if window.size() != 0 {
-            stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8);
+            unsafe { stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8) };
         }
     }
 
-    state.wrap = wrap as usize;
-    state.wbits = windowBits as _;
+    stream.state.wrap = wrap as usize;
+    stream.state.wbits = window_bits as _;
 
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
-
-    inflateReset(strm)
+    reset(stream)
 }
 
-pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
-    if strm.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
+pub(crate) fn reset(stream: &mut InflateStream) -> ReturnCode {
     // reset the state of the window
-    state.window.clear();
+    stream.state.window.clear();
 
-    state.error_message = None;
+    stream.state.error_message = None;
 
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
-
-    inflateResetKeep(strm)
+    reset_keep(stream)
 }
 
-pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
-    if strm.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
+pub(crate) fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     stream.total_in = 0;
     stream.total_out = 0;
-    // state.total = 0;
+    // stream.state.total = 0;
 
     stream.msg = std::ptr::null_mut();
+
+    let state = &mut stream.state;
 
     if state.wrap != 0 {
         //  to support ill-conceived Java test suite
@@ -1408,37 +1419,18 @@ pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
     state.sane = true;
     state.back = usize::MAX;
 
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
-
-    return ReturnCode::Ok as _;
+    ReturnCode::Ok
 }
 
-pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
-    if strm.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
+pub(crate) unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return ReturnCode::StreamError as _;
     }
 
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
     let source_slice = std::slice::from_raw_parts(stream.next_in, stream.avail_in as usize);
     let dest_slice = std::slice::from_raw_parts_mut(stream.next_out, stream.avail_out as usize);
+
+    let state = &mut stream.state;
 
     state.bit_reader.update_slice(source_slice);
     state.writer = ReadBuf::new(dest_slice);
@@ -1474,20 +1466,15 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
             && (not_done(state.mode) || !matches!(state.flush, Flush::Finish)));
 
     if must_update_window {
-        if update_window(&mut stream, &mut state, out_written) != ReturnCode::Ok {
-            state.mode = Mode::Mem;
+        if update_window(stream, out_written) != ReturnCode::Ok {
+            stream.state.mode = Mode::Mem;
             err = ReturnCode::MemError;
         }
     }
 
-    if let Some(msg) = state.error_message {
+    if let Some(msg) = stream.state.error_message {
         assert!(msg.ends_with(|c| c == '\0'));
         stream.msg = msg.as_ptr() as *mut u8 as *mut i8;
-    }
-
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
     }
 
     if ((in_read == 0 && out_written == 0) || flush == Flush::Finish as _)
@@ -1518,25 +1505,11 @@ fn syncsearch(mut got: usize, buf: &[u8]) -> (usize, usize) {
 }
 
 pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
-    if strm.is_null() {
+    let Some(stream) = InflateStream::from_stream_mut(strm) else {
         return ReturnCode::StreamError as _;
-    }
+    };
 
-    let mut stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
+    let state = &mut stream.state;
 
     if stream.avail_in == 0 && state.bit_reader.bits_in_buffer() < 8 {
         return ReturnCode::BufError as _;
@@ -1561,11 +1534,6 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
 
     /* return no joy or set up to restart inflate() on a new block */
     if state.have != 4 {
-        unsafe {
-            std::ptr::write(stream.state.cast(), state);
-            std::ptr::write(strm, stream);
-        }
-
         return ReturnCode::DataError as _;
     }
 
@@ -1579,20 +1547,13 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     let total_in = stream.total_in;
     let total_out = stream.total_out;
 
-    unsafe { std::ptr::write(stream.state.cast(), state) };
-    unsafe { inflateReset(&mut stream) };
-    state = unsafe { std::ptr::read(stream.state.cast()) };
+    unsafe { reset(stream) };
 
     stream.total_in = total_in;
     stream.total_out = total_out;
 
-    state.flags = flags;
-    state.mode = Mode::Type;
-
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
+    stream.state.flags = flags;
+    stream.state.mode = Mode::Type;
 
     ReturnCode::Ok as _
 }
@@ -1605,47 +1566,15 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
   block. When decompressing, PPP checks that at the end of input packet,
   inflate is waiting for these length bytes.
 */
-pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
-    if strm.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
-    (matches!(state.mode, Mode::Stored) && state.bit_reader.bits_in_buffer() == 0) as i32
+pub(crate) fn sync_point(stream: &mut InflateStream) -> bool {
+    matches!(stream.state.mode, Mode::Stored) && stream.state.bit_reader.bits_in_buffer() == 0
 }
 
-pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
-    if source.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { std::ptr::read(source) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
+pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
+    let stream = source;
 
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
+        return ReturnCode::StreamError;
     }
 
     let layout = std::alloc::Layout::array::<State>(1).unwrap();
@@ -1659,8 +1588,8 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
         total_out: stream.total_out,
         msg: stream.msg,
         state: stream.alloc_layout(layout) as *mut crate::c_api::internal_state,
-        zalloc: stream.zalloc,
-        zfree: stream.zfree,
+        zalloc: Some(stream.zalloc),
+        zfree: Some(stream.zfree),
         opaque: stream.opaque,
         data_type: stream.data_type,
         adler: stream.adler,
@@ -1668,16 +1597,20 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
     };
 
     if destination.state.is_null() {
-        return ReturnCode::MemError as _;
+        return ReturnCode::MemError;
     }
 
-    let state: State = unsafe { std::ptr::read(stream.state.cast()) };
+    let state = &stream.state;
+
+    let writer: MaybeUninit<ReadBuf> =
+        unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
+
     let mut copy = State {
         mode: state.mode,
         last: state.last,
         wrap: state.wrap,
-        len_table: state.len_table,
-        dist_table: state.dist_table,
+        len_table: state.len_table.clone(),
+        dist_table: state.dist_table.clone(),
         wbits: state.wbits,
         window: Window::empty(),
         ncode: state.ncode,
@@ -1685,8 +1618,8 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
         ndist: state.ndist,
         have: state.have,
         next: state.next,
-        bit_reader: state.bit_reader,
-        writer: state.writer,
+        bit_reader: state.bit_reader.clone(),
+        writer: ReadBuf::new(&mut []),
         length: state.length,
         offset: state.offset,
         extra: state.extra,
@@ -1719,7 +1652,7 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
 
         if dst.is_null() {
             stream.dealloc(destination.state);
-            return ReturnCode::MemError as _;
+            return ReturnCode::MemError;
         }
 
         unsafe { std::ptr::copy_nonoverlapping(source.as_ptr(), dst, source.len()) }
@@ -1728,56 +1661,28 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
     }
 
     unsafe { std::ptr::write(destination.state.cast(), copy) };
+
+    // update the writer; it cannot be cloned so we need to use some shennanigans
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).writer) };
+    unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
+
     unsafe { std::ptr::write(dest, destination) };
 
-    ReturnCode::Ok as _
+    ReturnCode::Ok
 }
 
-pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> libc::c_int {
-    if strm.is_null() {
-        return ReturnCode::StreamError as _;
-    }
+pub(crate) fn undermine(stream: &mut InflateStream, subvert: i32) -> ReturnCode {
+    stream.state.sane = (!subvert) != 0;
 
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
-    state.sane = (!subvert) != 0;
-
-    unsafe { std::ptr::write(stream.state.cast(), state) };
-    unsafe { std::ptr::write(strm, stream) };
-
-    ReturnCode::Ok as _
+    ReturnCode::Ok
 }
 
-pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> libc::c_long {
-    if strm.is_null() {
-        return -65536;
-    }
-
-    let stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return -65536;
-    }
-
+pub(crate) fn mark(stream: &InflateStream) -> libc::c_long {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return -65536;
+        return libc::c_long::MIN;
     }
 
-    if stream.state.is_null() {
-        return -65536;
-    }
-
-    let state: State = unsafe { std::ptr::read(stream.state.cast()) };
+    let state = &stream.state;
 
     let length = match state.mode {
         Mode::CopyBlock => state.length,
@@ -1788,65 +1693,49 @@ pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> libc::c_long {
     (((state.back as libc::c_long) as libc::c_ulong) << 16) as libc::c_long + length as libc::c_long
 }
 
-pub unsafe extern "C" fn inflateSetDictionary(
-    strm: *mut z_stream,
-    dictionary: *const u8,
-    dictLength: libc::c_uint,
-) -> libc::c_int {
-    let mut stream = unsafe { std::ptr::read(strm) };
-
-    if stream.zalloc.is_none() || stream.zfree.is_none() {
-        return ReturnCode::StreamError as _;
-    }
-
-    if stream.state.is_null() {
-        return ReturnCode::StreamError as _;
-    }
-
-    let mut state: State = unsafe { std::ptr::read(stream.state.cast()) };
-
-    if state.wrap != 0 && !matches!(state.mode, Mode::Dict) {
-        return ReturnCode::StreamError as _;
+pub(crate) fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCode {
+    if stream.state.wrap != 0 && !matches!(stream.state.mode, Mode::Dict) {
+        return ReturnCode::StreamError;
     }
 
     // check for correct dictionary identifier
-    if matches!(state.mode, Mode::Dict) {
-        let dict = unsafe { std::slice::from_raw_parts(dictionary, dictLength as usize) };
-        let dictid = adler32(1, dict);
+    if matches!(stream.state.mode, Mode::Dict) {
+        let dictid = adler32(1, dictionary);
 
-        if dictid != state.checksum {
-            return ReturnCode::StreamError as _;
+        if dictid != stream.state.checksum {
+            return ReturnCode::StreamError;
         }
     }
 
     let err = 'blk: {
         // initialize the window if needed
-        if state.window.size() == 0 {
-            match init_window(&mut stream, state.wbits, state.chunksize) {
+        if stream.state.window.size() == 0 {
+            match init_window_new(
+                |layout| unsafe { stream.alloc_layout(layout) },
+                stream.state.wbits,
+                stream.state.chunksize,
+            ) {
                 Err(e) => break 'blk e,
-                Ok(window) => state.window = window,
+                Ok(window) => stream.state.window = window,
             }
         }
 
-        let dict = unsafe { std::slice::from_raw_parts(dictionary, dictLength as usize) };
-        state.checksum = state.window.extend(dict, state.checksum);
+        stream.state.checksum = stream
+            .state
+            .window
+            .extend(dictionary, stream.state.checksum);
 
         ReturnCode::Ok
     };
 
     if err != ReturnCode::Ok {
-        state.mode = Mode::Mem;
-        return ReturnCode::MemError as _;
+        stream.state.mode = Mode::Mem;
+        return ReturnCode::MemError;
     }
 
-    state.havedict = true;
+    stream.state.havedict = true;
 
-    unsafe {
-        std::ptr::write(stream.state.cast(), state);
-        std::ptr::write(strm, stream);
-    }
-
-    ReturnCode::Ok as _
+    ReturnCode::Ok
 }
 
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
@@ -1883,18 +1772,23 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     ReturnCode::Ok as _
 }
 
-fn update_window(stream: &mut z_stream, state: &mut State, bytes_written: usize) -> ReturnCode {
+fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode {
     // initialize the window if needed
-    if state.window.size() == 0 {
-        match init_window(stream, state.wbits, state.chunksize) {
+    if stream.state.window.size() == 0 {
+        match init_window_new(
+            |layout| unsafe { stream.alloc_layout(layout) },
+            stream.state.wbits,
+            stream.state.chunksize,
+        ) {
             Err(e) => return e,
-            Ok(window) => state.window = window,
+            Ok(window) => stream.state.window = window,
         }
     }
 
-    state.checksum = state
-        .window
-        .extend(&state.writer.filled()[..bytes_written], state.checksum);
+    stream.state.checksum = stream.state.window.extend(
+        &stream.state.writer.filled()[..bytes_written],
+        stream.state.checksum,
+    );
 
     ReturnCode::Ok
 }
@@ -1918,134 +1812,21 @@ fn init_window<'a, 'b>(
     Ok(window)
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::c_api::{Z_OK, Z_STREAM_END};
+fn init_window_new<'a, 'b>(
+    alloc_layout: impl FnOnce(Layout) -> *mut libc::c_void,
+    wbits: usize,
+    chunk_size: usize,
+) -> Result<Window<'b>, ReturnCode> {
+    // TODO check whether not including the chunk_size bytes in Window causes UB
+    let wsize = (1 << wbits) as usize;
+    let layout = Layout::from_size_align(wsize + chunk_size, 1).unwrap();
+    let ptr = alloc_layout(layout) as *mut u8;
 
-    #[test]
-    fn small_window_ours() {
-        const N: usize = 128;
-
-        const PLAIN: [u8; N] = {
-            let mut i = 0;
-            let mut plain = [0; N];
-            while i < plain.len() {
-                plain[i] = i as u8;
-                i += 1;
-            }
-            plain
-        };
-
-        let dictionary1 = [b'a'; (1 << 9) - N];
-
-        let mut stream = libz_ng_sys::z_stream {
-            next_in: std::ptr::null_mut(),
-            avail_in: 0,
-            total_in: 0,
-            next_out: std::ptr::null_mut(),
-            avail_out: 0,
-            total_out: 0,
-            msg: std::ptr::null_mut(),
-            state: std::ptr::null_mut(),
-            zalloc: crate::allocate::zcalloc,
-            zfree: crate::allocate::zcfree,
-            opaque: std::ptr::null_mut(),
-            data_type: 0,
-            adler: 0,
-            reserved: 0,
-        };
-
-        unsafe {
-            let err = libz_ng_sys::deflateInit2_(
-                &mut stream,
-                libz_ng_sys::Z_BEST_COMPRESSION,
-                libz_ng_sys::Z_DEFLATED,
-                -9,
-                8,
-                libz_ng_sys::Z_DEFAULT_STRATEGY,
-                b"1.3.0\0".as_ptr() as *const i8,
-                std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
-            );
-
-            assert_eq!(err, Z_OK);
-        };
-
-        unsafe {
-            let err = libz_ng_sys::deflateSetDictionary(
-                &mut stream,
-                dictionary1.as_ptr(),
-                std::mem::size_of_val(&dictionary1) as u32,
-            );
-
-            assert_eq!(err, Z_OK);
-        };
-
-        unsafe {
-            let err = libz_ng_sys::deflateSetDictionary(
-                &mut stream,
-                PLAIN.as_ptr(),
-                std::mem::size_of_val(&PLAIN) as u32,
-            );
-
-            assert_eq!(err, Z_OK);
-        };
-
-        let mut plain = PLAIN;
-        stream.next_in = plain.as_mut_ptr();
-        stream.avail_in = plain.len() as _;
-
-        let mut compr = [0; N];
-        stream.next_out = compr.as_mut_ptr();
-        stream.avail_out = compr.len() as _;
-
-        let err = unsafe { libz_ng_sys::deflate(&mut stream, libz_ng_sys::Z_FINISH) };
-        assert_eq!(err, Z_STREAM_END);
-
-        let err = unsafe { libz_ng_sys::deflateEnd(&mut stream) };
-        assert_eq!(err, Z_OK,);
-
-        let mut stream = z_stream {
-            next_in: std::ptr::null_mut(),
-            avail_in: 0,
-            total_in: 0,
-            next_out: std::ptr::null_mut(),
-            avail_out: 0,
-            total_out: 0,
-            msg: std::ptr::null_mut(),
-            state: std::ptr::null_mut(),
-            zalloc: None,
-            zfree: None,
-            opaque: std::ptr::null_mut(),
-            data_type: 0,
-            adler: 0,
-            reserved: 0,
-        };
-
-        let err = unsafe { inflateInit2(&mut stream, -9) };
-        assert_eq!(err, Z_OK);
-
-        let err = unsafe {
-            inflateSetDictionary(&mut stream, dictionary1.as_ptr(), dictionary1.len() as u32)
-        };
-        assert_eq!(err, Z_OK);
-
-        let err = unsafe { inflateSetDictionary(&mut stream, plain.as_ptr(), plain.len() as u32) };
-        assert_eq!(err, Z_OK);
-
-        stream.avail_in = compr.len() as _;
-        stream.next_in = compr.as_mut_ptr();
-
-        let mut plain_again = [0; N];
-        stream.avail_out = plain_again.len() as _;
-        stream.next_out = plain_again.as_mut_ptr();
-
-        let err = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
-        assert_eq!(err, Z_STREAM_END);
-
-        let err = unsafe { inflateEnd(&mut stream) };
-        assert_eq!(err, Z_OK);
-
-        assert_eq!(plain, plain_again);
+    if ptr.is_null() {
+        return Err(ReturnCode::MemError);
     }
+
+    let window = unsafe { Window::from_raw_parts(ptr as *mut MaybeUninit<u8>, wsize) };
+
+    Ok(window)
 }

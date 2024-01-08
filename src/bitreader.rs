@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::ReturnCode;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct BitReader<'a> {
     ptr: *const u8,
     end: *const u8,
