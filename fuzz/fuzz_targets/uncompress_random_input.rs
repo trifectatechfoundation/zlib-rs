@@ -15,26 +15,6 @@ enum ReturnCode {
     VersionError = -6,
 }
 
-unsafe fn uncompress(
-    dest: *mut u8,
-    dest_len: *mut std::ffi::c_ulong,
-    source: *const u8,
-    source_len: std::ffi::c_ulong,
-) -> std::ffi::c_int {
-    let lib = libloading::Library::new("/home/folkertdev/rust/zlib-ng/libz-ng.so").unwrap();
-
-    type Func = unsafe extern "C" fn(
-        dest: *mut u8,
-        dest_len: *mut std::ffi::c_ulong,
-        source: *const u8,
-        source_len: std::ffi::c_ulong,
-    ) -> std::ffi::c_int;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_uncompress").unwrap();
-
-    f(dest, dest_len, source, source_len)
-}
-
 fuzz_target!(|source: Vec<u8>| {
     let mut dest_ng = vec![0u8; 1 << 16];
     let mut dest_rs = vec![0u8; 1 << 16];
@@ -43,13 +23,14 @@ fuzz_target!(|source: Vec<u8>| {
     let mut dest_len_rs = dest_rs.len() as _;
 
     let err_ng = unsafe {
-        uncompress(
+        ::libz_ng_sys::uncompress(
             dest_ng.as_mut_ptr(),
             &mut dest_len_ng,
             source.as_ptr(),
             source.len() as _,
         )
     };
+
     let err_rs = unsafe {
         ::zlib::uncompress(
             dest_rs.as_mut_ptr(),
