@@ -34,7 +34,7 @@ fn main() {
 
             let mut dest_vec = vec![0u8; 1 << 28];
 
-            let mut dest_len = dest_vec.len() as usize;
+            let mut dest_len = dest_vec.len();
             let dest = dest_vec.as_mut_ptr();
 
             let source = input.as_ptr();
@@ -46,7 +46,7 @@ fn main() {
                 panic!("error {err}");
             }
 
-            dest_vec.truncate(dest_len as usize);
+            dest_vec.truncate(dest_len);
 
             let path = PathBuf::from(path);
             std::fs::write(path.with_extension(""), &dest_vec).unwrap();
