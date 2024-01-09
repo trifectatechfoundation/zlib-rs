@@ -4,6 +4,7 @@ mod adler32;
 pub mod allocate;
 mod bitreader;
 mod c_api;
+mod deflate;
 #[cfg(test)]
 mod dynamic;
 mod inffixed_tbl;

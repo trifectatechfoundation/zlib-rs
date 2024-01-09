@@ -101,13 +101,13 @@ impl<'a> BitReader<'a> {
 
     #[inline(always)]
     pub fn refill(&mut self) {
-        assert!(self.bytes_remaining() >= 8);
+        debug_assert!(self.bytes_remaining() >= 8);
 
         let read = unsafe { std::ptr::read_unaligned(self.ptr.cast::<u64>()) };
 
         self.bit_buffer |= read << self.bits_used;
-        let increment = (7 - (self.bits_used >> 3)) & 7;
-        self.ptr = unsafe { self.ptr.add(increment as usize) };
+        let increment = (63 - self.bits_used) >> 3;
+        self.ptr = self.ptr.wrapping_add(increment as usize);
         self.bits_used |= 56;
     }
 
