@@ -38,3 +38,9 @@ name = "inflate_chunked"
 path = "fuzz_targets/inflate_chunked.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "compress"
+path = "fuzz_targets/compress.rs"
+test = false
+doc = false

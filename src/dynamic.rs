@@ -81,3 +81,23 @@ pub unsafe fn inflateEnd(strm: *mut libz_ng_sys::z_stream) -> std::ffi::c_int {
 
     f(strm)
 }
+
+pub unsafe fn compress(
+    dest: *mut crate::c_api::Bytef,
+    destLen: *mut libc::c_ulong,
+    source: *const crate::c_api::Bytef,
+    sourceLen: libc::c_ulong,
+) -> std::ffi::c_int {
+    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
+
+    type Func = unsafe extern "C" fn(
+        dest: *mut crate::c_api::Bytef,
+        destLen: *mut libc::c_ulong,
+        source: *const crate::c_api::Bytef,
+        sourceLen: libc::c_ulong,
+    ) -> std::ffi::c_int;
+
+    let f: libloading::Symbol<Func> = lib.get(b"zng_compress").unwrap();
+
+    f(dest, destLen, source, sourceLen)
+}
