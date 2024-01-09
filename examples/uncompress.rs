@@ -1,4 +1,4 @@
-//! a binary just so we can look at the optimized  assembly for inflate
+//! a binary just so we can look at the optimized  assembly
 
 use std::path::PathBuf;
 

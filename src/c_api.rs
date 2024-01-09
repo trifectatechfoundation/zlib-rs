@@ -84,6 +84,24 @@ pub const Z_MEM_ERROR: c_int = -4;
 pub const Z_BUF_ERROR: c_int = -5;
 pub const Z_VERSION_ERROR: c_int = -6;
 
+pub const Z_NO_COMPRESSION: c_int = 0;
+pub const Z_BEST_SPEED: c_int = 1;
+pub const Z_BEST_COMPRESSION: c_int = 9;
+pub const Z_DEFAULT_COMPRESSION: c_int = -1;
+
+pub const Z_DEFLATED: c_int = 8;
+
+pub const Z_BINARY: c_int = 0;
+pub const Z_TEXT: c_int = 1;
+pub const Z_ASCII: c_int = Z_TEXT; /* for compatibility with 1.2.2 and earlier */
+pub const Z_UNKNOWN: c_int = 2;
+
+pub const Z_FILTERED: c_int = 1;
+pub const Z_HUFFMAN_ONLY: c_int = 2;
+pub const Z_RLE: c_int = 3;
+pub const Z_FIXED: c_int = 4;
+pub const Z_DEFAULT_STRATEGY: c_int = 0;
+
 /// Inflates `source` into `dest`, and writes the final inflated size into `destLen`.
 ///
 /// # Safety
