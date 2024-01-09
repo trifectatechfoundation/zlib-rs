@@ -4,7 +4,7 @@
 
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
-use crate::{inflate::InflateStream, ReturnCode};
+use crate::{deflate::DeflateStream, inflate::InflateStream, ReturnCode};
 
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type Bytef = u8;
@@ -261,4 +261,36 @@ pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
 // undocumented but exposed function
 pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
     todo!()
+}
+
+pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
+    if let Some(stream) = DeflateStream::from_stream_mut(strm) {
+        match crate::Flush::try_from(flush) {
+            Ok(flush) => crate::deflate::deflate(stream, flush) as _,
+            Err(()) => ReturnCode::StreamError as _,
+        }
+    } else {
+        ReturnCode::StreamError as _
+    }
+}
+
+pub unsafe extern "C" fn compress(
+    dest: *mut Bytef,
+    destLen: *mut c_ulong,
+    source: *const Bytef,
+    sourceLen: c_ulong,
+) -> c_int {
+    let data = dest;
+    let len = std::ptr::read(destLen) as usize;
+    let output = std::slice::from_raw_parts_mut(data, len);
+
+    let data = source;
+    let len = sourceLen as usize;
+    let input = std::slice::from_raw_parts(data, len);
+
+    let (output, err) = crate::deflate::compress(output, input);
+
+    std::ptr::write(destLen, output.len() as _);
+
+    err as c_int
 }
