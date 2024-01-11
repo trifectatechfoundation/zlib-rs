@@ -33,34 +33,6 @@ impl<'a> DeflateStream<'a> {
     /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
     /// also that it has been initialized by that `deflateInit_` or `deflateInit2_`.
     #[inline(always)]
-    pub(crate) unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
-        if strm.is_null() {
-            return None;
-        }
-
-        // safety: ptr points to a valid value of type z_stream (if non-null)
-        let stream = unsafe { &*strm };
-
-        if stream.zalloc.is_none() || stream.zfree.is_none() {
-            return None;
-        }
-
-        if stream.state.is_null() {
-            return None;
-        }
-
-        // safety: DeflateStream has the same layout as z_stream
-        let stream = unsafe { &*(strm as *const DeflateStream) };
-
-        Some(stream)
-    }
-
-    /// # Safety
-    ///
-    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
-    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
-    /// also that it has been initialized by that `deflateInit_` or `deflateInit2_`.
-    #[inline(always)]
     pub(crate) unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
         if strm.is_null() {
             return None;
@@ -82,23 +54,10 @@ impl<'a> DeflateStream<'a> {
 
         Some(stream)
     }
-
-    unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut libc::c_void {
-        (self.zalloc)(self.opaque, 1, layout.size() as u32)
-    }
-
-    unsafe fn dealloc<T>(&self, ptr: *mut T) {
-        (self.zfree)(self.opaque, ptr.cast())
-    }
 }
 
 /// number of elements in hash table
 const HASH_SIZE: usize = 65536;
-
-/// log2(HASH_SIZE)
-const HASH_BITS: usize = 16;
-
-const HASH_MASK: usize = HASH_SIZE - 1;
 
 /// Maximum value for memLevel in deflateInit2
 const MAX_MEM_LEVEL: i32 = 9;
@@ -479,6 +438,7 @@ const MAX_BL_BITS: usize = 7;
 
 pub(crate) const DIST_CODE_LEN: usize = 512;
 
+#[allow(unused)]
 pub(crate) struct State<'a> {
     status: Status,
 
@@ -586,7 +546,7 @@ enum Strategy {
     Default = 0,
     Filtered = 1,
     HuffmanOnly = 2,
-    RLE = 3,
+    Rle = 3,
     Fixed = 4,
 }
 
@@ -598,13 +558,14 @@ impl TryFrom<i32> for Strategy {
             0 => Ok(Strategy::Default),
             1 => Ok(Strategy::Filtered),
             2 => Ok(Strategy::HuffmanOnly),
-            3 => Ok(Strategy::RLE),
+            3 => Ok(Strategy::Rle),
             4 => Ok(Strategy::Fixed),
             _ => Err(()),
         }
     }
 }
 
+#[allow(unused)]
 enum DataType {
     Binary = 0,
     Text = 1,
@@ -731,7 +692,6 @@ impl<'a> State<'a> {
     }
 
     fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
-        const END_BLOCK: usize = 256;
         self.send_code(c as usize, ltree);
 
         trace!(
@@ -2299,7 +2259,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         let bstate = match state.strategy {
             _ if state.level == 0 => deflate_stored(stream, flush),
             Strategy::HuffmanOnly => deflate_huff(stream, flush),
-            Strategy::RLE => deflate_rle(state, flush),
+            Strategy::Rle => deflate_rle(state, flush),
             Strategy::Default | Strategy::Filtered | Strategy::Fixed => {
                 // (*(configuration_table[s->level].func))(s, flush);
                 todo!()
@@ -2472,6 +2432,7 @@ pub(crate) fn compress<'a>(output: &'a mut [u8], input: &[u8]) -> (&'a mut [u8],
 }
 
 #[repr(i32)]
+#[allow(unused)]
 enum CompressionLevel {
     NoCompression = 0,
     BestSpeed = 1,
@@ -2572,6 +2533,7 @@ pub(crate) fn compress3<'a>(
 
 type CompressFunc = fn(&mut DeflateStream, flush: Flush) -> BlockState;
 
+#[allow(unused)]
 struct Config {
     good_length: u16, /* reduce lazy search above this match length */
     max_lazy: u16,    /* do not perform lazy search above this match length */
