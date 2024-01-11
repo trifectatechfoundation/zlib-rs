@@ -44,3 +44,9 @@ name = "compress"
 path = "fuzz_targets/compress.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "deflate_huff"
+path = "fuzz_targets/deflate_huff.rs"
+test = false
+doc = false
