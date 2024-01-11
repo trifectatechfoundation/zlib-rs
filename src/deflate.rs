@@ -161,10 +161,8 @@ pub fn init2(
 
     if (!(1..=MAX_MEM_LEVEL).contains(&mem_level))
         || method != Z_DEFLATED
-        || window_bits < MIN_WBITS
-        || window_bits > MAX_WBITS
-        || level < 0
-        || level > 9
+        || !(MIN_WBITS..=MAX_WBITS).contains(&window_bits)
+        || !(0..=9).contains(&level)
         || (window_bits == 8 && wrap != 1)
     {
         return ReturnCode::StreamError;
@@ -329,7 +327,7 @@ fn reset(stream: &mut DeflateStream) -> ReturnCode {
     let ret = reset_keep(stream);
 
     if ret == ReturnCode::Ok {
-        lm_init(&mut stream.state);
+        lm_init(stream.state);
     }
 
     ret
@@ -669,7 +667,7 @@ impl<'a> State<'a> {
 
         // there are no explicit text or non-text bytes. The stream is either empty or has only
         // tolerated bytes
-        return DataType::Binary;
+        DataType::Binary
     }
 
     fn flush_bits(&mut self) {
@@ -699,9 +697,9 @@ impl<'a> State<'a> {
 
         if self.sym_next != 0 {
             loop {
-                let mut dist = (self.sym_buf[sx] & 0xff) as usize;
+                let mut dist = self.sym_buf[sx] as usize;
                 sx += 1;
-                dist += ((self.sym_buf[sx] & 0xff) as usize) << 8;
+                dist += (self.sym_buf[sx] as usize) << 8;
                 sx += 1;
                 let lc = self.sym_buf[sx];
                 sx += 1;
@@ -718,7 +716,7 @@ impl<'a> State<'a> {
                     "pending_buf overflow"
                 );
 
-                if !(sx < self.sym_next) {
+                if sx >= self.sym_next {
                     break;
                 }
             }
@@ -752,9 +750,9 @@ impl<'a> State<'a> {
 
     const fn d_code(dist: usize) -> u8 {
         if dist < 256 {
-            crate::trees_tbl::DIST_CODE[dist as usize]
+            crate::trees_tbl::DIST_CODE[dist]
         } else {
-            crate::trees_tbl::DIST_CODE[256 + ((dist as usize) >> 7)]
+            crate::trees_tbl::DIST_CODE[256 + (dist >> 7)]
         }
     }
 
@@ -762,7 +760,7 @@ impl<'a> State<'a> {
         let mut lc = lc as usize;
 
         /* Send the length code, len is the match length - STD_MIN_MATCH */
-        let mut code = crate::trees_tbl::LENGTH_CODE[lc as usize] as usize;
+        let mut code = crate::trees_tbl::LENGTH_CODE[lc] as usize;
         let c = code + LITERALS + 1;
         assert!(c < L_CODES, "bad l_code");
         // send_code_trace(s, c);
@@ -787,7 +785,7 @@ impl<'a> State<'a> {
         extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
         if extra != 0 {
             dist -= crate::trees_tbl::BASE_DIST[code] as usize;
-            match_bits |= (dist as usize) << match_bits_len;
+            match_bits |= dist << match_bits_len;
             match_bits_len += extra;
         }
 
@@ -1034,12 +1032,12 @@ fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         have = stream.avail_out as usize - have;
 
-        if len > left as usize + stream.avail_in as usize {
+        if len > left + stream.avail_in as usize {
             // limit len to the input
             len = left + stream.avail_in as usize;
         }
 
-        len = Ord::min(len, have as usize);
+        len = Ord::min(len, have);
 
         // If the stored block would be less than min_block in length, or if
         // unable to copy all of the available input when flushing, then try
@@ -1056,7 +1054,7 @@ fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         // Make a dummy stored block in pending to get the header bytes,
         // including any pending bits. This also updates the debugging counts.
         last = flush == Flush::Finish && len == left + stream.avail_in as usize;
-        zng_tr_stored_block(&mut stream.state, &[], last);
+        zng_tr_stored_block(stream.state, &[], last);
 
         /* Replace the lengths in the dummy stored block with len. */
         stream.state.pending.rewind(4);
@@ -1315,7 +1313,7 @@ fn quick_insert_string(state: &mut State, string: usize) -> u16 {
 
     let head = state.head[hm];
     if head != string as u16 {
-        state.prev[string as usize & state.w_mask] = head;
+        state.prev[string & state.w_mask] = head;
         state.head[hm] = string as u16;
     }
 
@@ -1576,7 +1574,7 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
         debug_assert!(node >= 0);
         let node = node as usize;
 
-        state.heap.heap[state.heap.heap_len as usize] = node as u32;
+        state.heap.heap[state.heap.heap_len] = node as u32;
         *tree[node].freq_mut() = 1;
         state.heap.depth[node] = 0;
         state.opt_len -= 1;
@@ -1625,7 +1623,7 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
 
         state.heap.pqdownheap(tree, Heap::SMALLEST);
 
-        if !(state.heap.heap_len >= 2) {
+        if state.heap.heap_len < 2 {
             break;
         }
     }
@@ -1733,7 +1731,7 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
                 // Tracev((stderr, "code %d bits %d->%u\n", m, tree[m].Len, bits));
                 state.opt_len += (bits * tree[m].freq()) as usize;
                 state.opt_len -= (tree[m].len() * tree[m].freq()) as usize;
-                *tree[m].len_mut() = bits as u16;
+                *tree[m].len_mut() = bits;
             }
 
             n -= 1;
@@ -1753,7 +1751,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
      */
     for bits in 1..=MAX_BITS {
         code = (code + bl_count[bits - 1]) << 1;
-        next_code[bits] = code as u16;
+        next_code[bits] = code;
     }
 
     /* Check that the bit counts in bl_count are consistent. The last code
@@ -1773,7 +1771,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
         }
 
         /* Now reverse the bits */
-        assert!(len >= 1 && len <= 15, "code length must be 1-15");
+        assert!((1..=15).contains(&len), "code length must be 1-15");
         *tree[n].code_mut() = next_code[len as usize].reverse_bits() >> (16 - len);
         next_code[len as usize] += 1;
 
@@ -1933,7 +1931,7 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
                 state.send_code(curlen as usize, bl_tree);
 
                 count -= 1;
-                if !(count != 0) {
+                if count == 0 {
                     break;
                 }
             }
@@ -1942,7 +1940,7 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
                 state.send_code(curlen as usize, bl_tree);
                 count -= 1;
             }
-            assert!(count >= 3 && count <= 6, " 3_6?");
+            assert!((3..=6).contains(&count), " 3_6?");
             state.send_code(REP_3_6, bl_tree);
             state.send_bits(count - 3, 2);
         } else if count <= 10 {
@@ -2017,7 +2015,7 @@ fn build_bl_tree(state: &mut State) -> usize {
     state.opt_len += 3 * (max_blindex + 1) + 5 + 5 + 4;
     // Tracev((stderr, "\ndyn trees: dyn %lu, stat %lu", s->opt_len, s->static_len));
 
-    return max_blindex;
+    max_blindex
 }
 
 fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32, last: bool) {
@@ -2207,7 +2205,7 @@ fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     BlockState::BlockDone
 }
 
-fn deflate_rle(state: &mut State, flush: Flush) -> BlockState {
+fn deflate_rle(_state: &mut State, _flush: Flush) -> BlockState {
     todo!()
 }
 
@@ -2384,7 +2382,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         assert!(stream.state.bi_valid == 0, "bi_buf not flushed");
         return ReturnCode::StreamEnd;
     }
-    return ReturnCode::Ok;
+    ReturnCode::Ok
 }
 
 fn flush_pending(stream: &mut DeflateStream) {
