@@ -2690,22 +2690,6 @@ mod test {
 
     use super::*;
 
-    fn heap_logic() {
-        let mut heap = Heap {
-            heap: [0; 2 * L_CODES + 1],
-            heap_len: 11,
-            heap_max: 573,
-            depth: [0; 2 * L_CODES + 1],
-        };
-
-        for (i, w) in [0, 10, 32, 33, 72, 87, 100, 101, 108, 111, 114, 256]
-            .iter()
-            .enumerate()
-        {
-            heap.heap[i] = *w;
-        }
-    }
-
     fn run_test_rs(data: &str) -> Vec<u8> {
         let length = 8 * 1024;
         let mut deflated = vec![0; length as usize];
@@ -2730,9 +2714,9 @@ mod test {
     fn run_test_ng(data: &str) -> Vec<u8> {
         pub unsafe fn dynamic_compress(
             dest: *mut u8,
-            destLen: *mut libc::c_ulong,
+            dest_len: *mut libc::c_ulong,
             source: *const u8,
-            sourceLen: libc::c_ulong,
+            source_len: libc::c_ulong,
         ) -> std::ffi::c_int {
             const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
 
@@ -2747,7 +2731,7 @@ mod test {
 
             let f: libloading::Symbol<Func> = lib.get(b"zng_compress").unwrap();
 
-            f(dest, destLen, source, sourceLen)
+            f(dest, dest_len, source, source_len)
         }
 
         let length = 8 * 1024;
