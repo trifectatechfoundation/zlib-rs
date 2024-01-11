@@ -11,10 +11,18 @@ mod inffixed_tbl;
 pub mod inflate;
 mod inftrees;
 mod read_buf;
+mod trees_tbl;
 mod window;
 
 pub use c_api::*;
 pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
+
+#[macro_export]
+macro_rules! trace {
+    ($($arg:tt)*) => {
+        // eprint!($($arg)*)
+    };
+}
 
 /// Maximum size of the dynamic table.  The maximum number of code structures is
 /// 1924, which is the sum of 1332 for literal/length codes and 592 for distance

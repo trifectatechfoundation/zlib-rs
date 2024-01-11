@@ -312,3 +312,20 @@ pub unsafe extern "C" fn compress(
 
     err as c_int
 }
+
+pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
+    crate::deflate::end(strm)
+}
+
+pub unsafe extern "C" fn deflateInit2_(
+    strm: z_streamp,
+    level: c_int,
+    method: c_int,
+    windowBits: c_int,
+    memLevel: c_int,
+    strategy: c_int,
+    _version: *const c_char,
+    _stream_size: c_int,
+) -> libc::c_int {
+    crate::deflate::init2(strm, level, method, windowBits, memLevel, strategy) as _
+}
