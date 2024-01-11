@@ -317,6 +317,15 @@ pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     crate::deflate::end(strm)
 }
 
+pub unsafe extern "C" fn deflateInit_(
+    strm: z_streamp,
+    level: c_int,
+    _version: *const c_char,
+    _stream_size: c_int,
+) -> libc::c_int {
+    crate::deflate::init(strm, level) as _
+}
+
 pub unsafe extern "C" fn deflateInit2_(
     strm: z_streamp,
     level: c_int,
