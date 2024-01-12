@@ -210,6 +210,7 @@ pub fn init2(
         wrap,
         strstart: 0,
         block_start: 0,
+        block_open: 0,
         window_size: 0,
         insert: 0,
         matches: 0,
@@ -278,7 +279,7 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
 
     match status {
         Status::Busy => ReturnCode::DataError as i32,
-        _ => ReturnCode::DataError as i32,
+        _ => ReturnCode::Ok as i32,
     }
 }
 
@@ -482,6 +483,10 @@ pub(crate) struct State<'a> {
     /// negative when the window is moved backwards.
     block_start: isize,
 
+    /// Whether or not a block is currently open for the QUICK deflation scheme.
+    /// true if there is an active block, or false if the block was just closed
+    block_open: u8,
+
     window: *mut u8,
 
     sym_buf: &'a mut [u8],
@@ -573,8 +578,16 @@ enum DataType {
 }
 
 impl<'a> State<'a> {
+    const BIT_BUF_SIZE: u8 = 64;
+
     fn max_dist(&self) -> usize {
         self.w_size - MIN_LOOKAHEAD
+    }
+
+    /// Total size of the pending buf. But because `pending` shares memory with `sym_buf`, this is
+    /// not the number of bytes that are actually in `pending`!
+    fn pending_buf_size(&self) -> usize {
+        self.lit_bufsize * 4
     }
 
     fn tally_lit(&mut self, unmatched: u8) -> bool {
@@ -686,6 +699,14 @@ impl<'a> State<'a> {
         self.emit_end_block(ltree, false)
     }
 
+    fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
+        self.emit_end_block(ltree, is_last_block);
+
+        if is_last_block {
+            self.flush_and_align_bits();
+        }
+    }
+
     fn emit_end_block(&mut self, ltree: &[Value], _is_last_block: bool) {
         const END_BLOCK: usize = 256;
         self.send_code(END_BLOCK, ltree);
@@ -765,8 +786,6 @@ impl<'a> State<'a> {
     }
 
     fn send_bits(&mut self, val: u64, len: u8) {
-        const BIT_BUF_SIZE: u8 = 64;
-
         debug_assert!(len <= 64);
         debug_assert!(self.bi_valid <= 64);
 
@@ -775,18 +794,18 @@ impl<'a> State<'a> {
         // send_bits_trace(s, val, len);\
         // sent_bits_add(s, len);\
 
-        if total_bits < BIT_BUF_SIZE {
+        if total_bits < Self::BIT_BUF_SIZE {
             self.bi_buf |= val << self.bi_valid;
             self.bi_valid = total_bits;
-        } else if self.bi_valid == BIT_BUF_SIZE {
+        } else if self.bi_valid == Self::BIT_BUF_SIZE {
             self.pending.extend(&self.bi_buf.to_le_bytes());
             self.bi_buf = val;
             self.bi_valid = len;
         } else {
             self.bi_buf |= val << self.bi_valid;
             self.pending.extend(&self.bi_buf.to_le_bytes());
-            self.bi_buf = val >> (BIT_BUF_SIZE - self.bi_valid);
-            self.bi_valid = total_bits - BIT_BUF_SIZE;
+            self.bi_buf = val >> (Self::BIT_BUF_SIZE - self.bi_valid);
+            self.bi_valid = total_bits - Self::BIT_BUF_SIZE;
         }
     }
 
@@ -861,7 +880,7 @@ impl<'a> State<'a> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Init,
     Busy,
@@ -1200,12 +1219,15 @@ pub(crate) const STD_MIN_MATCH: usize = 3;
 /// The maximum match length mandated by the deflate standard
 pub(crate) const STD_MAX_MATCH: usize = 258;
 
+/// The minimum wanted match length, affects deflate_quick, deflate_fast, deflate_medium and deflate_slow
+const WANT_MIN_MATCH: usize = 4;
+
 const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 const WIN_INIT: usize = STD_MAX_MATCH;
 
 const fn hash_calc(val: u32) -> u32 {
     const HASH_SLIDE: u32 = 16;
-    (val * 2654435761) >> HASH_SLIDE
+    val.wrapping_mul(2654435761) >> HASH_SLIDE
 }
 
 const HASH_CALC_MASK: u32 = 32768 - 1;
@@ -1836,13 +1858,13 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
     state.send_bits(blcodes as u64 - 4, 4); /* not -3 as stated in appnote.txt */
 
     for rank in 0..blcodes {
-        trace!("\nbl code {:>2} ", bl_order[rank]);
+        trace!("\nbl code {:>2} ", StaticTreeDesc::BL_ORDER[rank]);
         state.send_bits(
             state.bl_desc.dyn_tree[StaticTreeDesc::BL_ORDER[rank] as usize].len() as u64,
             3,
         );
     }
-    trace!("\nbl tree: sent {}", state.bits_sent);
+    // trace!("\nbl tree: sent {}", state.bits_sent);
 
     let mut tmp1 = TreeDesc::EMPTY;
     let mut tmp2 = TreeDesc::EMPTY;
@@ -1850,10 +1872,10 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
     std::mem::swap(&mut tmp2, &mut state.d_desc);
 
     send_tree(state, &tmp1.dyn_tree, lcodes - 1); /* literal tree */
-    trace!("\nlit tree: sent {}", state.bits_sent);
+    // trace!("\nlit tree: sent {}", state.bits_sent);
 
     send_tree(state, &tmp2.dyn_tree, dcodes - 1); /* distance tree */
-    trace!("\ndist tree: sent {}", state.bits_sent);
+    // trace!("\ndist tree: sent {}", state.bits_sent);
 
     std::mem::swap(&mut tmp1, &mut state.l_desc);
     std::mem::swap(&mut tmp2, &mut state.d_desc);
@@ -2169,6 +2191,172 @@ fn deflate_rle(_state: &mut State, _flush: Flush) -> BlockState {
     todo!()
 }
 
+fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+    src0.iter().zip(src1).take_while(|(x, y)| x == y).count()
+}
+
+unsafe fn zng_memcmp_2(src0: *const u8, src1: *const u8) -> bool {
+    let src0_cmp = std::ptr::read_unaligned(src0 as *const u16);
+    let src1_cmp = std::ptr::read_unaligned(src1 as *const u16);
+
+    src0_cmp != src1_cmp
+}
+
+fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    let mut state = &mut stream.state;
+
+    let last = matches!(flush, Flush::Finish);
+
+    macro_rules! quick_start_block {
+        () => {
+            state.emit_tree(BlockType::StaticTrees, last);
+            state.block_open = 1 + last as u8;
+            state.block_start = state.strstart as isize;
+        };
+    }
+
+    macro_rules! quick_end_block {
+        () => {
+            if state.block_open > 0 {
+                state.emit_end_block_and_align(&StaticTreeDesc::L.static_tree, last);
+                state.block_open = 0;
+                state.block_start = state.strstart as isize;
+                flush_pending(stream);
+                #[allow(unused_assignments)]
+                {
+                    state = &mut stream.state;
+                }
+                if stream.avail_out == 0 {
+                    return match last {
+                        true => BlockState::FinishStarted,
+                        false => BlockState::NeedMore,
+                    };
+                }
+            }
+        };
+    }
+
+    if last && state.block_open != 2 {
+        /* Emit end of previous block */
+        quick_end_block!();
+        /* Emit start of last block */
+        quick_start_block!();
+    } else if state.block_open == 0 && state.lookahead > 0 {
+        /* Start new block only when we have lookahead data, so that if no
+        input data is given an empty block will not be written */
+        quick_start_block!();
+    }
+
+    loop {
+        if state.pending.pending + State::BIT_BUF_SIZE.div_ceil(8) as usize
+            >= state.pending_buf_size()
+        {
+            flush_pending(stream);
+            state = &mut stream.state;
+            if stream.avail_out == 0 {
+                return if last
+                    && stream.avail_in == 0
+                    && state.bi_valid == 0
+                    && state.block_open == 0
+                {
+                    BlockState::FinishStarted
+                } else {
+                    BlockState::NeedMore
+                };
+            }
+        }
+
+        if state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            state = &mut stream.state;
+
+            if state.lookahead < MIN_LOOKAHEAD && matches!(flush, Flush::NoFlush) {
+                return BlockState::NeedMore;
+            }
+            if state.lookahead == 0 {
+                break;
+            }
+
+            if state.block_open == 0 {
+                // Start new block when we have lookahead data,
+                // so that if no input data is given an empty block will not be written
+                quick_start_block!();
+            }
+        }
+
+        if state.lookahead >= WANT_MIN_MATCH {
+            let hash_head = quick_insert_string(state, state.strstart);
+            let dist = state.strstart as isize - hash_head as isize;
+
+            if dist <= state.max_dist() as isize && dist > 0 {
+                let str_start = state.window.wrapping_add(state.strstart);
+                let match_start = state.window.wrapping_add(hash_head as usize);
+
+                if unsafe { zng_memcmp_2(str_start, match_start) } == false {
+                    let a = unsafe { &*str_start.wrapping_add(2).cast() };
+                    let b = unsafe { &*match_start.wrapping_add(2).cast() };
+
+                    let mut match_len = compare256(a, b) + 2;
+
+                    if match_len >= WANT_MIN_MATCH {
+                        if match_len > state.lookahead {
+                            match_len = state.lookahead;
+                        }
+
+                        if match_len > STD_MAX_MATCH {
+                            match_len = STD_MAX_MATCH;
+                        }
+
+                        // TODO do this with a debug_assert?
+                        // check_match(s, state.strstart, hash_head, match_len);
+
+                        state.emit_dist(
+                            &StaticTreeDesc::L.static_tree,
+                            &StaticTreeDesc::D.static_tree,
+                            (match_len - STD_MIN_MATCH) as u8,
+                            dist as usize,
+                        );
+                        state.lookahead -= match_len;
+                        state.strstart += match_len;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+        state.emit_lit(&StaticTreeDesc::L.static_tree, lc);
+        state.strstart += 1;
+        state.lookahead -= 1;
+    }
+
+    state.insert = if state.strstart < (STD_MIN_MATCH - 1) {
+        state.strstart
+    } else {
+        STD_MIN_MATCH - 1
+    };
+
+    if last {
+        quick_end_block!();
+        return BlockState::FinishDone;
+    }
+
+    quick_end_block!();
+    return BlockState::BlockDone;
+}
+
+fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    todo!()
+}
+
+fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    todo!()
+}
+
+fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    todo!()
+}
+
 pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.next_out.is_null()
         || (stream.avail_in != 0 && stream.next_in.is_null())
@@ -2261,8 +2449,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
             Strategy::HuffmanOnly => deflate_huff(stream, flush),
             Strategy::Rle => deflate_rle(state, flush),
             Strategy::Default | Strategy::Filtered | Strategy::Fixed => {
-                // (*(configuration_table[s->level].func))(s, flush);
-                todo!()
+                (CONFIGURATION_TABLE[state.level as usize].func)(stream, flush)
             }
         };
 
@@ -2339,7 +2526,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     }
 
     if stream.state.pending.pending().is_empty() {
-        assert!(stream.state.bi_valid == 0, "bi_buf not flushed");
+        assert_eq!(stream.state.bi_valid, 0, "bi_buf not flushed");
         return ReturnCode::StreamEnd;
     }
     ReturnCode::Ok
@@ -2561,11 +2748,6 @@ impl Config {
 }
 
 const CONFIGURATION_TABLE: [Config; 10] = {
-    let deflate_quick = deflate_stored;
-    let deflate_fast = deflate_stored;
-    let deflate_medium = deflate_stored;
-    let deflate_slow = deflate_stored;
-
     [
         Config::new(0, 0, 0, 0, deflate_stored), // 0 /* store only */
         Config::new(0, 0, 0, 0, deflate_quick),  // 1
@@ -2796,8 +2978,61 @@ mod test {
 
         assert_eq!(output.len(), EXPECTED.len());
 
-        // [120, 1, 243, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73, 81, 228, 2, 0,                 32, 145, 4, 72]
-        // [120, 1, 1, 13, 0, 242, 255, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 33, 10, 32, 145, 4, 72]
+        assert_eq!(EXPECTED, output);
+    }
+
+    #[test]
+    fn hello_world_quick() {
+        const EXPECTED: &[u8] = &[
+            0x78, 0x01, 0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x08, 0xcf, 0x2f, 0xca, 0x49, 0x51,
+            0xe4, 0x02, 0x00, 0x20, 0x91, 0x04, 0x48,
+        ];
+
+        let input = "Hello World!\n";
+
+        let mut output = vec![0; 128];
+
+        let (output, err) = compress3(
+            &mut output,
+            input.as_bytes(),
+            1,
+            Z_DEFLATED,
+            crate::MAX_WBITS,
+            DEF_MEM_LEVEL,
+            crate::c_api::Z_DEFAULT_STRATEGY,
+        );
+
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(output.len(), EXPECTED.len());
+
+        assert_eq!(EXPECTED, output);
+    }
+
+    #[test]
+    fn hello_world_quick_random() {
+        const EXPECTED: &[u8] = &[
+            0x78, 0x01, 0x53, 0xe1, 0x50, 0x51, 0xe1, 0x52, 0x51, 0x51, 0x01, 0x00, 0x03, 0xec,
+            0x00, 0xeb,
+        ];
+
+        let input = "$\u{8}$$\n$$$";
+
+        let mut output = vec![0; 128];
+
+        let (output, err) = compress3(
+            &mut output,
+            input.as_bytes(),
+            1,
+            Z_DEFLATED,
+            crate::MAX_WBITS,
+            DEF_MEM_LEVEL,
+            crate::c_api::Z_DEFAULT_STRATEGY,
+        );
+
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(output.len(), EXPECTED.len());
 
         assert_eq!(EXPECTED, output);
     }

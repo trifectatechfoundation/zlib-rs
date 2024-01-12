@@ -50,3 +50,9 @@ name = "deflate_huff"
 path = "fuzz_targets/deflate_huff.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "deflate_quick"
+path = "fuzz_targets/deflate_quick.rs"
+test = false
+doc = false
