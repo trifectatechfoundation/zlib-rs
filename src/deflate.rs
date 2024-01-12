@@ -2292,7 +2292,7 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 let str_start = state.window.wrapping_add(state.strstart);
                 let match_start = state.window.wrapping_add(hash_head as usize);
 
-                if unsafe { zng_memcmp_2(str_start, match_start) } == false {
+                if !unsafe { zng_memcmp_2(str_start, match_start) } {
                     let a = unsafe { &*str_start.wrapping_add(2).cast() };
                     let b = unsafe { &*match_start.wrapping_add(2).cast() };
 
@@ -2311,8 +2311,8 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                         // check_match(s, state.strstart, hash_head, match_len);
 
                         state.emit_dist(
-                            &StaticTreeDesc::L.static_tree,
-                            &StaticTreeDesc::D.static_tree,
+                            StaticTreeDesc::L.static_tree,
+                            StaticTreeDesc::D.static_tree,
                             (match_len - STD_MIN_MATCH) as u8,
                             dist as usize,
                         );
@@ -2325,7 +2325,7 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         }
 
         let lc = unsafe { *state.window.wrapping_add(state.strstart) };
-        state.emit_lit(&StaticTreeDesc::L.static_tree, lc);
+        state.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;
     }
@@ -2342,18 +2342,18 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     }
 
     quick_end_block!();
-    return BlockState::BlockDone;
+    BlockState::BlockDone
 }
 
-fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+fn deflate_fast(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
     todo!()
 }
 
-fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+fn deflate_medium(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
     todo!()
 }
 
-fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+fn deflate_slow(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
     todo!()
 }
 
