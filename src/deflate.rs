@@ -2894,34 +2894,34 @@ mod test {
     }
 
     fn run_test_ng(data: &str) -> Vec<u8> {
-        pub unsafe fn dynamic_compress(
-            dest: *mut u8,
-            dest_len: *mut libc::c_ulong,
-            source: *const u8,
-            source_len: libc::c_ulong,
-        ) -> std::ffi::c_int {
-            const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
-
-            let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
-
-            type Func = unsafe extern "C" fn(
-                dest: *mut u8,
-                destLen: *mut libc::c_ulong,
-                source: *const u8,
-                sourceLen: libc::c_ulong,
-            ) -> std::ffi::c_int;
-
-            let f: libloading::Symbol<Func> = lib.get(b"zng_compress").unwrap();
-
-            f(dest, dest_len, source, source_len)
-        }
+        //        pub unsafe fn dynamic_compress(
+        //            dest: *mut u8,
+        //            dest_len: *mut libc::c_ulong,
+        //            source: *const u8,
+        //            source_len: libc::c_ulong,
+        //        ) -> std::ffi::c_int {
+        //            const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
+        //
+        //            let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
+        //
+        //            type Func = unsafe extern "C" fn(
+        //                dest: *mut u8,
+        //                destLen: *mut libc::c_ulong,
+        //                source: *const u8,
+        //                sourceLen: libc::c_ulong,
+        //            ) -> std::ffi::c_int;
+        //
+        //            let f: libloading::Symbol<Func> = lib.get(b"zng_compress").unwrap();
+        //
+        //            f(dest, dest_len, source, source_len)
+        //        }
 
         let length = 8 * 1024;
         let mut deflated = vec![0; length as usize];
-        let mut length = length as u64;
+        let mut length = length;
 
         let error = unsafe {
-            dynamic_compress(
+            libz_ng_sys::compress(
                 deflated.as_mut_ptr().cast(),
                 &mut length,
                 data.as_ptr().cast(),
@@ -2937,6 +2937,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "only for local testing (requires source changes to zlib"]
     fn compress_hello_world() {
         const EXPECTED: &[u8] = &[
             0x78, 0x01, 0x01, 0x0d, 0x00, 0xf2, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57,
@@ -2948,6 +2949,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "only for local testing (requires source changes to zlib"]
     fn compress_1025_character_string() {
         let input: String = "abcd".repeat(256) + "x";
         assert_eq!(run_test_ng(&input), run_test_rs(&input));
