@@ -232,4 +232,200 @@ pub mod quick {
 
         assert_eq!(uncompressed, BLOCK_OPEN_INPUT);
     }
+
+    #[test]
+    fn block_open_fast() {
+        let mut stream = zlib::z_stream {
+            next_in: std::ptr::null_mut(),
+            avail_in: 0,
+            total_in: 0,
+            next_out: std::ptr::null_mut(),
+            avail_out: 0,
+            total_out: 0,
+            msg: std::ptr::null_mut(),
+            state: std::ptr::null_mut(),
+            zalloc: None,
+            zfree: None,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        const MAX_WBITS: i32 = 15; // 32kb LZ77 window
+
+        let err = unsafe {
+            deflateInit2_(
+                &mut stream,
+                2, // fast
+                Z_DEFLATED,
+                -MAX_WBITS,
+                1,
+                Z_FILTERED,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        stream.next_in = &BLOCK_OPEN_INPUT as *const u8 as *mut u8;
+        let mut next_out = [0u8; 1116];
+        stream.next_out = next_out.as_mut_ptr();
+
+        stream.avail_in = BLOCK_OPEN_INPUT.len() as _;
+        loop {
+            let written = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+            stream.avail_out = (next_out.len() - written) as _;
+
+            if stream.avail_out > 38 {
+                stream.avail_out = 38;
+            }
+
+            let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+            if ReturnCode::from(err) == ReturnCode::StreamEnd {
+                break;
+            }
+
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        }
+
+        let compressed_size = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+
+        let err = unsafe { deflateEnd(&mut stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let mut stream = zlib::z_stream {
+            next_in: std::ptr::null_mut(),
+            avail_in: 0,
+            total_in: 0,
+            next_out: std::ptr::null_mut(),
+            avail_out: 0,
+            total_out: 0,
+            msg: std::ptr::null_mut(),
+            state: std::ptr::null_mut(),
+            zalloc: None,
+            zfree: None,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        let err = unsafe { inflateInit2_(&mut stream, -MAX_WBITS, VERSION, STREAM_SIZE) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        stream.next_in = next_out.as_mut_ptr();
+        stream.avail_in = compressed_size as _;
+
+        let mut uncompressed = [0u8; BLOCK_OPEN_INPUT.len()];
+        stream.next_out = uncompressed.as_mut_ptr();
+        stream.avail_out = uncompressed.len() as _;
+
+        let err = unsafe { inflate(&mut stream, Z_NO_FLUSH) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = unsafe { inflateEnd(&mut stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        assert_eq!(uncompressed, BLOCK_OPEN_INPUT);
+    }
+
+    #[test]
+    fn block_open_slow() {
+        let mut stream = zlib::z_stream {
+            next_in: std::ptr::null_mut(),
+            avail_in: 0,
+            total_in: 0,
+            next_out: std::ptr::null_mut(),
+            avail_out: 0,
+            total_out: 0,
+            msg: std::ptr::null_mut(),
+            state: std::ptr::null_mut(),
+            zalloc: None,
+            zfree: None,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        const MAX_WBITS: i32 = 15; // 32kb LZ77 window
+
+        let err = unsafe {
+            deflateInit2_(
+                &mut stream,
+                9, // fast
+                Z_DEFLATED,
+                -MAX_WBITS,
+                1,
+                Z_FILTERED,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        stream.next_in = &BLOCK_OPEN_INPUT as *const u8 as *mut u8;
+        let mut next_out = [0u8; 1116];
+        stream.next_out = next_out.as_mut_ptr();
+
+        stream.avail_in = BLOCK_OPEN_INPUT.len() as _;
+        loop {
+            let written = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+            stream.avail_out = (next_out.len() - written) as _;
+
+            if stream.avail_out > 38 {
+                stream.avail_out = 38;
+            }
+
+            let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+            if ReturnCode::from(err) == ReturnCode::StreamEnd {
+                break;
+            }
+
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        }
+
+        let compressed_size = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+
+        let err = unsafe { deflateEnd(&mut stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let mut stream = zlib::z_stream {
+            next_in: std::ptr::null_mut(),
+            avail_in: 0,
+            total_in: 0,
+            next_out: std::ptr::null_mut(),
+            avail_out: 0,
+            total_out: 0,
+            msg: std::ptr::null_mut(),
+            state: std::ptr::null_mut(),
+            zalloc: None,
+            zfree: None,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        let err = unsafe { inflateInit2_(&mut stream, -MAX_WBITS, VERSION, STREAM_SIZE) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        stream.next_in = next_out.as_mut_ptr();
+        stream.avail_in = compressed_size as _;
+
+        let mut uncompressed = [0u8; BLOCK_OPEN_INPUT.len()];
+        stream.next_out = uncompressed.as_mut_ptr();
+        stream.avail_out = uncompressed.len() as _;
+
+        let err = unsafe { inflate(&mut stream, Z_NO_FLUSH) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = unsafe { inflateEnd(&mut stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        assert_eq!(uncompressed, BLOCK_OPEN_INPUT);
+    }
 }
