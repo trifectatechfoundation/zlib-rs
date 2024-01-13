@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{arch::x86_64::_mm_crc32_u32, marker::PhantomData};
 
 use crate::{
     adler32::adler32, deflateEnd, trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE,
@@ -162,6 +162,7 @@ pub fn init2(
     }
 
     // TODO make window a slice (or use Window?)
+    unsafe { std::ptr::write_bytes(window_ptr, 0, w_size + window_padding) }; // initialize!
 
     unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
     let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
@@ -185,7 +186,7 @@ pub fn init2(
         // window
         w_bits: window_bits as usize,
         w_size,
-        w_mask: window_bits as usize - 1,
+        w_mask: w_size as usize - 1,
 
         // allocated values
         window: window_ptr,
@@ -224,6 +225,9 @@ pub fn init2(
         sym_next: 0,
         ins_h: 0,
         max_chain_length: 0,
+        max_lazy_match: 0,
+        good_match: 0,
+        nice_match: 0,
 
         //
         l_desc: TreeDesc::EMPTY,
@@ -241,6 +245,11 @@ pub fn init2(
         prev_match: 0,
         match_available: 0,
         prev_length: 0,
+
+        // just provide a valid default; gets set properly later
+        update_hash: StandardHashCalc::update_hash,
+        insert_string: StandardHashCalc::insert_string,
+        quick_insert_string: StandardHashCalc::quick_insert_string,
     };
 
     unsafe { *(state_ptr as *mut State) = state };
@@ -350,23 +359,25 @@ fn lm_init(state: &mut State) {
 }
 
 fn lm_set_level(state: &mut State, level: i8) {
-    // s->max_lazy_match   = CONFIGURATION_TABLE[level as usize].max_lazy;
-    // s->good_match       = CONFIGURATION_TABLE[level as usize].good_length;
-    // s->nice_match       = CONFIGURATION_TABLE[level as usize].nice_length;
+    state.max_lazy_match = CONFIGURATION_TABLE[level as usize].max_lazy as usize;
+    state.good_match = CONFIGURATION_TABLE[level as usize].good_length as usize;
+    state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length as usize;
     state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain as usize;
 
     // Use rolling hash for deflate_slow algorithm with level 9. It allows us to
     // properly lookup different hash chains to speed up longest_match search. Since hashing
     // method changes depending on the level we cannot put this into functable. */
-    //    if (s->max_chain_length > 1024) {
-    //        s->update_hash = &update_hash_roll;
-    //        s->insert_string = &insert_string_roll;
-    //        s->quick_insert_string = &quick_insert_string_roll;
-    //    } else {
-    //        s->update_hash = functable.update_hash;
-    //        s->insert_string = functable.insert_string;
-    //        s->quick_insert_string = functable.quick_insert_string;
-    //    }
+    if state.max_chain_length > 1024 {
+        todo!()
+        // s->update_hash = &update_hash_roll;
+        // s->insert_string = &insert_string_roll;
+        // s->quick_insert_string = &quick_insert_string_roll;
+    } else {
+        // NOTE: this is hardcoded currently
+        state.update_hash = Crc32HashCalc::update_hash;
+        state.insert_string = Crc32HashCalc::insert_string;
+        state.quick_insert_string = Crc32HashCalc::quick_insert_string;
+    }
 
     state.level = level;
 }
@@ -459,6 +470,12 @@ pub(crate) struct State<'a> {
     strategy: Strategy,
     level: i8,
 
+    /// Use a faster search when the previous match is longer than this
+    good_match: usize,
+
+    /// Stop searching when current match exceeds this
+    nice_match: usize,
+
     // part of the fields below
     //    dyn_ltree: [Value; ],
     //    dyn_dtree: [Value; ],
@@ -482,6 +499,17 @@ pub(crate) struct State<'a> {
     /// To speed up deflation, hash chains are never searched beyond this length.
     /// A higher limit improves compression ratio but degrades the speed.
     max_chain_length: usize,
+
+    // TODO untangle this mess! zlib uses the same field differently based on compression level
+    // we should just have 2 fields for clarity!
+    //
+    // Insert new strings in the hash table only if the match length is not
+    // greater than this length. This saves time but degrades compression.
+    // max_insert_length is used only for compression levels <= 3.
+    // define max_insert_length  max_lazy_match
+    /// Attempt to find a better match only when the current match is strictly smaller
+    /// than this value. This mechanism is used only for compression levels >= 4.
+    max_lazy_match: usize,
 
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
@@ -536,18 +564,22 @@ pub(crate) struct State<'a> {
     /// bytes at end of window left to insert
     insert: usize,
 
-    w_size: usize,    /* LZ77 window size (32K by default) */
-    w_bits: usize,    /* log2(w_size)  (8..16) */
-    w_mask: usize,    /* w_size - 1 */
-    lookahead: usize, /* number of valid bytes ahead in window */
+    pub(crate) w_size: usize, /* LZ77 window size (32K by default) */
+    w_bits: usize,            /* log2(w_size)  (8..16) */
+    w_mask: usize,            /* w_size - 1 */
+    lookahead: usize,         /* number of valid bytes ahead in window */
 
-    prev: &'a mut [u16],
-    head: &'a mut [u16; HASH_SIZE],
+    pub(crate) prev: &'a mut [u16],
+    pub(crate) head: &'a mut [u16; HASH_SIZE],
 
     ///  hash index of string to be inserted
     ins_h: usize,
 
     heap: Heap,
+
+    update_hash: fn(h: u32, val: u32) -> u32,
+    insert_string: fn(state: &mut State, string: usize, count: usize),
+    quick_insert_string: fn(state: &mut State, string: usize) -> u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -588,6 +620,16 @@ impl<'a> State<'a> {
         self.w_size - MIN_LOOKAHEAD
     }
 
+    // TODO untangle this mess! zlib uses the same field differently based on compression level
+    // we should just have 2 fields for clarity!
+    fn max_insert_length(&self) -> usize {
+        self.max_lazy_match
+    }
+
+    fn max_insert_length_mut(&mut self) -> &mut usize {
+        &mut self.max_lazy_match
+    }
+
     /// Total size of the pending buf. But because `pending` shares memory with `sym_buf`, this is
     /// not the number of bytes that are actually in `pending`!
     fn pending_buf_size(&self) -> usize {
@@ -610,6 +652,32 @@ impl<'a> State<'a> {
             unmatched as usize <= STD_MAX_MATCH - STD_MIN_MATCH,
             "zng_tr_tally: bad literal"
         );
+
+        self.sym_next == self.sym_end
+    }
+
+    fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
+        self.sym_buf[self.sym_next] = dist as u8;
+        self.sym_next += 1;
+
+        self.sym_buf[self.sym_next] = (dist >> 8) as u8;
+        self.sym_next += 1;
+
+        self.sym_buf[self.sym_next] = len as u8;
+        self.sym_next += 1;
+
+        self.matches += 1;
+        dist -= 1;
+
+        assert!(
+            dist < self.max_dist() && Self::d_code(dist) < D_CODES as u8,
+            "tally_dist: bad match"
+        );
+
+        let index = crate::trees_tbl::LENGTH_CODE[len] as usize + LITERALS + 1;
+        *self.l_desc.dyn_tree[index].freq_mut() += 1;
+
+        *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
 
         self.sym_next == self.sym_end
     }
@@ -1229,81 +1297,123 @@ const WANT_MIN_MATCH: usize = 4;
 const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 const WIN_INIT: usize = STD_MAX_MATCH;
 
-const fn hash_calc(val: u32) -> u32 {
-    const HASH_SLIDE: u32 = 16;
-    val.wrapping_mul(2654435761) >> HASH_SLIDE
-}
+trait HashCalc {
+    const HASH_CALC_OFFSET: usize;
+    const HASH_CALC_MASK: u32;
 
-const HASH_CALC_MASK: u32 = 32768 - 1;
+    fn hash_calc(h: u32, val: u32) -> u32;
 
-fn update_hash(val: u32) -> u32 {
-    let h = hash_calc(val);
-    h & HASH_CALC_MASK
-}
+    fn update_hash(h: u32, val: u32) -> u32 {
+        let h = Self::hash_calc(h, val);
+        h & Self::HASH_CALC_MASK
+    }
 
-fn insert_string(state: &mut State, string: usize, count: usize) {
-    const HASH_CALC_OFFSET: usize = 0;
-
-    // safety: we have a mutable reference to the state, so nobody else can use this memory
-    let slice = unsafe {
-        std::slice::from_raw_parts(state.window.wrapping_add(string + HASH_CALC_OFFSET), count)
-    };
-
-    // NOTE: 4 = size_of::<u32>()
-    for (i, chunk) in slice.windows(4).enumerate() {
-        let idx = string as u16 + i as u16;
+    fn quick_insert_string(state: &mut State, string: usize) -> u16 {
+        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let chunk = unsafe { std::slice::from_raw_parts(strstart, 4) }; // looks very unsafe; why is this allright?
 
         // HASH_CALC_VAR_INIT;
-        let mut h;
+        let mut h = 0;
 
         // HASH_CALC_READ;
         let mut buf = [0u8; 4];
         buf.copy_from_slice(chunk);
         let val = u32::from_ne_bytes(buf);
+        println!("h = {}", val);
 
-        // HASH_CALC(s, HASH_CALC_VAR, val);
-        h = hash_calc(val);
-        h &= HASH_CALC_MASK;
+        //    // HASH_CALC(s, HASH_CALC_VAR, val);
+        //    h = hash_calc(val);
+        //    h &= HASH_CALC_MASK;
+        h = Self::hash_calc(h, val);
+        h &= Self::HASH_CALC_MASK;
+        println!("h = {}, mask = {}", h, Self::HASH_CALC_MASK);
 
         // hm = HASH_CALC_VAR;
         let hm = h as usize;
+        println!("hm = {}", hm);
 
         let head = state.head[hm];
-        if head != idx {
-            state.prev[idx as usize & state.w_mask] = head;
-            state.head[hm] = idx;
+        if head != string as u16 {
+            println!(
+                "prev[{}] = {}, string = {}, wmask = {}",
+                string & state.w_mask,
+                head,
+                string,
+                state.w_mask
+            );
+            state.prev[string & state.w_mask] = head;
+            state.head[hm] = string as u16;
+        }
+
+        println!("hash head = {head}");
+
+        head
+    }
+
+    fn insert_string(state: &mut State, string: usize, count: usize) {
+        println!("insert string {count}");
+        // safety: we have a mutable reference to the state, so nobody else can use this memory
+        let mut strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strend = strstart.wrapping_add(count);
+
+        // NOTE: 4 = size_of::<u32>()
+        let mut i = 0;
+        while strstart < strend {
+            let idx = string as u16 + i as u16;
+
+            // HASH_CALC_VAR_INIT;
+            let mut h = 0;
+
+            // HASH_CALC_READ;
+            // let mut buf = [0u8; 4];
+            // buf.copy_from_slice(chunk);
+            let buf = unsafe { *(strstart as *const [u8; 4]) };
+            let val = u32::from_ne_bytes(buf);
+
+            // HASH_CALC(s, HASH_CALC_VAR, val);
+            h = Self::hash_calc(h, val);
+            h &= Self::HASH_CALC_MASK;
+
+            // hm = HASH_CALC_VAR;
+            let hm = h as usize;
+
+            let head = state.head[hm];
+            if head != idx {
+                println!("prev[{}] = {}", idx as usize & state.w_mask, head);
+                state.prev[idx as usize & state.w_mask] = head;
+                state.head[hm] = idx;
+            }
+
+            i += 1;
+            strstart = strstart.wrapping_add(1);
         }
     }
 }
 
-fn quick_insert_string(state: &mut State, string: usize) -> u16 {
+struct StandardHashCalc;
+
+impl HashCalc for StandardHashCalc {
     const HASH_CALC_OFFSET: usize = 0;
 
-    let strstart = state.window.wrapping_add(string + HASH_CALC_OFFSET);
-    let chunk = unsafe { std::slice::from_raw_parts(strstart, 4) }; // looks very unsafe; why is this allright?
+    const HASH_CALC_MASK: u32 = 32768 - 1;
 
-    // HASH_CALC_VAR_INIT;
-    let mut h;
-
-    // HASH_CALC_READ;
-    let mut buf = [0u8; 4];
-    buf.copy_from_slice(chunk);
-    let val = u32::from_ne_bytes(buf);
-
-    // HASH_CALC(s, HASH_CALC_VAR, val);
-    h = hash_calc(val);
-    h &= HASH_CALC_MASK;
-
-    // hm = HASH_CALC_VAR;
-    let hm = h as usize;
-
-    let head = state.head[hm];
-    if head != string as u16 {
-        state.prev[string & state.w_mask] = head;
-        state.head[hm] = string as u16;
+    fn hash_calc(_: u32, val: u32) -> u32 {
+        const HASH_SLIDE: u32 = 16;
+        val.wrapping_mul(2654435761) >> HASH_SLIDE
     }
+}
 
-    head
+struct Crc32HashCalc;
+
+impl HashCalc for Crc32HashCalc {
+    const HASH_CALC_OFFSET: usize = 0;
+
+    const HASH_CALC_MASK: u32 = (HASH_SIZE - 1) as u32;
+
+    fn hash_calc(h: u32, val: u32) -> u32 {
+        println!("h = {}, val = {}", h, val);
+        unsafe { _mm_crc32_u32(h, val) }
+    }
 }
 
 fn fill_window(stream: &mut DeflateStream) {
@@ -1345,8 +1455,7 @@ fn fill_window(stream: &mut DeflateStream) {
                 state.insert = state.strstart;
             }
 
-            // TODO simd
-            slide_hash_rust(state);
+            crate::slide_hash::slide_hash(state);
 
             more += wsize;
         }
@@ -1379,17 +1488,19 @@ fn fill_window(stream: &mut DeflateStream) {
             let string = state.strstart - state.insert;
             if state.max_chain_length > 1024 {
                 // state.ins_h = state.update_hash(s, state.window[string], state.window[string + 1]);
-                state.ins_h =
-                    update_hash(unsafe { *state.window.wrapping_add(string + 1) } as u32) as usize;
+
+                let v0 = unsafe { *state.window.wrapping_add(string + 0) } as u32;
+                let v1 = unsafe { *state.window.wrapping_add(string + 1) } as u32;
+                state.ins_h = (state.update_hash)(v0, v1) as usize;
             } else if string >= 1 {
-                quick_insert_string(state, string + 2 - STD_MIN_MATCH);
+                (state.quick_insert_string)(state, string + 2 - STD_MIN_MATCH);
             }
             let mut count = state.insert;
             if state.lookahead == 1 {
                 count -= 1;
             }
             if count > 0 {
-                insert_string(state, string, count);
+                (state.insert_string)(state, string, count);
                 state.insert -= count;
             }
         }
@@ -1441,19 +1552,6 @@ fn fill_window(stream: &mut DeflateStream) {
         state.strstart <= state.window_size - MIN_LOOKAHEAD,
         "not enough room for search"
     );
-}
-
-fn slide_hash_rust_chain(table: &mut [u16], wsize: u16) {
-    for m in table.iter_mut() {
-        *m = m.saturating_sub(wsize);
-    }
-}
-
-fn slide_hash_rust(state: &mut State) {
-    let wsize = state.w_size as u16;
-
-    slide_hash_rust_chain(state.head, wsize);
-    slide_hash_rust_chain(state.prev, wsize);
 }
 
 struct StaticTreeDesc {
@@ -2195,13 +2293,12 @@ fn deflate_rle(_state: &mut State, _flush: Flush) -> BlockState {
     todo!()
 }
 
-fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-    src0.iter().zip(src1).take_while(|(x, y)| x == y).count()
-}
-
-unsafe fn zng_memcmp_2(src0: *const u8, src1: *const u8) -> bool {
-    let src0_cmp = std::ptr::read_unaligned(src0 as *const u16);
-    let src1_cmp = std::ptr::read_unaligned(src1 as *const u16);
+// # Safety
+//
+// The two pointers must be valid for reads of N bytes.
+unsafe fn zng_memcmp_n<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
+    let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
+    let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
 
     src0_cmp != src1_cmp
 }
@@ -2289,18 +2386,18 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         }
 
         if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = quick_insert_string(state, state.strstart);
+            let hash_head = (state.quick_insert_string)(state, state.strstart);
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
                 let str_start = state.window.wrapping_add(state.strstart);
                 let match_start = state.window.wrapping_add(hash_head as usize);
 
-                if !unsafe { zng_memcmp_2(str_start, match_start) } {
+                if !unsafe { zng_memcmp_n::<2>(str_start, match_start) } {
                     let a = unsafe { &*str_start.wrapping_add(2).cast() };
                     let b = unsafe { &*match_start.wrapping_add(2).cast() };
 
-                    let mut match_len = compare256(a, b) + 2;
+                    let mut match_len = crate::compare256::compare256(a, b) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
                         if match_len > state.lookahead {
@@ -2349,16 +2446,300 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     BlockState::BlockDone
 }
 
-fn deflate_fast(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
-    todo!()
+fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    macro_rules! flush_block {
+        ($is_last_block:expr) => {
+            flush_block_only(stream, $is_last_block);
+
+            if stream.avail_out == 0 {
+                return match $is_last_block {
+                    true => BlockState::FinishStarted,
+                    false => BlockState::NeedMore,
+                };
+            }
+        };
+    }
+
+    let mut bflush; /* set if current block must be flushed */
+    let mut dist;
+    let mut match_len = 0;
+
+    loop {
+        // Make sure that we always have enough lookahead, except
+        // at the end of the input file. We need STD_MAX_MATCH bytes
+        // for the next match, plus WANT_MIN_MATCH bytes to insert the
+        // string following the next match.
+        if stream.state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+                return BlockState::NeedMore;
+            }
+            if stream.state.lookahead == 0 {
+                break; /* flush the current block */
+            }
+        }
+
+        let state = &mut stream.state;
+
+        // Insert the string window[strstart .. strstart+2] in the
+        // dictionary, and set hash_head to the head of the hash chain:
+
+        if state.lookahead >= WANT_MIN_MATCH {
+            let hash_head = (state.quick_insert_string)(state, state.strstart);
+            dist = state.strstart as isize - hash_head as isize;
+
+            /* Find the longest match, discarding those <= prev_length.
+             * At this point we have always match length < WANT_MIN_MATCH
+             */
+            if dist <= state.max_dist() as isize && dist > 0 && hash_head != 0 {
+                // To simplify the code, we prevent matches with the string
+                // of window index 0 (in particular we have to avoid a match
+                // of the string with itself at the start of the input file).
+                match_len = longest_match::longest_match(state, hash_head); // longest_match() sets match_start
+            }
+        }
+
+        if match_len >= WANT_MIN_MATCH {
+            // check_match(s, s->strstart, s->match_start, match_len);
+
+            // bflush = zng_tr_tally_dist(s, s->strstart - s->match_start, match_len - STD_MIN_MATCH);
+            bflush = state.tally_dist(
+                state.strstart - state.match_start,
+                match_len - STD_MIN_MATCH,
+            );
+
+            state.lookahead -= match_len;
+
+            /* Insert new strings in the hash table only if the match length
+             * is not too large. This saves time but degrades compression.
+             */
+            if match_len <= state.max_insert_length() && state.lookahead >= WANT_MIN_MATCH {
+                match_len -= 1; /* string at strstart already in table */
+                state.strstart += 1;
+
+                (state.insert_string)(state, state.strstart, match_len);
+                state.strstart += match_len;
+            } else {
+                state.strstart += match_len;
+                (state.quick_insert_string)(state, state.strstart + 2 - STD_MIN_MATCH);
+
+                /* If lookahead < STD_MIN_MATCH, ins_h is garbage, but it does not
+                 * matter since it will be recomputed at next deflate call.
+                 */
+            }
+            match_len = 0;
+        } else {
+            /* No match, output a literal byte */
+            bflush = state.tally_lit(unsafe { *state.window.wrapping_add(state.strstart) });
+            state.lookahead -= 1;
+            state.strstart += 1;
+        }
+
+        if bflush {
+            flush_block!(false);
+        }
+    }
+
+    stream.state.insert = if stream.state.strstart < (STD_MIN_MATCH - 1) {
+        stream.state.strstart
+    } else {
+        STD_MIN_MATCH - 1
+    };
+
+    if flush == Flush::Finish {
+        flush_block!(true);
+        return BlockState::FinishDone;
+    }
+
+    if stream.state.sym_next != 0 {
+        flush_block!(false);
+    }
+
+    BlockState::BlockDone
 }
 
 fn deflate_medium(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
     todo!()
 }
 
-fn deflate_slow(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
-    todo!()
+fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    macro_rules! flush_block {
+        ($is_last_block:expr) => {
+            flush_block_only(stream, $is_last_block);
+
+            if stream.avail_out == 0 {
+                return match $is_last_block {
+                    true => BlockState::FinishStarted,
+                    false => BlockState::NeedMore,
+                };
+            }
+        };
+    }
+
+    let mut hash_head; /* head of hash chain */
+    let mut bflush; /* set if current block must be flushed */
+    let mut dist;
+    let mut match_len;
+
+    let longest_match = if stream.state.max_chain_length <= 1024 {
+        longest_match::longest_match
+    } else {
+        longest_match::longest_match_slow
+    };
+
+    /* Process the input block. */
+    loop {
+        println!("deflate slow loop: {}", stream.state.lookahead);
+
+        /* Make sure that we always have enough lookahead, except
+         * at the end of the input file. We need STD_MAX_MATCH bytes
+         * for the next match, plus WANT_MIN_MATCH bytes to insert the
+         * string following the next match.
+         */
+        if stream.state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+                return BlockState::NeedMore;
+            }
+
+            if stream.state.lookahead == 0 {
+                break; /* flush the current block */
+            }
+        }
+
+        let state = &mut stream.state;
+
+        /* Insert the string window[strstart .. strstart+2] in the
+         * dictionary, and set hash_head to the head of the hash chain:
+         */
+        hash_head = if state.lookahead >= WANT_MIN_MATCH {
+            println!("strstart = {}", state.strstart);
+            (state.quick_insert_string)(state, state.strstart)
+        } else {
+            0
+        };
+
+        // Find the longest match, discarding those <= prev_length.
+        state.prev_match = state.match_start as u16;
+        match_len = STD_MIN_MATCH - 1;
+        dist = state.strstart as isize - hash_head as isize;
+
+        println!(
+            "looking for match {} {} {}",
+            dist, state.prev_length, hash_head
+        );
+
+        if dist <= state.max_dist() as isize
+            && dist > 0
+            && state.prev_length < state.max_lazy_match
+            && hash_head != 0
+        {
+            // To simplify the code, we prevent matches with the string
+            // of window index 0 (in particular we have to avoid a match
+            // of the string with itself at the start of the input file).
+            println!("looking for match {}", hash_head);
+            match_len = (longest_match)(state, hash_head);
+            /* longest_match() sets match_start */
+
+            if match_len <= 5 && (state.strategy == Strategy::Filtered) {
+                /* If prev_match is also WANT_MIN_MATCH, match_start is garbage
+                 * but we will ignore the current match anyway.
+                 */
+                match_len = STD_MIN_MATCH - 1;
+            }
+
+            println!("found match {}", match_len);
+        }
+
+        // If there was a match at the previous step and the current
+        // match is not better, output the previous match:
+        if state.prev_length >= STD_MIN_MATCH && match_len <= state.prev_length {
+            let max_insert = state.strstart + state.lookahead - STD_MIN_MATCH;
+            /* Do not insert strings in hash table beyond this. */
+
+            // check_match(s, state.strstart-1, state.prev_match, state.prev_length);
+
+            bflush = state.tally_dist(
+                state.strstart - 1 - state.prev_match as usize,
+                state.prev_length - STD_MIN_MATCH,
+            );
+
+            /* Insert in hash table all strings up to the end of the match.
+             * strstart-1 and strstart are already inserted. If there is not
+             * enough lookahead, the last two strings are not inserted in
+             * the hash table.
+             */
+            state.prev_length -= 1;
+            state.lookahead -= state.prev_length;
+
+            let mov_fwd = state.prev_length - 1;
+            println!("max_insert = {max_insert}, strstart = {}", state.strstart);
+            if max_insert > state.strstart {
+                let mut insert_cnt = mov_fwd;
+                if insert_cnt > max_insert - state.strstart {
+                    insert_cnt = max_insert - state.strstart;
+                }
+                (state.insert_string)(state, state.strstart + 1, insert_cnt);
+            }
+            state.prev_length = 0;
+            println!("1. prev_length = {}", state.prev_length);
+            state.match_available = 0;
+            state.strstart += mov_fwd + 1;
+
+            if bflush {
+                flush_block!(false);
+            }
+        } else if state.match_available > 0 {
+            // If there was no match at the previous position, output a
+            // single literal. If there was a match but the current match
+            // is longer, truncate the previous match to a single literal.
+            let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
+
+            bflush = state.tally_lit(lc);
+            if bflush {
+                flush_block_only(stream, false);
+            }
+
+            stream.state.prev_length = match_len;
+            println!("2. prev_length = {}", stream.state.prev_length);
+            stream.state.strstart += 1;
+            stream.state.lookahead -= 1;
+            if stream.avail_out == 0 {
+                return BlockState::NeedMore;
+            }
+        } else {
+            // There is no previous match to compare with, wait for
+            // the next step to decide.
+            state.prev_length = match_len;
+            println!("3. prev_length = {}", state.prev_length);
+            state.match_available = 1;
+            state.strstart += 1;
+            state.lookahead -= 1;
+        }
+    }
+
+    assert_ne!(flush, Flush::NoFlush, "no flush?");
+
+    let state = &mut stream.state;
+
+    if state.match_available > 0 {
+        let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
+        let _ = state.tally_lit(lc);
+        state.match_available = 0;
+    }
+
+    state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
+
+    if flush == Flush::Finish {
+        flush_block!(true);
+        return BlockState::FinishDone;
+    }
+
+    if state.sym_next != 0 {
+        flush_block!(false);
+    }
+
+    return BlockState::BlockDone;
 }
 
 pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
@@ -2868,6 +3249,349 @@ impl Heap {
         self.pqdownheap(tree, Self::SMALLEST);
 
         top
+    }
+}
+
+mod longest_match {
+    use super::*;
+
+    type Pos = u16;
+
+    const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
+
+    pub fn longest_match(state: &mut crate::deflate::State, cur_match: u16) -> usize {
+        let (best_len, match_start) = longest_match_help::<false>(state, cur_match);
+        state.match_start = match_start;
+
+        best_len
+    }
+
+    pub fn longest_match_slow(state: &mut crate::deflate::State, cur_match: u16) -> usize {
+        let (best_len, match_start) = longest_match_help::<true>(state, cur_match);
+        state.match_start = match_start;
+
+        best_len
+    }
+
+    fn longest_match_help<const SLOW: bool>(
+        state: &crate::deflate::State,
+        mut cur_match: u16,
+    ) -> (usize, usize) {
+        // println!("longest_match_help {cur_match}");
+
+        let mut match_start = state.match_start;
+
+        let strstart = state.strstart;
+        let wmask = state.w_mask;
+        let window = state.window;
+        let scan = window.wrapping_add(strstart);
+        let mut mbase_start = window;
+        let mut mbase_end: *mut u8;
+        let mut limit: Pos;
+        let limit_base: Pos;
+        let early_exit: bool;
+
+        let mut chain_length: usize;
+        let mut best_len: usize;
+
+        let nice_match;
+        let lookahead = state.lookahead;
+        let mut match_offset = 0;
+
+        // if check::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+        macro_rules! goto_next_chain {
+            () => {
+                println!(
+                    "chain_length = {chain_length}, new_match ={}, limit = {limit}",
+                    state.prev[cur_match as usize & wmask]
+                );
+                chain_length -= 1;
+                if chain_length > 0 {
+                    cur_match = state.prev[cur_match as usize & wmask];
+
+                    if cur_match > limit {
+                        continue;
+                    }
+                }
+
+                println!("return next_chain");
+                return (best_len, match_start);
+            };
+        }
+
+        // The code is optimized for STD_MAX_MATCH-2 multiple of 16.
+        assert_eq!(STD_MAX_MATCH, 258, "Code too clever");
+
+        best_len = if state.prev_length > 0 {
+            state.prev_length
+        } else {
+            STD_MIN_MATCH - 1
+        };
+
+        let mut offset = best_len - 1;
+
+        // we're assuming we can do a fast(ish) unaligned 64-bit read
+        if best_len >= std::mem::size_of::<u32>() {
+            offset -= 2;
+            if best_len >= std::mem::size_of::<u64>() {
+                offset -= 4;
+            }
+        }
+
+        let scan_start;
+        let mut scan_end;
+
+        unsafe {
+            scan_start = std::ptr::read(scan as *mut [u8; 8]);
+            scan_end = std::ptr::read(scan.wrapping_add(offset) as *mut [u8; 8]);
+        }
+
+        mbase_end = mbase_start.wrapping_add(offset);
+
+        // Do not waste too much time if we already have a good match
+        chain_length = state.max_chain_length;
+        if best_len >= state.good_match {
+            chain_length >>= 2;
+        }
+        nice_match = state.nice_match;
+
+        /* Stop when cur_match becomes <= limit. To simplify the code,
+         * we prevent matches with the string of window index 0
+         */
+        // TODO saturating sub
+        limit = if strstart > state.max_dist() {
+            (strstart - state.max_dist()) as Pos
+        } else {
+            0
+        };
+
+        // look for a better string offset
+        if SLOW {
+            limit_base = limit;
+
+            if best_len >= STD_MIN_MATCH {
+                /* We're continuing search (lazy evaluation). */
+                let mut hash;
+                let mut pos: Pos;
+
+                /* Find a most distant chain starting from scan with index=1 (index=0 corresponds
+                 * to cur_match). We cannot use s->prev[strstart+1,...] immediately, because
+                 * these strings are not yet inserted into the hash table.
+                 */
+                let get_scan = |n: usize| unsafe { *scan.wrapping_add(n) as u32 };
+
+                hash = (state.update_hash)(0, get_scan(1));
+                hash = (state.update_hash)(hash, get_scan(2));
+
+                for i in 3..=best_len {
+                    hash = (state.update_hash)(hash, get_scan(i));
+
+                    /* If we're starting with best_len >= 3, we can use offset search. */
+                    pos = state.head[hash as usize];
+                    if pos < cur_match {
+                        match_offset = (i - 2) as Pos;
+                        cur_match = pos;
+                    }
+                }
+
+                /* Update offset-dependent variables */
+                limit = limit_base + match_offset;
+                if cur_match <= limit {
+                    return break_matching(state, best_len, match_start);
+                }
+
+                mbase_start = mbase_start.wrapping_sub(match_offset as usize);
+                mbase_end = mbase_end.wrapping_sub(match_offset as usize);
+            }
+        } else {
+            // must initialize this variable
+            limit_base = 0;
+        }
+
+        // NOTE skipping the slow stuff for now
+
+        early_exit = state.level < EARLY_EXIT_TRIGGER_LEVEL;
+
+        assert!(
+            strstart <= state.window_size - MIN_LOOKAHEAD,
+            "need lookahead"
+        );
+
+        loop {
+            if cur_match as usize >= strstart {
+                break;
+            }
+
+            // Skip to next match if the match length cannot increase or if the match length is
+            // less than 2. Note that the checks below for insufficient lookahead only occur
+            // occasionally for performance reasons.
+            // Therefore uninitialized memory will be accessed and conditional jumps will be made
+            // that depend on those values. However the length of the match is limited to the
+            // lookahead, so the output of deflate is not affected by the uninitialized values.
+            unsafe {
+                #[inline(always)]
+                unsafe fn check<const N: usize>(
+                    cur_match: u16,
+                    mbase_start: *const u8,
+                    mbase_end: *const u8,
+                    scan_start: *const u8,
+                    scan_end: *const u8,
+                ) -> bool {
+                    let cur_match = cur_match as usize;
+
+                    let a = || zng_memcmp_n::<N>(mbase_end.wrapping_add(cur_match), scan_end);
+                    let b = || zng_memcmp_n::<N>(mbase_start.wrapping_add(cur_match), scan_start);
+
+                    !a() && !b()
+                }
+
+                let scan_start = scan_start.as_ptr();
+                let scan_end = scan_end.as_ptr();
+
+                if best_len < std::mem::size_of::<u32>() {
+                    println!("loop 1");
+                    loop {
+                        if check::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
+
+                        println!("next chain 1");
+                        goto_next_chain!();
+                    }
+                } else if best_len >= std::mem::size_of::<u64>() {
+                    println!("loop 2");
+                    loop {
+                        if check::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
+
+                        println!("next chain 2");
+                        goto_next_chain!();
+                    }
+                } else {
+                    println!("loop 3");
+                    loop {
+                        if check::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
+
+                        println!("next chain 3");
+                        goto_next_chain!();
+                    }
+                }
+            }
+
+            let len = {
+                // TODO this just looks so incredibly unsafe!
+                let src0 = unsafe { &*scan.wrapping_add(2).cast() };
+                let src1 = unsafe { &*mbase_start.wrapping_add(cur_match as usize + 2).cast() };
+
+                crate::compare256::compare256(src0, src1) + 2
+            };
+            assert!(
+                scan as usize + len <= window as usize + (state.window_size - 1),
+                "wild scan"
+            );
+
+            if len > best_len {
+                match_start = (cur_match - match_offset) as usize;
+
+                /* Do not look for matches beyond the end of the input. */
+                if len > lookahead {
+                    println!("return 1");
+                    return (lookahead, match_start);
+                }
+                best_len = len;
+                if best_len >= nice_match {
+                    println!("return 2");
+                    return (best_len, match_start);
+                }
+
+                offset = best_len - 1;
+                if best_len >= std::mem::size_of::<u32>() {
+                    offset -= 2;
+                    if best_len >= std::mem::size_of::<u64>() {
+                        offset -= 4;
+                    }
+                }
+
+                scan_end =
+                    unsafe { std::ptr::read_unaligned(scan.wrapping_add(offset) as *mut [u8; 8]) };
+
+                // Look for a better string offset
+                if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
+                    let mut pos: Pos;
+                    // uint32_t i, hash;
+                    // unsigned char *scan_endstr;
+
+                    /* Go back to offset 0 */
+                    cur_match -= match_offset;
+                    match_offset = 0;
+                    let mut next_pos = cur_match;
+
+                    for i in 0..=len - STD_MIN_MATCH {
+                        pos = state.prev[(cur_match as usize + i) & wmask];
+                        if pos < next_pos {
+                            /* Hash chain is more distant, use it */
+                            if pos <= limit_base + i as Pos {
+                                return break_matching(state, best_len, match_start);
+                            }
+                            next_pos = pos;
+                            match_offset = i as Pos;
+                        }
+                    }
+                    /* Switch cur_match to next_pos chain */
+                    cur_match = next_pos;
+
+                    /* Try hash head at len-(STD_MIN_MATCH-1) position to see if we could get
+                     * a better cur_match at the end of string. Using (STD_MIN_MATCH-1) lets
+                     * us include one more byte into hash - the byte which will be checked
+                     * in main loop now, and which allows to grow match by 1.
+                     */
+                    let scan_endstr = scan.wrapping_add(len - (STD_MIN_MATCH + 1));
+                    let get_scan_endstr = |n: usize| unsafe { *scan_endstr.wrapping_add(n) as u32 };
+
+                    let mut hash;
+                    hash = (state.update_hash)(0, get_scan_endstr(0));
+                    hash = (state.update_hash)(hash, get_scan_endstr(1));
+                    hash = (state.update_hash)(hash, get_scan_endstr(2));
+
+                    pos = state.head[hash as usize];
+                    if pos < cur_match {
+                        match_offset = (len - (STD_MIN_MATCH + 1)) as Pos;
+                        if pos <= limit_base + match_offset {
+                            return break_matching(state, best_len, match_start);
+                        }
+                        cur_match = pos;
+                    }
+
+                    /* Update offset-dependent variables */
+                    limit = limit_base + match_offset;
+                    mbase_start = window.wrapping_sub(match_offset as usize);
+                    mbase_end = mbase_start.wrapping_add(offset);
+                    continue;
+                }
+
+                mbase_end = mbase_start.wrapping_add(offset);
+            } else if !SLOW && early_exit {
+                // The probability of finding a match later if we here is pretty low, so for
+                // performance it's best to outright stop here for the lower compression levels
+                break;
+            }
+
+            println!(
+                "next chain end cur_match = {}, strstart = {}",
+                cur_match, state.strstart
+            );
+            goto_next_chain!();
+        }
+
+        (best_len, match_start)
+    }
+
+    fn break_matching(state: &State, best_len: usize, match_start: usize) -> (usize, usize) {
+        println!("return 4");
+        (Ord::min(best_len, state.lookahead), match_start)
     }
 }
 

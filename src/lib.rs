@@ -4,6 +4,7 @@ mod adler32;
 pub mod allocate;
 mod bitreader;
 mod c_api;
+mod compare256;
 mod deflate;
 #[cfg(test)]
 mod dynamic;
@@ -11,6 +12,7 @@ mod inffixed_tbl;
 pub mod inflate;
 mod inftrees;
 mod read_buf;
+mod slide_hash;
 mod trees_tbl;
 mod window;
 
