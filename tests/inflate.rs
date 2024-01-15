@@ -7,10 +7,6 @@ use zlib::*;
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<zlib::z_stream>() as c_int;
 
-unsafe fn inflateInit2(strm: *mut z_stream, window_bits: i32) -> i32 {
-    inflateInit2_(strm, window_bits, VERSION, STREAM_SIZE)
-}
-
 #[derive(Clone, Copy)]
 struct MemItem {
     ptr: *mut libc::c_void,
