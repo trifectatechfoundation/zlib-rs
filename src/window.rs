@@ -1,4 +1,4 @@
-use crate::adler32::adler32;
+use crate::adler32::{adler32, adler32_fold_copy};
 use std::mem::MaybeUninit;
 
 // translation guide:
@@ -89,10 +89,7 @@ impl<'a> Window<'a> {
 
             if checksum != 0 {
                 checksum = adler32(checksum, non_window_slice);
-
-                checksum = adler32(checksum, window_slice);
-                self.buf
-                    .copy_from_slice(unsafe { slice_to_uninit(window_slice) });
+                checksum = adler32_fold_copy(checksum, self.buf, window_slice);
             } else {
                 self.buf
                     .copy_from_slice(unsafe { slice_to_uninit(window_slice) });
@@ -107,23 +104,20 @@ impl<'a> Window<'a> {
             // written to the start of the window.
             let (end_part, start_part) = slice.split_at(dist);
 
-            let end_part = unsafe { slice_to_uninit(end_part) };
-            let start_part = unsafe { slice_to_uninit(start_part) };
-
             if checksum != 0 {
-                // TODO fuse memcpy and adler
-                checksum = adler32(checksum, slice);
-                self.buf[self.next..][..end_part.len()].copy_from_slice(end_part);
+                let dst = &mut self.buf[self.next..][..end_part.len()];
+                checksum = adler32_fold_copy(checksum, dst, end_part);
             } else {
+                let end_part = unsafe { slice_to_uninit(end_part) };
                 self.buf[self.next..][..end_part.len()].copy_from_slice(end_part);
             }
 
             if !start_part.is_empty() {
                 if checksum != 0 {
-                    // TODO fuse memcpy and adler
-                    checksum = adler32(checksum, slice);
-                    self.buf[..start_part.len()].copy_from_slice(start_part);
+                    let dst = &mut self.buf[..start_part.len()];
+                    checksum = adler32_fold_copy(checksum, dst, start_part);
                 } else {
+                    let start_part = unsafe { slice_to_uninit(start_part) };
                     self.buf[..start_part.len()].copy_from_slice(start_part);
                 }
 
