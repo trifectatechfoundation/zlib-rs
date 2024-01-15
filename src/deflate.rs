@@ -1279,9 +1279,9 @@ impl<const N: usize> TreeDesc<N> {
 fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     let tree = &mut desc.dyn_tree;
     let stree = desc.stat_desc.static_tree;
-    let elems = desc.stat_desc.elems;
+    let elements = desc.stat_desc.elems;
 
-    let mut max_code = state.heap.initialize(&mut tree[..elems]);
+    let mut max_code = state.heap.initialize(&mut tree[..elements]);
 
     // The pkzip format requires that at least one distance code exists,
     // and that at least one bit should be sent even if there is only one
@@ -1321,40 +1321,7 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
         n -= 1;
     }
 
-    // Construct the Huffman tree by repeatedly combining the least two frequent nodes.
-
-    // next internal node of the tree
-    let mut node = elems;
-
-    loop {
-        let n = state.heap.pqremove(tree) as usize; /* n = node of least frequency */
-        let m = state.heap.heap[Heap::SMALLEST] as usize; /* m = node of next least frequency */
-
-        state.heap.heap_max -= 1;
-        state.heap.heap[state.heap.heap_max] = n as u32; /* keep the nodes sorted by frequency */
-        state.heap.heap_max -= 1;
-        state.heap.heap[state.heap.heap_max] = m as u32;
-
-        /* Create a new node father of n and m */
-        *tree[node].freq_mut() = tree[n].freq() + tree[m].freq();
-        state.heap.depth[node] = Ord::max(state.heap.depth[n], state.heap.depth[m]) + 1;
-
-        *tree[n].dad_mut() = node as u16;
-        *tree[m].dad_mut() = node as u16;
-
-        /* and insert the new node in the heap */
-        state.heap.heap[Heap::SMALLEST] = node as u32;
-        node += 1;
-
-        state.heap.pqdownheap(tree, Heap::SMALLEST);
-
-        if state.heap.heap_len < 2 {
-            break;
-        }
-    }
-
-    state.heap.heap_max -= 1;
-    state.heap.heap[state.heap.heap_max] = state.heap.heap[Heap::SMALLEST];
+    state.heap.construct_huffman_tree(tree, elements);
 
     // At this point, the fields freq and dad are set. We can now
     // generate the bit lengths.
@@ -2352,6 +2319,39 @@ impl Heap {
         self.pqdownheap(tree, Self::SMALLEST);
 
         top
+    }
+
+    /// Construct the Huffman tree by repeatedly combining the least two frequent nodes.
+    fn construct_huffman_tree(&mut self, tree: &mut [Value], mut node: usize) {
+        loop {
+            let n = self.pqremove(tree) as usize; /* n = node of least frequency */
+            let m = self.heap[Heap::SMALLEST] as usize; /* m = node of next least frequency */
+
+            self.heap_max -= 1;
+            self.heap[self.heap_max] = n as u32; /* keep the nodes sorted by frequency */
+            self.heap_max -= 1;
+            self.heap[self.heap_max] = m as u32;
+
+            /* Create a new node father of n and m */
+            *tree[node].freq_mut() = tree[n].freq() + tree[m].freq();
+            self.depth[node] = Ord::max(self.depth[n], self.depth[m]) + 1;
+
+            *tree[n].dad_mut() = node as u16;
+            *tree[m].dad_mut() = node as u16;
+
+            /* and insert the new node in the heap */
+            self.heap[Heap::SMALLEST] = node as u32;
+            node += 1;
+
+            self.pqdownheap(tree, Heap::SMALLEST);
+
+            if self.heap_len < 2 {
+                break;
+            }
+        }
+
+        self.heap_max -= 1;
+        self.heap[self.heap_max] = self.heap[Heap::SMALLEST];
     }
 }
 
