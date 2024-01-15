@@ -101,7 +101,7 @@ impl HashCalc for RollHashCalc {
 
     fn hash_calc(h: u32, val: u32) -> u32 {
         const HASH_SLIDE: u32 = 5;
-        (h << HASH_SLIDE) ^ (val & 0xFF)
+        (h << HASH_SLIDE) ^ val
     }
 
     fn hash_calc_read(strstart: *const u8) -> u32 {
