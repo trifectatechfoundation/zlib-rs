@@ -1169,27 +1169,21 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
     let state = &mut stream.state;
     if state.high_water < state.window_size {
         let curr = state.strstart + state.lookahead;
-        let mut init;
 
         if state.high_water < curr {
-            /* Previous high water mark below current data -- zero WIN_INIT
-             * bytes or up to end of window, whichever is less.
-             */
-            init = state.window_size - curr;
-            if init > WIN_INIT {
-                init = WIN_INIT;
-            }
+            // Previous high water mark below current data -- zero WIN_INIT
+            // bytes or up to end of window, whichever is less.
+            let init = Ord::min(state.window_size - curr, WIN_INIT);
             unsafe { std::ptr::write_bytes(state.window.wrapping_add(curr), 0, init) };
             state.high_water = curr + init;
         } else if state.high_water < curr + WIN_INIT {
-            /* High water mark at or above current data, but below current data
-             * plus WIN_INIT -- zero out to current data plus WIN_INIT, or up
-             * to end of window, whichever is less.
-             */
-            init = curr + WIN_INIT - state.high_water;
-            if init > state.window_size - state.high_water {
-                init = state.window_size - state.high_water;
-            }
+            // High water mark at or above current data, but below current data
+            // plus WIN_INIT -- zero out to current data plus WIN_INIT, or up
+            // to end of window, whichever is less.
+            let init = Ord::min(
+                curr + WIN_INIT - state.high_water,
+                state.window_size - state.high_water,
+            );
             unsafe { std::ptr::write_bytes(state.window.wrapping_add(state.high_water), 0, init) };
             state.high_water += init;
         }
