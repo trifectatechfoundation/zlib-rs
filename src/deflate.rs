@@ -3,9 +3,10 @@ use std::marker::PhantomData;
 use crate::{
     adler32::adler32,
     deflateEnd,
+    deflate_algorithm::CONFIGURATION_TABLE,
     hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
-    longest_match, trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
-    Z_DEFLATED, Z_UNKNOWN,
+    trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS, Z_DEFLATED,
+    Z_UNKNOWN,
 };
 
 #[repr(C)]
@@ -461,16 +462,16 @@ pub(crate) const DIST_CODE_LEN: usize = 512;
 pub(crate) struct State<'a> {
     status: Status,
 
-    pending: Pending<'a>, // output still pending
+    pub(crate) pending: Pending<'a>, // output still pending
 
     last_flush: i32, /* value of flush param for previous deflate call */
 
     bi_buf: u64,
-    bi_valid: u8,
+    pub(crate) bi_valid: u8,
 
     wrap: i8, /* bit 0 true for zlib, bit 1 true for gzip */
 
-    strategy: Strategy,
+    pub(crate) strategy: Strategy,
     pub(crate) level: i8,
 
     /// Use a faster search when the previous match is longer than this
@@ -512,27 +513,27 @@ pub(crate) struct State<'a> {
     // define max_insert_length  max_lazy_match
     /// Attempt to find a better match only when the current match is strictly smaller
     /// than this value. This mechanism is used only for compression levels >= 4.
-    max_lazy_match: usize,
+    pub(crate) max_lazy_match: usize,
 
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
-    block_start: isize,
+    pub(crate) block_start: isize,
 
     /// Whether or not a block is currently open for the QUICK deflation scheme.
     /// true if there is an active block, or false if the block was just closed
-    block_open: u8,
+    pub(crate) block_open: u8,
 
     pub(crate) window: *mut u8,
 
-    sym_buf: &'a mut [u8],
-    sym_end: usize,
-    sym_next: usize,
+    pub(crate) sym_buf: &'a mut [u8],
+    pub(crate) sym_end: usize,
+    pub(crate) sym_next: usize,
 
     /// High water mark offset in window for initialized bytes -- bytes above
     /// this are set to zero in order to avoid memory check warnings when
     /// longest match routines access bytes past the input.  This is then
     /// updated to the new high water mark.
-    high_water: usize,
+    pub(crate) high_water: usize,
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -557,7 +558,7 @@ pub(crate) struct State<'a> {
     pub(crate) window_size: usize,
 
     /// number of string matches in current block
-    matches: usize,
+    pub(crate) matches: usize,
 
     /// bit length of current block with optimal trees
     opt_len: usize,
@@ -565,7 +566,7 @@ pub(crate) struct State<'a> {
     static_len: usize,
 
     /// bytes at end of window left to insert
-    insert: usize,
+    pub(crate) insert: usize,
 
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
     pub(crate) w_bits: usize,    /* log2(w_size)  (8..16) */
@@ -586,7 +587,7 @@ pub(crate) struct State<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Strategy {
+pub(crate) enum Strategy {
     Default = 0,
     Filtered = 1,
     HuffmanOnly = 2,
@@ -617,7 +618,7 @@ enum DataType {
 }
 
 impl<'a> State<'a> {
-    const BIT_BUF_SIZE: u8 = 64;
+    pub(crate) const BIT_BUF_SIZE: u8 = 64;
 
     pub(crate) fn max_dist(&self) -> usize {
         self.w_size - MIN_LOOKAHEAD
@@ -625,17 +626,17 @@ impl<'a> State<'a> {
 
     // TODO untangle this mess! zlib uses the same field differently based on compression level
     // we should just have 2 fields for clarity!
-    fn max_insert_length(&self) -> usize {
+    pub(crate) fn max_insert_length(&self) -> usize {
         self.max_lazy_match
     }
 
     /// Total size of the pending buf. But because `pending` shares memory with `sym_buf`, this is
     /// not the number of bytes that are actually in `pending`!
-    fn pending_buf_size(&self) -> usize {
+    pub(crate) fn pending_buf_size(&self) -> usize {
         self.lit_bufsize * 4
     }
 
-    fn tally_lit(&mut self, unmatched: u8) -> bool {
+    pub(crate) fn tally_lit(&mut self, unmatched: u8) -> bool {
         self.sym_buf[self.sym_next] = 0;
         self.sym_next += 1;
 
@@ -655,7 +656,7 @@ impl<'a> State<'a> {
         self.sym_next == self.sym_end
     }
 
-    fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
+    pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
         self.sym_buf[self.sym_next] = dist as u8;
         self.sym_next += 1;
 
@@ -770,7 +771,7 @@ impl<'a> State<'a> {
         self.emit_end_block(ltree, false)
     }
 
-    fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
+    pub(crate) fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
         self.emit_end_block(ltree, is_last_block);
 
         if is_last_block {
@@ -783,7 +784,7 @@ impl<'a> State<'a> {
         self.send_code(END_BLOCK, ltree);
     }
 
-    fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
+    pub(crate) fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
         self.send_code(c as usize, ltree);
 
         trace!(
@@ -808,7 +809,13 @@ impl<'a> State<'a> {
         }
     }
 
-    fn emit_dist(&mut self, ltree: &[Value], dtree: &[Value], lc: u8, mut dist: usize) -> usize {
+    pub(crate) fn emit_dist(
+        &mut self,
+        ltree: &[Value],
+        dtree: &[Value],
+        lc: u8,
+        mut dist: usize,
+    ) -> usize {
         let mut lc = lc as usize;
 
         /* Send the length code, len is the match length - STD_MIN_MATCH */
@@ -851,7 +858,7 @@ impl<'a> State<'a> {
         self.send_bits(node.code() as u64, node.len() as u8)
     }
 
-    fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
+    pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
         let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
         self.send_bits(header_bits, 3);
     }
@@ -984,7 +991,7 @@ const fn rank_flush(f: i32) -> i32 {
 }
 
 #[derive(Debug)]
-enum BlockState {
+pub(crate) enum BlockState {
     /// block not completed, need more input or more output
     NeedMore = 0,
     /// block flush performed
@@ -996,9 +1003,9 @@ enum BlockState {
 }
 
 // Maximum stored block length in deflate format (not including header).
-const MAX_STORED: usize = 65535; // so u16::max
+pub(crate) const MAX_STORED: usize = 65535; // so u16::max
 
-fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
+pub(crate) fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
     let len = Ord::min(stream.avail_in as usize, size);
 
     if len == 0 {
@@ -1023,13 +1030,13 @@ fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
     len
 }
 
-enum BlockType {
+pub(crate) enum BlockType {
     StoredBlock = 0,
     StaticTrees = 1,
     DynamicTrees = 2,
 }
 
-fn zng_tr_stored_block(state: &mut State, input_block: &[u8], is_last: bool) {
+pub(crate) fn zng_tr_stored_block(state: &mut State, input_block: &[u8], is_last: bool) {
     // send block type
     state.emit_tree(BlockType::StoredBlock, is_last);
 
@@ -1052,252 +1059,18 @@ fn zng_tr_stored_block(state: &mut State, input_block: &[u8], is_last: bool) {
     }
 }
 
-fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    // Smallest worthy block size when not flushing or finishing. By default
-    // this is 32K. This can be as small as 507 bytes for memLevel == 1. For
-    // large input and output buffers, the stored block size will be larger.
-    let min_block = Ord::min(stream.state.pending.capacity() - 5, stream.state.w_size);
-
-    // Copy as many min_block or larger stored blocks directly to next_out as
-    // possible. If flushing, copy the remaining available input to next_out as
-    // stored blocks, if there is enough space.
-
-    // unsigned len, left, have, last = 0;
-    let mut have;
-    let mut last = false;
-    let mut used = stream.avail_in;
-    loop {
-        // maximum deflate stored block length
-        let mut len = MAX_STORED;
-
-        // number of header bytes
-        have = ((stream.state.bi_valid + 42) / 8) as usize;
-
-        // we need room for at least the header
-        if stream.avail_out < have as u32 {
-            break;
-        }
-
-        let left = stream.state.strstart as isize - stream.state.block_start;
-        let left = Ord::max(0, left) as usize;
-
-        have = stream.avail_out as usize - have;
-
-        if len > left + stream.avail_in as usize {
-            // limit len to the input
-            len = left + stream.avail_in as usize;
-        }
-
-        len = Ord::min(len, have);
-
-        // If the stored block would be less than min_block in length, or if
-        // unable to copy all of the available input when flushing, then try
-        // copying to the window and the pending buffer instead. Also don't
-        // write an empty block when flushing -- deflate() does that.
-        if len < min_block
-            && ((len == 0 && flush != Flush::Finish)
-                || flush == Flush::NoFlush
-                || len != left + stream.avail_in as usize)
-        {
-            break;
-        }
-
-        // Make a dummy stored block in pending to get the header bytes,
-        // including any pending bits. This also updates the debugging counts.
-        last = flush == Flush::Finish && len == left + stream.avail_in as usize;
-        zng_tr_stored_block(stream.state, &[], last);
-
-        /* Replace the lengths in the dummy stored block with len. */
-        stream.state.pending.rewind(4);
-        stream.state.pending.extend(&(len as u16).to_le_bytes());
-        stream.state.pending.extend(&(!len as u16).to_le_bytes());
-
-        // Write the stored block header bytes.
-        flush_pending(stream);
-
-        // TODO debug counts?
-
-        if left > 0 {
-            let left = Ord::min(left, len);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    stream.state.window.offset(stream.state.block_start),
-                    stream.next_out,
-                    left,
-                );
-            }
-
-            stream.next_out = stream.next_out.wrapping_add(left);
-            stream.avail_out = stream.avail_out.wrapping_sub(left as _);
-            stream.total_out = stream.total_out.wrapping_add(left as _);
-            stream.state.block_start += left as isize;
-            len -= left;
-        }
-
-        // Copy uncompressed bytes directly from next_in to next_out, updating the check value.
-        if len > 0 {
-            read_buf(stream, stream.next_out, len);
-            stream.next_out = stream.next_out.wrapping_add(len as _);
-            stream.avail_out = stream.avail_out.wrapping_sub(len as _);
-            stream.total_out = stream.total_out.wrapping_add(len as _);
-        }
-
-        if last {
-            break;
-        }
-    }
-
-    // Update the sliding window with the last s->w_size bytes of the copied
-    // data, or append all of the copied data to the existing window if less
-    // than s->w_size bytes were copied. Also update the number of bytes to
-    // insert in the hash tables, in the event that deflateParams() switches to
-    // a non-zero compression level.
-    used -= stream.avail_in; /* number of input bytes directly copied */
-
-    if used > 0 {
-        let state = &mut stream.state;
-        // If any input was used, then no unused input remains in the window, therefore s->block_start == s->strstart.
-        if used as usize >= state.w_size {
-            /* supplant the previous history */
-            state.matches = 2; /* clear hash */
-
-            unsafe {
-                libc::memcpy(
-                    state.window.cast(),
-                    stream.next_in.wrapping_sub(state.w_size).cast(),
-                    state.w_size,
-                );
-            }
-
-            state.strstart = state.w_size;
-            state.insert = state.strstart;
-        } else {
-            if state.window_size - state.strstart <= used as usize {
-                /* Slide the window down. */
-                state.strstart -= state.w_size;
-                unsafe {
-                    libc::memcpy(
-                        state.window.cast(),
-                        state.window.wrapping_add(state.w_size).cast(),
-                        state.strstart,
-                    );
-                }
-                if state.matches < 2 {
-                    state.matches += 1; /* add a pending slide_hash() */
-                }
-                state.insert = Ord::min(state.insert, state.strstart);
-            }
-            unsafe {
-                libc::memcpy(
-                    state.window.wrapping_add(state.strstart).cast(),
-                    stream.next_in.wrapping_sub(used as usize).cast(),
-                    used as usize,
-                );
-            }
-
-            state.strstart += used as usize;
-            state.insert += Ord::min(used as usize, state.w_size - state.insert);
-        }
-        state.block_start = state.strstart as isize;
-    }
-
-    stream.state.high_water = Ord::max(stream.state.high_water, stream.state.strstart);
-
-    if last {
-        return BlockState::FinishDone;
-    }
-
-    // If flushing and all input has been consumed, then done.
-    if flush != Flush::NoFlush
-        && flush != Flush::Finish
-        && stream.avail_in == 0
-        && stream.state.strstart as isize == stream.state.block_start
-    {
-        return BlockState::BlockDone;
-    }
-
-    let have = stream.state.window_size - stream.state.strstart;
-    if stream.avail_in as usize > have && stream.state.block_start >= stream.state.w_size as isize {
-        todo!("fill window");
-    }
-
-    let have = Ord::min(have, stream.avail_in as usize);
-    if have > 0 {
-        read_buf(
-            stream,
-            stream.state.window.wrapping_add(stream.state.strstart),
-            have,
-        );
-
-        let state = &mut stream.state;
-        state.strstart += have;
-        state.insert += Ord::min(have, state.w_size - state.insert);
-    }
-
-    let state = &mut stream.state;
-    state.high_water = Ord::max(state.high_water, state.strstart);
-
-    // There was not enough avail_out to write a complete worthy or flushed
-    // stored block to next_out. Write a stored block to pending instead, if we
-    // have enough input for a worthy block, or if flushing and there is enough
-    // room for the remaining input as a stored block in the pending buffer.
-
-    // number of header bytes
-    let have = ((state.bi_valid + 42) >> 3) as usize;
-
-    // maximum stored block length that will fit in pending:
-    let have = Ord::min(state.pending.capacity() - have, MAX_STORED);
-    let min_block = Ord::min(have, state.w_size);
-    let left = state.strstart as isize - state.block_start;
-
-    if left >= min_block as isize
-        || ((left > 0 || flush == Flush::Finish)
-            && flush != Flush::NoFlush
-            && stream.avail_in == 0
-            && left <= have as isize)
-    {
-        let len = Ord::min(left as usize, have); // TODO wrapping?
-        last = flush == Flush::Finish && stream.avail_in == 0 && len == (left as usize);
-
-        {
-            // TODO hack remove
-            let mut tmp = vec![0; len];
-
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.window.offset(state.block_start),
-                    tmp.as_mut_ptr(),
-                    len,
-                )
-            }
-
-            zng_tr_stored_block(state, &tmp, last);
-        }
-
-        state.block_start += len as isize;
-        flush_pending(stream);
-    }
-
-    // We've done all we can with the available input and output.
-    if last {
-        BlockState::FinishStarted
-    } else {
-        BlockState::NeedMore
-    }
-}
-
 /// The minimum match length mandated by the deflate standard
 pub(crate) const STD_MIN_MATCH: usize = 3;
 /// The maximum match length mandated by the deflate standard
 pub(crate) const STD_MAX_MATCH: usize = 258;
 
 /// The minimum wanted match length, affects deflate_quick, deflate_fast, deflate_medium and deflate_slow
-const WANT_MIN_MATCH: usize = 4;
+pub(crate) const WANT_MIN_MATCH: usize = 4;
 
 pub(crate) const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 const WIN_INIT: usize = STD_MAX_MATCH;
 
-fn fill_window(stream: &mut DeflateStream) {
+pub(crate) fn fill_window(stream: &mut DeflateStream) {
     debug_assert!(stream.state.lookahead < MIN_LOOKAHEAD);
 
     let wsize = stream.state.w_size;
@@ -1428,9 +1201,9 @@ fn fill_window(stream: &mut DeflateStream) {
     );
 }
 
-struct StaticTreeDesc {
+pub(crate) struct StaticTreeDesc {
     /// static tree or NULL
-    static_tree: &'static [Value],
+    pub(crate) static_tree: &'static [Value],
     /// extra bits for each code or NULL
     extra_bits: &'static [u8],
     /// base index for extra_bits
@@ -1470,7 +1243,7 @@ impl StaticTreeDesc {
         16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
     ];
 
-    const L: Self = Self {
+    pub(crate) const L: Self = Self {
         static_tree: &crate::trees_tbl::STATIC_LTREE,
         extra_bits: &Self::EXTRA_LBITS,
         extra_base: LITERALS + 1,
@@ -1478,7 +1251,7 @@ impl StaticTreeDesc {
         max_length: MAX_BITS as u16,
     };
 
-    const D: Self = Self {
+    pub(crate) const D: Self = Self {
         static_tree: &crate::trees_tbl::STATIC_DTREE,
         extra_bits: &Self::EXTRA_DBITS,
         extra_base: 0,
@@ -1486,7 +1259,7 @@ impl StaticTreeDesc {
         max_length: MAX_BITS as u16,
     };
 
-    const BL: Self = Self {
+    pub(crate) const BL: Self = Self {
         static_tree: &[],
         extra_bits: &Self::EXTRA_BLBITS,
         extra_base: 0,
@@ -2098,7 +1871,7 @@ fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32,
     // Tracev((stderr, "\ncomprlen %lu(%lu) ", s->compressed_len>>3, s->compressed_len-7*last));
 }
 
-fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
+pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     zng_tr_flush_block(
         stream,
         if stream.state.block_start >= 0 {
@@ -2117,135 +1890,6 @@ fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
-#[macro_export]
-macro_rules! flush_block {
-    ($stream:expr, $is_last_block:expr) => {
-        flush_block_only($stream, $is_last_block);
-
-        if $stream.avail_out == 0 {
-            return match $is_last_block {
-                true => BlockState::FinishStarted,
-                false => BlockState::NeedMore,
-            };
-        }
-    };
-}
-
-fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    loop {
-        /* Make sure that we have a literal to write. */
-        if stream.state.lookahead == 0 {
-            fill_window(stream);
-
-            if stream.state.lookahead == 0 {
-                match flush {
-                    Flush::NoFlush => return BlockState::NeedMore,
-                    _ => break, /* flush the current block */
-                }
-            }
-        }
-
-        /* Output a literal byte */
-        let state = &mut stream.state;
-        let bflush = state.tally_lit(unsafe { *state.window.wrapping_add(state.strstart) });
-        state.lookahead -= 1;
-        state.strstart += 1;
-        if bflush {
-            flush_block!(stream, false);
-        }
-    }
-
-    stream.state.insert = 0;
-
-    if flush == Flush::Finish {
-        flush_block!(stream, true);
-        return BlockState::FinishDone;
-    }
-
-    if stream.state.sym_next != 0 {
-        flush_block!(stream, false);
-    }
-
-    BlockState::BlockDone
-}
-
-fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    let mut match_len = 0;
-    let mut bflush;
-
-    loop {
-        // Make sure that we always have enough lookahead, except
-        // at the end of the input file. We need STD_MAX_MATCH bytes
-        // for the next match, plus WANT_MIN_MATCH bytes to insert the
-        // string following the next match.
-        if stream.state.lookahead < MIN_LOOKAHEAD {
-            fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
-                return BlockState::NeedMore;
-            }
-            if stream.state.lookahead == 0 {
-                break; /* flush the current block */
-            }
-        }
-
-        /* See how many times the previous byte repeats */
-        let state = &mut stream.state;
-        if state.lookahead >= STD_MIN_MATCH && state.strstart > 0 {
-            let mut match_len = 0;
-            let scan = state.window.wrapping_add(state.strstart - 1);
-
-            {
-                let scan = unsafe { std::slice::from_raw_parts(scan, 256) };
-
-                if scan[0] == scan[1] && scan[1] == scan[2] {
-                    match_len = crate::compare256::compare256_rle(scan[0], &scan[3..]) + 2;
-                    match_len = Ord::min(match_len, state.lookahead);
-                    match_len = Ord::min(match_len, STD_MAX_MATCH);
-                }
-            }
-
-            assert!(
-                scan.wrapping_add(match_len) <= state.window.wrapping_add(state.window_size - 1),
-                "wild scan"
-            );
-        }
-
-        /* Emit match if have run of STD_MIN_MATCH or longer, else emit literal */
-        if match_len >= STD_MIN_MATCH {
-            // check_match(s, s->strstart, s->strstart - 1, match_len);
-
-            bflush = state.tally_dist(1, match_len - STD_MIN_MATCH);
-
-            state.lookahead -= match_len;
-            state.strstart += match_len;
-            match_len = 0;
-        } else {
-            /* No match, output a literal byte */
-            let lc = unsafe { *state.window.wrapping_add(state.strstart) };
-            bflush = state.tally_lit(lc);
-            state.lookahead -= 1;
-            state.strstart += 1;
-        }
-
-        if bflush {
-            flush_block!(stream, false);
-        }
-    }
-
-    stream.state.insert = 0;
-
-    if flush == Flush::Finish {
-        flush_block!(stream, true);
-        return BlockState::FinishDone;
-    }
-
-    if stream.state.sym_next != 0 {
-        flush_block!(stream, false);
-    }
-
-    BlockState::BlockDone
-}
-
 // # Safety
 //
 // The two pointers must be valid for reads of N bytes.
@@ -2254,732 +1898,6 @@ pub(crate) unsafe fn memcmp_n<const N: usize>(src0: *const u8, src1: *const u8) 
     let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
 
     src0_cmp != src1_cmp
-}
-
-fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    let mut state = &mut stream.state;
-
-    let last = matches!(flush, Flush::Finish);
-
-    macro_rules! quick_start_block {
-        () => {
-            state.emit_tree(BlockType::StaticTrees, last);
-            state.block_open = 1 + last as u8;
-            state.block_start = state.strstart as isize;
-        };
-    }
-
-    macro_rules! quick_end_block {
-        () => {
-            if state.block_open > 0 {
-                state.emit_end_block_and_align(&StaticTreeDesc::L.static_tree, last);
-                state.block_open = 0;
-                state.block_start = state.strstart as isize;
-                flush_pending(stream);
-                #[allow(unused_assignments)]
-                {
-                    state = &mut stream.state;
-                }
-                if stream.avail_out == 0 {
-                    return match last {
-                        true => BlockState::FinishStarted,
-                        false => BlockState::NeedMore,
-                    };
-                }
-            }
-        };
-    }
-
-    if last && state.block_open != 2 {
-        /* Emit end of previous block */
-        quick_end_block!();
-        /* Emit start of last block */
-        quick_start_block!();
-    } else if state.block_open == 0 && state.lookahead > 0 {
-        /* Start new block only when we have lookahead data, so that if no
-        input data is given an empty block will not be written */
-        quick_start_block!();
-    }
-
-    loop {
-        if state.pending.pending + State::BIT_BUF_SIZE.div_ceil(8) as usize
-            >= state.pending_buf_size()
-        {
-            flush_pending(stream);
-            state = &mut stream.state;
-            if stream.avail_out == 0 {
-                return if last
-                    && stream.avail_in == 0
-                    && state.bi_valid == 0
-                    && state.block_open == 0
-                {
-                    BlockState::FinishStarted
-                } else {
-                    BlockState::NeedMore
-                };
-            }
-        }
-
-        if state.lookahead < MIN_LOOKAHEAD {
-            fill_window(stream);
-            state = &mut stream.state;
-
-            if state.lookahead < MIN_LOOKAHEAD && matches!(flush, Flush::NoFlush) {
-                return BlockState::NeedMore;
-            }
-            if state.lookahead == 0 {
-                break;
-            }
-
-            if state.block_open == 0 {
-                // Start new block when we have lookahead data,
-                // so that if no input data is given an empty block will not be written
-                quick_start_block!();
-            }
-        }
-
-        if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = (state.quick_insert_string)(state, state.strstart);
-            let dist = state.strstart as isize - hash_head as isize;
-
-            if dist <= state.max_dist() as isize && dist > 0 {
-                let str_start = state.window.wrapping_add(state.strstart);
-                let match_start = state.window.wrapping_add(hash_head as usize);
-
-                if !unsafe { memcmp_n::<2>(str_start, match_start) } {
-                    let a = unsafe { &*str_start.wrapping_add(2).cast() };
-                    let b = unsafe { &*match_start.wrapping_add(2).cast() };
-
-                    let mut match_len = crate::compare256::compare256(a, b) + 2;
-
-                    if match_len >= WANT_MIN_MATCH {
-                        if match_len > state.lookahead {
-                            match_len = state.lookahead;
-                        }
-
-                        if match_len > STD_MAX_MATCH {
-                            match_len = STD_MAX_MATCH;
-                        }
-
-                        // TODO do this with a debug_assert?
-                        // check_match(s, state.strstart, hash_head, match_len);
-
-                        state.emit_dist(
-                            StaticTreeDesc::L.static_tree,
-                            StaticTreeDesc::D.static_tree,
-                            (match_len - STD_MIN_MATCH) as u8,
-                            dist as usize,
-                        );
-                        state.lookahead -= match_len;
-                        state.strstart += match_len;
-                        continue;
-                    }
-                }
-            }
-        }
-
-        let lc = unsafe { *state.window.wrapping_add(state.strstart) };
-        state.emit_lit(StaticTreeDesc::L.static_tree, lc);
-        state.strstart += 1;
-        state.lookahead -= 1;
-    }
-
-    state.insert = if state.strstart < (STD_MIN_MATCH - 1) {
-        state.strstart
-    } else {
-        STD_MIN_MATCH - 1
-    };
-
-    if last {
-        quick_end_block!();
-        return BlockState::FinishDone;
-    }
-
-    quick_end_block!();
-    BlockState::BlockDone
-}
-
-fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    let mut bflush; /* set if current block must be flushed */
-    let mut dist;
-    let mut match_len = 0;
-
-    loop {
-        // Make sure that we always have enough lookahead, except
-        // at the end of the input file. We need STD_MAX_MATCH bytes
-        // for the next match, plus WANT_MIN_MATCH bytes to insert the
-        // string following the next match.
-        if stream.state.lookahead < MIN_LOOKAHEAD {
-            fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
-                return BlockState::NeedMore;
-            }
-            if stream.state.lookahead == 0 {
-                break; /* flush the current block */
-            }
-        }
-
-        let state = &mut stream.state;
-
-        // Insert the string window[strstart .. strstart+2] in the
-        // dictionary, and set hash_head to the head of the hash chain:
-
-        if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = (state.quick_insert_string)(state, state.strstart);
-            dist = state.strstart as isize - hash_head as isize;
-
-            /* Find the longest match, discarding those <= prev_length.
-             * At this point we have always match length < WANT_MIN_MATCH
-             */
-            if dist <= state.max_dist() as isize && dist > 0 && hash_head != 0 {
-                // To simplify the code, we prevent matches with the string
-                // of window index 0 (in particular we have to avoid a match
-                // of the string with itself at the start of the input file).
-                match_len = longest_match::longest_match(state, hash_head); // longest_match() sets match_start
-            }
-        }
-
-        if match_len >= WANT_MIN_MATCH {
-            // check_match(s, s->strstart, s->match_start, match_len);
-
-            // bflush = zng_tr_tally_dist(s, s->strstart - s->match_start, match_len - STD_MIN_MATCH);
-            bflush = state.tally_dist(
-                state.strstart - state.match_start,
-                match_len - STD_MIN_MATCH,
-            );
-
-            state.lookahead -= match_len;
-
-            /* Insert new strings in the hash table only if the match length
-             * is not too large. This saves time but degrades compression.
-             */
-            if match_len <= state.max_insert_length() && state.lookahead >= WANT_MIN_MATCH {
-                match_len -= 1; /* string at strstart already in table */
-                state.strstart += 1;
-
-                (state.insert_string)(state, state.strstart, match_len);
-                state.strstart += match_len;
-            } else {
-                state.strstart += match_len;
-                (state.quick_insert_string)(state, state.strstart + 2 - STD_MIN_MATCH);
-
-                /* If lookahead < STD_MIN_MATCH, ins_h is garbage, but it does not
-                 * matter since it will be recomputed at next deflate call.
-                 */
-            }
-            match_len = 0;
-        } else {
-            /* No match, output a literal byte */
-            bflush = state.tally_lit(unsafe { *state.window.wrapping_add(state.strstart) });
-            state.lookahead -= 1;
-            state.strstart += 1;
-        }
-
-        if bflush {
-            flush_block!(stream, false);
-        }
-    }
-
-    stream.state.insert = if stream.state.strstart < (STD_MIN_MATCH - 1) {
-        stream.state.strstart
-    } else {
-        STD_MIN_MATCH - 1
-    };
-
-    if flush == Flush::Finish {
-        flush_block!(stream, true);
-        return BlockState::FinishDone;
-    }
-
-    if stream.state.sym_next != 0 {
-        flush_block!(stream, false);
-    }
-
-    BlockState::BlockDone
-}
-
-fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    #[repr(C)]
-    #[derive(Debug, Clone, Copy)]
-    struct Match {
-        match_start: u16,
-        match_length: u16,
-        strstart: u16,
-        orgstart: u16,
-    }
-
-    fn emit_match(state: &mut State, mut m: Match) -> bool {
-        let mut bflush = false;
-
-        /* matches that are not long enough we need to emit as literals */
-        if (m.match_length as usize) < WANT_MIN_MATCH {
-            while m.match_length > 0 {
-                let lc = unsafe { *state.window.wrapping_add(state.strstart) };
-                bflush |= state.tally_lit(lc);
-                state.lookahead -= 1;
-                m.strstart += 1;
-                m.match_length -= 1;
-            }
-            return bflush;
-        }
-
-        // check_match(s, m.strstart, m.match_start, m.match_length);
-
-        bflush |= state.tally_dist(
-            (m.strstart - m.match_start) as usize,
-            m.match_length as usize - STD_MIN_MATCH,
-        );
-
-        state.lookahead -= m.match_length as usize;
-
-        bflush
-    }
-
-    fn insert_match(state: &mut State, mut m: Match) {
-        if state.lookahead <= (m.match_length as usize + WANT_MIN_MATCH) {
-            return;
-        }
-
-        /* matches that are not long enough we need to emit as literals */
-        if (m.match_length as usize) < WANT_MIN_MATCH {
-            m.strstart += 1;
-            m.match_length -= 1;
-            if m.match_length > 0 {
-                if m.strstart >= m.orgstart {
-                    if m.strstart + m.match_length - 1 >= m.orgstart {
-                        (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
-                    } else {
-                        (state.insert_string)(
-                            state,
-                            m.strstart as usize,
-                            (m.orgstart - m.strstart + 1) as usize,
-                        );
-                    }
-                    m.strstart += m.match_length;
-                    m.match_length = 0;
-                }
-            }
-            return;
-        }
-
-        /* Insert new strings in the hash table only if the match length
-         * is not too large. This saves time but degrades compression.
-         */
-        if (m.match_length as usize) <= 16 * state.max_insert_length()
-            && state.lookahead >= WANT_MIN_MATCH
-        {
-            m.match_length -= 1; /* string at strstart already in table */
-            m.strstart += 1;
-
-            if m.strstart >= m.orgstart {
-                if m.strstart + m.match_length - 1 >= m.orgstart {
-                    (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
-                } else {
-                    (state.insert_string)(
-                        state,
-                        m.strstart as usize,
-                        (m.orgstart - m.strstart + 1) as usize,
-                    );
-                }
-            } else if m.orgstart < m.strstart + m.match_length {
-                (state.insert_string)(
-                    state,
-                    m.orgstart as usize,
-                    (m.strstart + m.match_length - m.orgstart) as usize,
-                );
-            }
-            m.strstart += m.match_length;
-            m.match_length = 0;
-        } else {
-            m.strstart += m.match_length;
-            m.match_length = 0;
-
-            if (m.strstart as usize) >= (STD_MIN_MATCH - 2) {
-                (state.quick_insert_string)(state, m.strstart as usize + 2 - STD_MIN_MATCH);
-            }
-
-            /* If lookahead < WANT_MIN_MATCH, ins_h is garbage, but it does not
-             * matter since it will be recomputed at next deflate call.
-             */
-        }
-    }
-
-    fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
-        /* step zero: sanity checks */
-
-        if current.match_length <= 1 {
-            return;
-        }
-
-        if current.match_length > 1 + next.match_start {
-            return;
-        }
-
-        if current.match_length > 1 + next.strstart {
-            return;
-        }
-
-        let offset = (current.match_length + 1 + next.match_start) as usize;
-        let m = state.window.wrapping_sub(offset);
-        let orig = state.window.wrapping_sub(offset);
-
-        /* quick exit check.. if this fails then don't bother with anything else */
-        if unsafe { *m != *orig } {
-            return;
-        }
-
-        /* step one: try to move the "next" match to the left as much as possible */
-        let limit = next.strstart.saturating_sub(state.max_dist() as u16);
-
-        let mut c = *current;
-        let mut n = *next;
-
-        let mut m = state.window.wrapping_add(n.match_start as usize - 1);
-        let mut orig = state.window.wrapping_add(n.strstart as usize - 1);
-
-        let mut changed = 0;
-
-        while unsafe { *m == *orig } {
-            if c.match_length < 1 {
-                break;
-            }
-            if n.strstart <= limit {
-                break;
-            }
-            if n.match_length >= 256 {
-                break;
-            }
-            if n.match_start <= 1 {
-                break;
-            }
-
-            n.strstart -= 1;
-            n.match_start -= 1;
-            n.match_length += 1;
-            c.match_length -= 1;
-            m = m.wrapping_sub(1);
-            orig = orig.wrapping_sub(1);
-            changed += 1;
-        }
-
-        if changed == 0 {
-            return;
-        }
-
-        if c.match_length <= 1 && n.match_length != 2 {
-            n.orgstart += 1;
-            *current = c;
-            *next = n;
-        } else {
-            return;
-        }
-    }
-
-    // actual impl
-
-    let mut state = &mut stream.state;
-
-    // For levels below 5, don't check the next position for a better match
-    let early_exit = state.level < 5;
-
-    let mut current_match = Match {
-        match_start: 0,
-        match_length: 0,
-        strstart: 0,
-        orgstart: 0,
-    };
-    let mut next_match = Match {
-        match_start: 0,
-        match_length: 0,
-        strstart: 0,
-        orgstart: 0,
-    };
-
-    loop {
-        let mut hash_head;
-
-        /* Make sure that we always have enough lookahead, except
-         * at the end of the input file. We need STD_MAX_MATCH bytes
-         * for the next match, plus WANT_MIN_MATCH bytes to insert the
-         * string following the next match.
-         */
-        if stream.state.lookahead < MIN_LOOKAHEAD {
-            fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
-                return BlockState::NeedMore;
-            }
-
-            if stream.state.lookahead == 0 {
-                break; /* flush the current block */
-            }
-
-            next_match.match_length = 0;
-        }
-
-        state = &mut stream.state;
-
-        // Insert the string window[strstart .. strstart+2] in the
-        // dictionary, and set hash_head to the head of the hash chain:
-
-        /* If we already have a future match from a previous round, just use that */
-        if !early_exit && next_match.match_length > 0 {
-            current_match = next_match;
-            next_match.match_length = 0;
-        } else {
-            hash_head = 0;
-            if state.lookahead >= WANT_MIN_MATCH {
-                hash_head = (state.quick_insert_string)(state, state.strstart);
-            }
-
-            current_match.strstart = state.strstart as u16;
-            current_match.orgstart = current_match.strstart;
-
-            /* Find the longest match, discarding those <= prev_length.
-             * At this point we have always match_length < WANT_MIN_MATCH
-             */
-
-            let dist = state.strstart as i64 - hash_head as i64;
-            if dist <= state.max_dist() as i64 && dist > 0 && hash_head != 0 {
-                /* To simplify the code, we prevent matches with the string
-                 * of window index 0 (in particular we have to avoid a match
-                 * of the string with itself at the start of the input file).
-                 */
-                current_match.match_length = longest_match::longest_match(state, hash_head) as u16;
-                current_match.match_start = state.match_start as u16;
-                if (current_match.match_length as usize) < WANT_MIN_MATCH {
-                    current_match.match_length = 1;
-                }
-                if current_match.match_start >= current_match.strstart {
-                    /* this can happen due to some restarts */
-                    current_match.match_length = 1;
-                }
-            } else {
-                /* Set up the match to be a 1 byte literal */
-                current_match.match_start = 0;
-                current_match.match_length = 1;
-            }
-        }
-
-        insert_match(state, current_match);
-
-        /* now, look ahead one */
-        if !early_exit
-            && state.lookahead > MIN_LOOKAHEAD
-            && ((current_match.strstart + current_match.match_length) as usize)
-                < (state.window_size - MIN_LOOKAHEAD)
-        {
-            state.strstart = (current_match.strstart + current_match.match_length) as usize;
-            hash_head = (state.quick_insert_string)(state, state.strstart);
-
-            next_match.strstart = state.strstart as u16;
-            next_match.orgstart = next_match.strstart;
-
-            /* Find the longest match, discarding those <= prev_length.
-             * At this point we have always match_length < WANT_MIN_MATCH
-             */
-
-            let dist = state.strstart as i64 - hash_head as i64;
-            if dist <= state.max_dist() as i64 && dist > 0 && hash_head != 0 {
-                /* To simplify the code, we prevent matches with the string
-                 * of window index 0 (in particular we have to avoid a match
-                 * of the string with itself at the start of the input file).
-                 */
-                next_match.match_length = longest_match::longest_match(state, hash_head) as u16;
-                next_match.match_start = state.match_start as u16;
-                if next_match.match_start >= next_match.strstart {
-                    /* this can happen due to some restarts */
-                    next_match.match_length = 1;
-                }
-                if (next_match.match_length as usize) < WANT_MIN_MATCH {
-                    next_match.match_length = 1;
-                } else {
-                    fizzle_matches(state, &mut current_match, &mut next_match);
-                }
-            } else {
-                /* Set up the match to be a 1 byte literal */
-                next_match.match_start = 0;
-                next_match.match_length = 1;
-            }
-
-            state.strstart = current_match.strstart as usize;
-        } else {
-            next_match.match_length = 0;
-        }
-
-        /* now emit the current match */
-        let bflush = emit_match(state, current_match);
-
-        /* move the "cursor" forward */
-        state.strstart += current_match.match_length as usize;
-
-        if bflush {
-            flush_block!(stream, false);
-        }
-    }
-
-    stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH - 1);
-
-    if flush == Flush::Finish {
-        flush_block!(stream, true);
-        return BlockState::FinishDone;
-    }
-
-    if stream.state.sym_next != 0 {
-        flush_block!(stream, false);
-    }
-
-    return BlockState::BlockDone;
-}
-
-fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    let mut hash_head; /* head of hash chain */
-    let mut bflush; /* set if current block must be flushed */
-    let mut dist;
-    let mut match_len;
-
-    let longest_match = if stream.state.max_chain_length <= 1024 {
-        longest_match::longest_match
-    } else {
-        longest_match::longest_match_slow
-    };
-
-    /* Process the input block. */
-    loop {
-        /* Make sure that we always have enough lookahead, except
-         * at the end of the input file. We need STD_MAX_MATCH bytes
-         * for the next match, plus WANT_MIN_MATCH bytes to insert the
-         * string following the next match.
-         */
-        if stream.state.lookahead < MIN_LOOKAHEAD {
-            fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
-                return BlockState::NeedMore;
-            }
-
-            if stream.state.lookahead == 0 {
-                break; /* flush the current block */
-            }
-        }
-
-        let state = &mut stream.state;
-
-        /* Insert the string window[strstart .. strstart+2] in the
-         * dictionary, and set hash_head to the head of the hash chain:
-         */
-        hash_head = if state.lookahead >= WANT_MIN_MATCH {
-            (state.quick_insert_string)(state, state.strstart)
-        } else {
-            0
-        };
-
-        // Find the longest match, discarding those <= prev_length.
-        state.prev_match = state.match_start as u16;
-        match_len = STD_MIN_MATCH - 1;
-        dist = state.strstart as isize - hash_head as isize;
-
-        if dist <= state.max_dist() as isize
-            && dist > 0
-            && state.prev_length < state.max_lazy_match
-            && hash_head != 0
-        {
-            // To simplify the code, we prevent matches with the string
-            // of window index 0 (in particular we have to avoid a match
-            // of the string with itself at the start of the input file).
-            match_len = (longest_match)(state, hash_head);
-            /* longest_match() sets match_start */
-
-            if match_len <= 5 && (state.strategy == Strategy::Filtered) {
-                /* If prev_match is also WANT_MIN_MATCH, match_start is garbage
-                 * but we will ignore the current match anyway.
-                 */
-                match_len = STD_MIN_MATCH - 1;
-            }
-        }
-
-        // If there was a match at the previous step and the current
-        // match is not better, output the previous match:
-        if state.prev_length >= STD_MIN_MATCH && match_len <= state.prev_length {
-            let max_insert = state.strstart + state.lookahead - STD_MIN_MATCH;
-            /* Do not insert strings in hash table beyond this. */
-
-            // check_match(s, state.strstart-1, state.prev_match, state.prev_length);
-
-            bflush = state.tally_dist(
-                state.strstart - 1 - state.prev_match as usize,
-                state.prev_length - STD_MIN_MATCH,
-            );
-
-            /* Insert in hash table all strings up to the end of the match.
-             * strstart-1 and strstart are already inserted. If there is not
-             * enough lookahead, the last two strings are not inserted in
-             * the hash table.
-             */
-            state.prev_length -= 1;
-            state.lookahead -= state.prev_length;
-
-            let mov_fwd = state.prev_length - 1;
-            if max_insert > state.strstart {
-                let mut insert_cnt = mov_fwd;
-                if insert_cnt > max_insert - state.strstart {
-                    insert_cnt = max_insert - state.strstart;
-                }
-                (state.insert_string)(state, state.strstart + 1, insert_cnt);
-            }
-            state.prev_length = 0;
-            state.match_available = 0;
-            state.strstart += mov_fwd + 1;
-
-            if bflush {
-                flush_block!(stream, false);
-            }
-        } else if state.match_available > 0 {
-            // If there was no match at the previous position, output a
-            // single literal. If there was a match but the current match
-            // is longer, truncate the previous match to a single literal.
-            let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
-            bflush = state.tally_lit(lc);
-            if bflush {
-                flush_block_only(stream, false);
-            }
-
-            stream.state.prev_length = match_len;
-            stream.state.strstart += 1;
-            stream.state.lookahead -= 1;
-            if stream.avail_out == 0 {
-                return BlockState::NeedMore;
-            }
-        } else {
-            // There is no previous match to compare with, wait for
-            // the next step to decide.
-            state.prev_length = match_len;
-            state.match_available = 1;
-            state.strstart += 1;
-            state.lookahead -= 1;
-        }
-    }
-
-    assert_ne!(flush, Flush::NoFlush, "no flush?");
-
-    let state = &mut stream.state;
-
-    if state.match_available > 0 {
-        let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
-        let _ = state.tally_lit(lc);
-        state.match_available = 0;
-    }
-
-    state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
-
-    if flush == Flush::Finish {
-        flush_block!(stream, true);
-        return BlockState::FinishDone;
-    }
-
-    if state.sym_next != 0 {
-        flush_block!(stream, false);
-    }
-
-    return BlockState::BlockDone;
 }
 
 pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
@@ -3069,14 +1987,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         || state.lookahead != 0
         || (flush != Flush::NoFlush && state.status != Status::Finish)
     {
-        let bstate = match state.strategy {
-            _ if state.level == 0 => deflate_stored(stream, flush),
-            Strategy::HuffmanOnly => deflate_huff(stream, flush),
-            Strategy::Rle => deflate_rle(stream, flush),
-            Strategy::Default | Strategy::Filtered | Strategy::Fixed => {
-                (CONFIGURATION_TABLE[state.level as usize].func)(stream, flush)
-            }
-        };
+        let bstate = crate::deflate_algorithm::run(stream, flush);
 
         let state = &mut stream.state;
 
@@ -3157,7 +2068,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     ReturnCode::Ok
 }
 
-fn flush_pending(stream: &mut DeflateStream) {
+pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     let state = &mut stream.state;
 
     state.flush_bits();
@@ -3179,10 +2090,10 @@ fn flush_pending(stream: &mut DeflateStream) {
     state.pending.advance(len);
 }
 
-struct Pending<'a> {
+pub(crate) struct Pending<'a> {
     buf: *mut u8,
     out: *mut u8,
-    pending: usize,
+    pub(crate) pending: usize,
     end: *mut u8,
     _marker: PhantomData<&'a mut [u8]>,
 }
@@ -3199,7 +2110,7 @@ impl<'a> Pending<'a> {
     //        self.end as usize - self.out as usize
     //    }
 
-    fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.end as usize - self.buf as usize
     }
 
@@ -3342,50 +2253,6 @@ pub(crate) fn compress3<'a>(
 
     (output, ReturnCode::Ok)
 }
-
-type CompressFunc = fn(&mut DeflateStream, flush: Flush) -> BlockState;
-
-#[allow(unused)]
-struct Config {
-    good_length: u16, /* reduce lazy search above this match length */
-    max_lazy: u16,    /* do not perform lazy search above this match length */
-    nice_length: u16, /* quit search above this match length */
-    max_chain: u16,
-    func: CompressFunc,
-}
-
-impl Config {
-    const fn new(
-        good_length: u16,
-        max_lazy: u16,
-        nice_length: u16,
-        max_chain: u16,
-        func: CompressFunc,
-    ) -> Self {
-        Self {
-            good_length,
-            max_lazy,
-            nice_length,
-            max_chain,
-            func,
-        }
-    }
-}
-
-const CONFIGURATION_TABLE: [Config; 10] = {
-    [
-        Config::new(0, 0, 0, 0, deflate_stored), // 0 /* store only */
-        Config::new(0, 0, 0, 0, deflate_quick),  // 1
-        Config::new(4, 4, 8, 4, deflate_fast),   // 2 /* max speed, no lazy matches */
-        Config::new(4, 6, 16, 6, deflate_medium), // 3
-        Config::new(4, 12, 32, 24, deflate_medium), // 4 /* lazy matches */
-        Config::new(8, 16, 32, 32, deflate_medium), // 5
-        Config::new(8, 16, 128, 128, deflate_medium), // 6
-        Config::new(8, 32, 128, 256, deflate_slow), // 7
-        Config::new(32, 128, 258, 1024, deflate_slow), // 8
-        Config::new(32, 258, 258, 4096, deflate_slow), // 9 /* max compression */
-    ]
-};
 
 ///  heap used to build the Huffman trees
 

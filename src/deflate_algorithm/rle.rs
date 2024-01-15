@@ -1,0 +1,83 @@
+use crate::{
+    deflate::{
+        fill_window, BlockState, DeflateStream, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH,
+    },
+    flush_block, Flush,
+};
+
+pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    let mut match_len = 0;
+    let mut bflush;
+
+    loop {
+        // Make sure that we always have enough lookahead, except
+        // at the end of the input file. We need STD_MAX_MATCH bytes
+        // for the next match, plus WANT_MIN_MATCH bytes to insert the
+        // string following the next match.
+        if stream.state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+                return BlockState::NeedMore;
+            }
+            if stream.state.lookahead == 0 {
+                break; /* flush the current block */
+            }
+        }
+
+        /* See how many times the previous byte repeats */
+        let state = &mut stream.state;
+        if state.lookahead >= STD_MIN_MATCH && state.strstart > 0 {
+            let mut match_len = 0;
+            let scan = state.window.wrapping_add(state.strstart - 1);
+
+            {
+                let scan = unsafe { std::slice::from_raw_parts(scan, 256) };
+
+                if scan[0] == scan[1] && scan[1] == scan[2] {
+                    match_len = crate::compare256::compare256_rle(scan[0], &scan[3..]) + 2;
+                    match_len = Ord::min(match_len, state.lookahead);
+                    match_len = Ord::min(match_len, STD_MAX_MATCH);
+                }
+            }
+
+            assert!(
+                scan.wrapping_add(match_len) <= state.window.wrapping_add(state.window_size - 1),
+                "wild scan"
+            );
+        }
+
+        /* Emit match if have run of STD_MIN_MATCH or longer, else emit literal */
+        if match_len >= STD_MIN_MATCH {
+            // check_match(s, s->strstart, s->strstart - 1, match_len);
+
+            bflush = state.tally_dist(1, match_len - STD_MIN_MATCH);
+
+            state.lookahead -= match_len;
+            state.strstart += match_len;
+            match_len = 0;
+        } else {
+            /* No match, output a literal byte */
+            let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+            bflush = state.tally_lit(lc);
+            state.lookahead -= 1;
+            state.strstart += 1;
+        }
+
+        if bflush {
+            flush_block!(stream, false);
+        }
+    }
+
+    stream.state.insert = 0;
+
+    if flush == Flush::Finish {
+        flush_block!(stream, true);
+        return BlockState::FinishDone;
+    }
+
+    if stream.state.sym_next != 0 {
+        flush_block!(stream, false);
+    }
+
+    BlockState::BlockDone
+}
