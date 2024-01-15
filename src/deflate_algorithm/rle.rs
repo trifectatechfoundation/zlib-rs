@@ -31,7 +31,7 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             let scan = state.window.wrapping_add(state.strstart - 1);
 
             {
-                let scan = unsafe { std::slice::from_raw_parts(scan, 256) };
+                let scan = unsafe { std::slice::from_raw_parts(scan, 3 + 256) };
 
                 if scan[0] == scan[1] && scan[1] == scan[2] {
                     match_len = crate::compare256::compare256_rle(scan[0], &scan[3..]) + 2;

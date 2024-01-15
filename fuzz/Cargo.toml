@@ -8,9 +8,12 @@ edition = "2018"
 [package.metadata]
 cargo-fuzz = true
 
+[dependencies.libfuzzer-sys]
+version = "0.4"
+features = ["arbitrary-derive"]
+
 [dependencies]
 libc = "0.2.151"
-libfuzzer-sys = "0.4"
 libz-ng-sys = "1.1.12"
 libloading = "0.8.1"
 
@@ -48,6 +51,12 @@ doc = false
 [[bin]]
 name = "deflate_huff"
 path = "fuzz_targets/deflate_huff.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "deflate_rle"
+path = "fuzz_targets/deflate_rle.rs"
 test = false
 doc = false
 

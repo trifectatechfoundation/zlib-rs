@@ -25,7 +25,7 @@ mod rust {
 
     // run-length encoding
     pub fn compare256_rle(byte: u8, src: &[u8]) -> usize {
-        assert!(src.len() >= 256);
+        assert!(src.len() >= 256, "too short {}", src.len());
 
         let mut sv = byte as u64;
         sv |= sv << 8;
