@@ -115,9 +115,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             state.matches = 2; /* clear hash */
 
             unsafe {
-                libc::memcpy(
-                    state.window.cast(),
-                    stream.next_in.wrapping_sub(state.w_size).cast(),
+                std::ptr::copy_nonoverlapping(
+                    stream.next_in.wrapping_sub(state.w_size),
+                    state.window,
                     state.w_size,
                 );
             }
@@ -129,9 +129,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 /* Slide the window down. */
                 state.strstart -= state.w_size;
                 unsafe {
-                    libc::memcpy(
-                        state.window.cast(),
-                        state.window.wrapping_add(state.w_size).cast(),
+                    std::ptr::copy_nonoverlapping(
+                        state.window.wrapping_add(state.w_size),
+                        state.window,
                         state.strstart,
                     );
                 }
@@ -141,9 +141,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 state.insert = Ord::min(state.insert, state.strstart);
             }
             unsafe {
-                libc::memcpy(
-                    state.window.wrapping_add(state.strstart).cast(),
-                    stream.next_in.wrapping_sub(used as usize).cast(),
+                std::ptr::copy_nonoverlapping(
+                    stream.next_in.wrapping_sub(used as usize),
+                    state.window.wrapping_add(state.strstart),
                     used as usize,
                 );
             }
