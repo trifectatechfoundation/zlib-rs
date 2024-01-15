@@ -1,36 +1,8 @@
 #![no_main]
-use libfuzzer_sys::{arbitrary, fuzz_target};
+use libfuzzer_sys::fuzz_target;
 
 use libc::{c_char, c_int};
 use zlib::ReturnCode;
-
-#[derive(Debug, arbitrary::Arbitrary)]
-enum Level {
-    Three = 3,
-    Four = 4,
-    Five = 5,
-    Six = 6,
-}
-
-fuzz_target!(|input: (Level, String)| {
-    let (level, data) = input;
-    let level = level as i32;
-
-    let length = 8 * 1024;
-    let mut deflated = vec![0; length as usize];
-    let (deflated, error) = compress3(&mut deflated, data.as_bytes(), level);
-
-    assert_eq!(ReturnCode::Ok, error);
-    let output = uncompress_help(&deflated);
-
-    if output != data.as_bytes() {
-        let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
-        eprintln!("saved input file to {path:?}");
-    }
-
-    assert_eq!(output, data.as_bytes());
-});
 
 fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let mut dest_vec = vec![0u8; 1 << 16];
@@ -60,7 +32,7 @@ pub(crate) fn compress3<'a>(
     let method = zlib::Z_DEFLATED;
     let window_bits = 15;
     let mem_level = 8;
-    let strategy = zlib::Z_DEFAULT_STRATEGY;
+    let strategy = zlib::Z_RLE;
 
     let mut stream = zlib::z_stream {
         next_in: input.as_ptr() as *mut u8,
@@ -137,3 +109,21 @@ pub(crate) fn compress3<'a>(
 
     (output, ReturnCode::Ok)
 }
+
+fuzz_target!(|data: String| {
+    // first, deflate the data using the standard zlib
+    let length = 8 * 1024;
+    let mut deflated = vec![0; length as usize];
+    let (deflated, error) = compress3(&mut deflated, data.as_bytes(), 6);
+
+    assert_eq!(ReturnCode::Ok, error);
+    let output = uncompress_help(&deflated);
+
+    if output != data.as_bytes() {
+        let path = std::env::temp_dir().join("deflate.txt");
+        std::fs::write(&path, &data).unwrap();
+        eprintln!("saved input file to {path:?}");
+    }
+
+    assert_eq!(output, data.as_bytes());
+});

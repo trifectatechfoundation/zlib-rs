@@ -5,12 +5,25 @@ use zlib::{Flush, ReturnCode};
 
 const BYTES: &[u8] = include_bytes!("../../silesia-small.tar");
 
-fuzz_target!(|input: (u8, u16)| {
-    let (level, n) = input;
+#[derive(Debug, arbitrary::Arbitrary)]
+enum Level {
+    Zero = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+    Four = 4,
+    Five = 5,
+    Six = 6,
+    Seven = 7,
+    Eight = 8,
+    Nine = 9,
+}
 
-    let level = level as i32 % 10; // 0..=9
+fuzz_target!(|input: (Level, String)| {
+    let (level, data) = input;
+    let level = level as i32;
+
     let n = n as usize % BYTES.len();
-
     let data = &BYTES[..n];
 
     if data.len() == 0 {
