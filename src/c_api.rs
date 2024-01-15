@@ -209,6 +209,10 @@ pub unsafe extern "C" fn inflateInit2_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> c_int {
+    inflateInit2(strm, windowBits)
+}
+
+pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     crate::inflate::init2(strm, windowBits)
 }
 

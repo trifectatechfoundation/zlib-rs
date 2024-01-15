@@ -162,7 +162,7 @@ fn main() {
                 std::fs::write(temp_dir().join("ng-new.txt"), deflated_ng).unwrap();
                 std::fs::write(temp_dir().join("rs-new.txt"), deflated_rs).unwrap();
 
-                if &deflated_rs != &deflated_ng {
+                if deflated_rs != deflated_ng {
                     panic!("length: {n}");
                 }
             }
@@ -430,7 +430,7 @@ fn compress_dynamic(
     ReturnCode::Ok
 }
 
-pub unsafe fn deflate_dynamic(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
+unsafe fn deflate_dynamic(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
     const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
 
     let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
@@ -442,7 +442,10 @@ pub unsafe fn deflate_dynamic(strm: *mut libz_ng_sys::z_stream, flush: i32) -> s
     f(strm, flush)
 }
 
-pub unsafe fn deflateInit2__dynamic(
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn deflateInit2__dynamic(
     strm: *mut libz_ng_sys::z_stream,
     level: libc::c_int,
     method: libc::c_int,
