@@ -8,9 +8,11 @@ mod compare256;
 mod deflate;
 #[cfg(test)]
 mod dynamic;
+mod hash_calc;
 mod inffixed_tbl;
 pub mod inflate;
 mod inftrees;
+mod longest_match;
 mod read_buf;
 mod slide_hash;
 mod trees_tbl;
