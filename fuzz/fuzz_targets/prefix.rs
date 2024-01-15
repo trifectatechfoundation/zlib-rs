@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 
 use zlib::{Flush, ReturnCode};
 
-const BYTES: &[u8] = include_bytes!("/home/folkertdev/rust/zlib-rs/silesia-small.tar");
+const BYTES: &[u8] = include_bytes!("../../silesia-small.tar");
 
 fuzz_target!(|input: (u8, u16)| {
     let (level, n) = input;
