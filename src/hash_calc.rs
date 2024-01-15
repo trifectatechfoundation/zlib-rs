@@ -11,21 +11,17 @@ pub trait HashCalc {
         h & Self::HASH_CALC_MASK
     }
 
-    fn hash_calc_read(strstart: *const u8) -> u32 {
-        // looks very unsafe; why is this allright?
-        let chunk = unsafe { std::slice::from_raw_parts(strstart, 4) };
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(chunk);
-
-        u32::from_ne_bytes(buf)
+    fn hash_calc_read(strstart: &[u8]) -> u32 {
+        u32::from_ne_bytes(strstart.try_into().unwrap())
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let slice = unsafe { std::slice::from_raw_parts(strstart, 4) };
 
         let mut h = 0;
 
-        let val = Self::hash_calc_read(strstart);
+        let val = Self::hash_calc_read(slice);
 
         h = Self::hash_calc(h, val);
         h &= Self::HASH_CALC_MASK;
@@ -43,22 +39,17 @@ pub trait HashCalc {
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
         // safety: we have a mutable reference to the state, so nobody else can use this memory
-        let mut strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let strend = strstart.wrapping_add(count);
+        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let slice = unsafe { std::slice::from_raw_parts(strstart, count + 3) };
 
-        // NOTE: 4 = size_of::<u32>()
-        let mut i = 0;
-        while strstart < strend {
+        for (i, w) in slice.windows(4).take(count).enumerate() {
             let idx = string as u16 + i as u16;
 
             // HASH_CALC_VAR_INIT;
             let mut h = 0;
 
             // HASH_CALC_READ;
-            // let mut buf = [0u8; 4];
-            // buf.copy_from_slice(chunk);
-            let buf = unsafe { *(strstart as *const [u8; 4]) };
-            let val = u32::from_ne_bytes(buf);
+            let val = Self::hash_calc_read(w);
 
             // HASH_CALC(s, HASH_CALC_VAR, val);
             h = Self::hash_calc(h, val);
@@ -72,9 +63,6 @@ pub trait HashCalc {
                 state.prev[idx as usize & state.w_mask] = head;
                 state.head[hm] = idx;
             }
-
-            i += 1;
-            strstart = strstart.wrapping_add(1);
         }
     }
 }
@@ -104,14 +92,15 @@ impl HashCalc for RollHashCalc {
         (h << HASH_SLIDE) ^ val
     }
 
-    fn hash_calc_read(strstart: *const u8) -> u32 {
-        (unsafe { *strstart }) as u32
+    fn hash_calc_read(_strstart: &[u8]) -> u32 {
+        unreachable!("is inlined into the insert functions")
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let slice = unsafe { std::slice::from_raw_parts(strstart, 1) };
 
-        let val = Self::hash_calc_read(strstart);
+        let val = slice[0] as u32;
         state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
         state.ins_h &= Self::HASH_CALC_MASK as usize;
 
@@ -127,15 +116,13 @@ impl HashCalc for RollHashCalc {
     }
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
-        let mut strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let strend = strstart.wrapping_add(count);
+        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let slice = unsafe { std::slice::from_raw_parts(strstart, count) };
 
-        let mut i = 0;
-        while strstart < strend {
+        for (i, val) in slice.iter().copied().enumerate() {
             let idx = string as u16 + i as u16;
 
-            let val = Self::hash_calc_read(strstart);
-            state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
+            state.ins_h = Self::hash_calc(state.ins_h as u32, val as u32) as usize;
             state.ins_h &= Self::HASH_CALC_MASK as usize;
             let hm = state.ins_h;
 
@@ -144,9 +131,6 @@ impl HashCalc for RollHashCalc {
                 state.prev[idx as usize & state.w_mask] = head;
                 state.head[hm] = idx;
             }
-
-            i += 1;
-            strstart = strstart.wrapping_add(1);
         }
     }
 }
