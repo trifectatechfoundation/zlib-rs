@@ -1460,6 +1460,8 @@ pub(crate) unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> Return
     stream.avail_out = (state.writer.capacity() - state.writer.filled().len()) as u32;
     stream.next_out = state.writer.as_mut_ptr() as *mut u8;
 
+    stream.adler = state.checksum as u64;
+
     let valid_mode = |mode| !matches!(mode, Mode::Bad | Mode::Mem | Mode::Sync);
     let not_done = |mode| {
         !matches!(

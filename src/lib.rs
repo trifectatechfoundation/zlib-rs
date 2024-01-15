@@ -48,8 +48,8 @@ pub(crate) const ADLER32_INITIAL_VALUE: usize = 1;
 #[allow(unused)]
 pub(crate) const CRC32_INITIAL_VALUE: usize = 0;
 
-pub(crate) const MIN_WBITS: i32 = 8; // 256b LZ77 window
-pub(crate) const MAX_WBITS: i32 = 15; // 32kb LZ77 window
+pub const MIN_WBITS: i32 = 8; // 256b LZ77 window
+pub const MAX_WBITS: i32 = 15; // 32kb LZ77 window
 pub(crate) const DEF_WBITS: i32 = MAX_WBITS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

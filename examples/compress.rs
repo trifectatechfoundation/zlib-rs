@@ -1,6 +1,6 @@
 //! a binary just so we can look at the optimized assembly
 
-use std::path::PathBuf;
+use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash, path::PathBuf};
 
 use zlib::{Flush, ReturnCode};
 
@@ -9,7 +9,10 @@ fn main() {
 
     let _ = it.next().unwrap();
 
-    let level = 8;
+    let level: i32 = it.next().unwrap().parse().unwrap();
+
+    let mut hasher = DefaultHasher::new();
+    use std::hash::Hasher;
 
     match it.next().unwrap().as_str() {
         "ng" => {
@@ -27,8 +30,10 @@ fn main() {
 
             dest_vec.truncate(dest_len);
 
-            let path = PathBuf::from(path);
-            std::fs::write(path.with_extension(""), &dest_vec).unwrap();
+            dest_vec.hash(&mut hasher);
+            dbg!(hasher.finish());
+
+            std::fs::write(temp_dir().join("ng.txt"), &dest_vec).unwrap();
 
             drop(dest_vec)
         }
@@ -49,8 +54,10 @@ fn main() {
 
             dest_vec.truncate(dest_len as usize);
 
-            let path = PathBuf::from(path);
-            std::fs::write(path.with_extension(""), &dest_vec).unwrap();
+            dest_vec.hash(&mut hasher);
+            dbg!(hasher.finish());
+
+            std::fs::write(temp_dir().join("rs.txt"), &dest_vec).unwrap();
 
             drop(dest_vec)
         }
@@ -71,14 +78,102 @@ fn main() {
 
             dest_vec.truncate(dest_len as usize);
 
+            dest_vec.hash(&mut hasher);
+            dbg!(hasher.finish());
+
             let path = PathBuf::from(path);
             std::fs::write(path.with_extension(""), &dest_vec).unwrap();
 
             drop(dest_vec)
         }
+        "qq" => {
+            let ng = std::fs::read(temp_dir().join("ng.txt")).unwrap();
+            let rs = std::fs::read(temp_dir().join("rs.txt")).unwrap();
+
+            for (i, (a, b)) in (ng.iter().zip(rs.iter())).enumerate() {
+                if a != b {
+                    panic!("index {i}");
+                }
+            }
+        }
+        "qng" => {
+            const BYTES: &[u8] = include_bytes!("/home/folkertdev/rust/zlib-rs/silesia-small.tar");
+            let mut deflated_ng = vec![0; 1 << 28];
+
+            let n = (1 << 10) + 1;
+
+            let data = &BYTES[..n];
+
+            let length = data.len();
+
+            let level = 8; // this will use the slow strategy
+
+            let mut deflated_len_ng = length;
+            let error = compress_dynamic(&mut deflated_ng, &mut deflated_len_ng, data, level);
+            assert_eq!(ReturnCode::Ok, error);
+        }
+        "qrs" => {
+            const BYTES: &[u8] = include_bytes!("/home/folkertdev/rust/zlib-rs/silesia-small.tar");
+            let mut deflated_rs = vec![0; 1 << 28];
+
+            let n = (1 << 10) + 1;
+
+            let data = &BYTES[..n];
+
+            let length = data.len();
+
+            let level = 8; // this will use the slow strategy
+
+            let mut deflated_len_rs = length;
+            let error = compress_rs(&mut deflated_rs, &mut deflated_len_rs, data, level);
+            assert_eq!(ReturnCode::Ok, error);
+        }
+        "cc" => {
+            const BYTES: &[u8] = include_bytes!("/home/folkertdev/rust/zlib-rs/silesia-small.tar");
+
+            let mut deflated_rs = vec![0; 1 << 28];
+            let mut deflated_ng = vec![0; 1 << 28];
+
+            for n in [(1 << 10) + 1] {
+                if n % 1024 == 0 {
+                    println!("at {n}");
+                }
+                let n = n as usize % (BYTES.len() + 1);
+                let data = &BYTES[..n];
+
+                let length = data.len();
+
+                let level = 8; // this will use the slow strategy
+
+                // let (deflated, error) = unsafe { compress3(&mut deflated, data.as_bytes(), level) };
+                // assert_eq!(ReturnCode::Ok, error);
+
+                let mut deflated_len_rs = length;
+                let error = compress_rs(&mut deflated_rs, &mut deflated_len_rs, data, level);
+                assert_eq!(ReturnCode::Ok, error);
+                let deflated_rs = &deflated_rs[..deflated_len_rs];
+
+                let mut deflated_len_ng = length;
+                let error = compress_dynamic(&mut deflated_ng, &mut deflated_len_ng, data, level);
+                assert_eq!(ReturnCode::Ok, error);
+                let deflated_ng = &deflated_ng[..deflated_len_ng];
+
+                std::fs::write(temp_dir().join("ng-new.txt"), &deflated_ng).unwrap();
+                std::fs::write(temp_dir().join("rs-new.txt"), &deflated_rs).unwrap();
+
+                if &deflated_rs != &deflated_ng {
+                    panic!("length: {n}");
+                }
+            }
+        }
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
 }
+
+const METHOD: i32 = zlib::Z_DEFLATED;
+const WINDOW_BITS: i32 = 15;
+const MEM_LEVEL: i32 = 8;
+const STRATEGY: i32 = zlib::Z_DEFAULT_STRATEGY;
 
 fn compress_rs(
     dest: &mut [u8],
@@ -109,21 +204,16 @@ fn compress_rs(
         reserved: 0,
     };
 
-    let method = zlib::Z_DEFLATED;
-    let window_bits = 15;
-    let mem_level = 8;
-    let strategy = zlib::Z_DEFAULT_STRATEGY;
-
     let err = {
         let strm: *mut z_stream = &mut stream;
         unsafe {
             deflateInit2_(
                 strm,
                 level,
-                method,
-                window_bits,
-                mem_level,
-                strategy,
+                METHOD,
+                WINDOW_BITS,
+                MEM_LEVEL,
+                STRATEGY,
                 VERSION,
                 STREAM_SIZE,
             )
@@ -140,6 +230,7 @@ fn compress_rs(
     let mut source_len = source.len();
 
     loop {
+        println!("rs loop");
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
@@ -198,21 +289,16 @@ fn compress_ng(
         reserved: 0,
     };
 
-    let method = zlib::Z_DEFLATED;
-    let window_bits = 15;
-    let mem_level = 8;
-    let strategy = zlib::Z_DEFAULT_STRATEGY;
-
     let err = {
         let strm: *mut z_stream = &mut stream;
         unsafe {
             deflateInit2_(
                 strm,
                 level,
-                method,
-                window_bits,
-                mem_level,
-                strategy,
+                METHOD,
+                WINDOW_BITS,
+                MEM_LEVEL,
+                STRATEGY,
                 VERSION,
                 STREAM_SIZE,
             )
@@ -287,21 +373,16 @@ fn compress_dynamic(
         reserved: 0,
     };
 
-    let method = zlib::Z_DEFLATED;
-    let window_bits = 15;
-    let mem_level = 8;
-    let strategy = zlib::Z_DEFAULT_STRATEGY;
-
     let err = {
         let strm: *mut z_stream = &mut stream;
         unsafe {
             deflateInit2__dynamic(
                 strm,
                 level,
-                method,
-                window_bits,
-                mem_level,
-                strategy,
+                METHOD,
+                WINDOW_BITS,
+                MEM_LEVEL,
+                STRATEGY,
                 VERSION,
                 STREAM_SIZE,
             )
@@ -318,6 +399,7 @@ fn compress_dynamic(
     let mut source_len = source.len();
 
     loop {
+        println!("dynamic loop");
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
