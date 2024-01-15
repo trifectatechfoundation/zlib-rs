@@ -2117,20 +2117,21 @@ fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
+#[macro_export]
+macro_rules! flush_block {
+    ($stream:expr, $is_last_block:expr) => {
+        flush_block_only($stream, $is_last_block);
+
+        if $stream.avail_out == 0 {
+            return match $is_last_block {
+                true => BlockState::FinishStarted,
+                false => BlockState::NeedMore,
+            };
+        }
+    };
+}
+
 fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    macro_rules! flush_block {
-        ($is_last_block:expr) => {
-            flush_block_only(stream, $is_last_block);
-
-            if stream.avail_out == 0 {
-                return match $is_last_block {
-                    true => BlockState::FinishStarted,
-                    false => BlockState::NeedMore,
-                };
-            }
-        };
-    }
-
     loop {
         /* Make sure that we have a literal to write. */
         if stream.state.lookahead == 0 {
@@ -2150,38 +2151,25 @@ fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         state.lookahead -= 1;
         state.strstart += 1;
         if bflush {
-            flush_block!(false);
+            flush_block!(stream, false);
         }
     }
 
     stream.state.insert = 0;
 
     if flush == Flush::Finish {
-        flush_block!(true);
+        flush_block!(stream, true);
         return BlockState::FinishDone;
     }
 
     if stream.state.sym_next != 0 {
-        flush_block!(false);
+        flush_block!(stream, false);
     }
 
     BlockState::BlockDone
 }
 
 fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    macro_rules! flush_block {
-        ($is_last_block:expr) => {
-            flush_block_only(stream, $is_last_block);
-
-            if stream.avail_out == 0 {
-                return match $is_last_block {
-                    true => BlockState::FinishStarted,
-                    false => BlockState::NeedMore,
-                };
-            }
-        };
-    }
-
     let mut match_len = 0;
     let mut bflush;
 
@@ -2240,19 +2228,19 @@ fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         }
 
         if bflush {
-            flush_block!(false);
+            flush_block!(stream, false);
         }
     }
 
     stream.state.insert = 0;
 
     if flush == Flush::Finish {
-        flush_block!(true);
+        flush_block!(stream, true);
         return BlockState::FinishDone;
     }
 
     if stream.state.sym_next != 0 {
-        flush_block!(false);
+        flush_block!(stream, false);
     }
 
     BlockState::BlockDone
@@ -2412,19 +2400,6 @@ fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 }
 
 fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    macro_rules! flush_block {
-        ($is_last_block:expr) => {
-            flush_block_only(stream, $is_last_block);
-
-            if stream.avail_out == 0 {
-                return match $is_last_block {
-                    true => BlockState::FinishStarted,
-                    false => BlockState::NeedMore,
-                };
-            }
-        };
-    }
-
     let mut bflush; /* set if current block must be flushed */
     let mut dist;
     let mut match_len = 0;
@@ -2501,7 +2476,7 @@ fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         }
 
         if bflush {
-            flush_block!(false);
+            flush_block!(stream, false);
         }
     }
 
@@ -2512,31 +2487,18 @@ fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     };
 
     if flush == Flush::Finish {
-        flush_block!(true);
+        flush_block!(stream, true);
         return BlockState::FinishDone;
     }
 
     if stream.state.sym_next != 0 {
-        flush_block!(false);
+        flush_block!(stream, false);
     }
 
     BlockState::BlockDone
 }
 
 fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    macro_rules! flush_block {
-        ($is_last_block:expr) => {
-            flush_block_only(stream, $is_last_block);
-
-            if stream.avail_out == 0 {
-                return match $is_last_block {
-                    true => BlockState::FinishStarted,
-                    false => BlockState::NeedMore,
-                };
-            }
-        };
-    }
-
     #[repr(C)]
     #[derive(Debug, Clone, Copy)]
     struct Match {
@@ -2851,38 +2813,25 @@ fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         state.strstart += current_match.match_length as usize;
 
         if bflush {
-            flush_block!(false);
+            flush_block!(stream, false);
         }
     }
 
     stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH - 1);
 
     if flush == Flush::Finish {
-        flush_block!(true);
+        flush_block!(stream, true);
         return BlockState::FinishDone;
     }
 
     if stream.state.sym_next != 0 {
-        flush_block!(false);
+        flush_block!(stream, false);
     }
 
     return BlockState::BlockDone;
 }
 
 fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
-    macro_rules! flush_block {
-        ($is_last_block:expr) => {
-            flush_block_only(stream, $is_last_block);
-
-            if stream.avail_out == 0 {
-                return match $is_last_block {
-                    true => BlockState::FinishStarted,
-                    false => BlockState::NeedMore,
-                };
-            }
-        };
-    }
-
     let mut hash_head; /* head of hash chain */
     let mut bflush; /* set if current block must be flushed */
     let mut dist;
@@ -2981,7 +2930,7 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             state.strstart += mov_fwd + 1;
 
             if bflush {
-                flush_block!(false);
+                flush_block!(stream, false);
             }
         } else if state.match_available > 0 {
             // If there was no match at the previous position, output a
@@ -3022,12 +2971,12 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
 
     if flush == Flush::Finish {
-        flush_block!(true);
+        flush_block!(stream, true);
         return BlockState::FinishDone;
     }
 
     if state.sym_next != 0 {
-        flush_block!(false);
+        flush_block!(stream, false);
     }
 
     return BlockState::BlockDone;
@@ -3543,336 +3492,6 @@ impl Heap {
 
         top
     }
-}
-
-#[test]
-fn form_heap() {
-    const INPUT: &[u32] = &[
-        0, 0, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27,
-        28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
-        52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 69, 71, 72, 73, 74, 75, 76, 77,
-        78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
-        100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
-        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 130, 131, 132, 133, 134, 135, 136,
-        137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154,
-        155, 156, 157, 158, 159, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
-        174, 175, 176, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192,
-        193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210,
-        211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228,
-        229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246,
-        247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 260,
-    ];
-
-    const OUTPUT: &[u32] = &[
-        0, 69, 196, 132, 22, 99, 118, 269, 39, 165, 178, 97, 217, 225, 123, 66, 142, 146, 82, 164,
-        176, 12, 2, 199, 202, 216, 112, 15, 122, 64, 260, 8, 139, 73, 144, 78, 40, 81, 4, 86, 172,
-        89, 46, 185, 48, 193, 13, 6, 205, 106, 108, 28, 7, 29, 229, 231, 61, 241, 242, 248, 65,
-        256, 133, 35, 137, 138, 140, 143, 9, 38, 148, 20, 79, 154, 157, 41, 161, 42, 85, 168, 169,
-        171, 23, 90, 179, 180, 182, 47, 95, 96, 49, 25, 194, 50, 101, 201, 52, 27, 105, 209, 210,
-        212, 109, 14, 111, 57, 113, 58, 226, 116, 117, 60, 119, 236, 121, 31, 32, 244, 246, 16,
-        251, 128, 130, 131, 17, 3, 134, 135, 136, 71, 36, 72, 18, 141, 74, 37, 75, 145, 76, 147,
-        77, 149, 150, 151, 152, 153, 80, 155, 156, 21, 158, 159, 83, 162, 163, 84, 43, 166, 167,
-        11, 87, 170, 44, 88, 173, 174, 175, 45, 91, 24, 92, 181, 93, 183, 184, 94, 186, 187, 188,
-        189, 190, 191, 192, 98, 26, 195, 100, 197, 198, 51, 200, 102, 103, 203, 204, 104, 206, 207,
-        208, 53, 107, 211, 54, 213, 214, 215, 55, 110, 218, 219, 220, 221, 222, 223, 224, 114, 115,
-        227, 228, 59, 230, 30, 232, 233, 234, 235, 120, 237, 238, 239, 240, 62, 63, 243, 124, 245,
-        125, 247, 126, 249, 250, 127, 252, 253, 254, 255, 34, 0,
-    ];
-
-    const TREE: &[Value] = &[
-        Value::new(6, 0),
-        Value::new(0, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(2, 0),
-        Value::new(0, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(0, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(6, 0),
-        Value::new(0, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(1, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(6, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(0, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(1, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(2, 0),
-        Value::new(8, 0),
-        Value::new(4, 0),
-        Value::new(6, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(8, 0),
-        Value::new(0, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(1, 0),
-        Value::new(4, 0),
-        Value::new(0, 0),
-        Value::new(1, 0),
-        Value::new(0, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(1, 0),
-        Value::new(3, 0),
-        Value::new(8, 0),
-        Value::new(5, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(1, 0),
-        Value::new(1, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(8, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(8, 0),
-        Value::new(8, 0),
-        Value::new(6, 0),
-        Value::new(6, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(1, 0),
-        Value::new(4, 0),
-        Value::new(1, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(8, 0),
-        Value::new(4, 0),
-        Value::new(6, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(1, 0),
-        Value::new(6, 0),
-        Value::new(9, 0),
-        Value::new(4, 0),
-        Value::new(1, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(1, 0),
-        Value::new(3, 0),
-        Value::new(9, 0),
-        Value::new(2, 0),
-        Value::new(1, 0),
-        Value::new(1, 0),
-        Value::new(6, 0),
-        Value::new(6, 0),
-        Value::new(6, 0),
-        Value::new(12, 0),
-        Value::new(3, 0),
-        Value::new(0, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(1, 0),
-        Value::new(3, 0),
-        Value::new(8, 0),
-        Value::new(6, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(1, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(8, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(9, 0),
-        Value::new(2, 0),
-        Value::new(11, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(7, 0),
-        Value::new(10, 0),
-        Value::new(0, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(1, 0),
-        Value::new(1, 0),
-        Value::new(6, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(13, 0),
-        Value::new(5, 0),
-        Value::new(1, 0),
-        Value::new(0, 0),
-        Value::new(1, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(8, 0),
-        Value::new(9, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(3, 0),
-        Value::new(6, 0),
-        Value::new(4, 0),
-        Value::new(5, 0),
-        Value::new(6, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(7, 0),
-        Value::new(1, 0),
-        Value::new(3, 0),
-        Value::new(6, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(5, 0),
-        Value::new(2, 0),
-        Value::new(5, 0),
-        Value::new(7, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(7, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(8, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(6, 0),
-        Value::new(6, 0),
-        Value::new(1, 0),
-        Value::new(1, 0),
-        Value::new(11, 0),
-        Value::new(8, 0),
-        Value::new(5, 0),
-        Value::new(7, 0),
-        Value::new(5, 0),
-        Value::new(9, 0),
-        Value::new(3, 0),
-        Value::new(1, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(5, 0),
-        Value::new(2, 0),
-        Value::new(4, 0),
-        Value::new(2, 0),
-        Value::new(6, 0),
-        Value::new(8, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(4, 0),
-        Value::new(3, 0),
-        Value::new(3, 0),
-        Value::new(2, 0),
-        Value::new(3, 0),
-        Value::new(5, 0),
-        Value::new(5, 0),
-        Value::new(7, 0),
-        Value::new(4, 0),
-        Value::new(10, 0),
-        Value::new(3, 0),
-        Value::new(4, 0),
-        Value::new(5, 0),
-        Value::new(4, 0),
-        Value::new(7, 0),
-        Value::new(11, 0),
-        Value::new(10, 0),
-        Value::new(15, 0),
-        Value::new(1, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(1, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(0, 0),
-        Value::new(1, 0),
-    ];
-
-    let mut heap = Heap {
-        heap: {
-            let mut h = [0; 2 * L_CODES + 1];
-            h[..INPUT.len()].copy_from_slice(INPUT);
-
-            h
-        },
-        heap_len: INPUT.len(),
-        heap_max: 1234,
-        depth: [0; 2 * L_CODES + 1],
-    };
-
-    // The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
-    // establish sub-heaps of increasing lengths:
-    let mut n = heap.heap_len / 2;
-    while n >= 1 {
-        heap.pqdownheap(TREE, n);
-        n -= 1;
-    }
-
-    assert_eq!(&heap.heap[..OUTPUT.len()], OUTPUT);
 }
 
 #[cfg(test)]
