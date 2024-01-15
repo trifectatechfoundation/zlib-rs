@@ -154,5 +154,5 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         flush_block!(stream, false);
     }
 
-    return BlockState::BlockDone;
+    BlockState::BlockDone
 }

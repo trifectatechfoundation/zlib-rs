@@ -190,7 +190,7 @@ pub fn init2(
         // window
         w_bits: window_bits as usize,
         w_size,
-        w_mask: w_size as usize - 1,
+        w_mask: w_size - 1,
 
         // allocated values
         window: window_ptr,
@@ -1136,7 +1136,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             if state.max_chain_length > 1024 {
                 // state.ins_h = state.update_hash(s, state.window[string], state.window[string + 1]);
 
-                let v0 = unsafe { *state.window.wrapping_add(string + 0) } as u32;
+                let v0 = unsafe { *state.window.wrapping_add(string) } as u32;
                 let v1 = unsafe { *state.window.wrapping_add(string + 1) } as u32;
                 state.ins_h = (state.update_hash)(v0, v1) as usize;
             } else if string >= 1 {

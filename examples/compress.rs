@@ -17,7 +17,7 @@ fn main() {
     match it.next().unwrap().as_str() {
         "ng" => {
             let path = it.next().unwrap();
-            let input = std::fs::read(&path).unwrap();
+            let input = std::fs::read(path).unwrap();
 
             let mut dest_vec = vec![0u8; 1 << 28];
             let mut dest_len = dest_vec.len();
@@ -134,7 +134,8 @@ fn main() {
             let mut deflated_rs = vec![0; 1 << 28];
             let mut deflated_ng = vec![0; 1 << 28];
 
-            for n in [(1 << 10) + 1] {
+            {
+                let n = (1 << 10) + 1;
                 if n % 1024 == 0 {
                     println!("at {n}");
                 }
@@ -158,8 +159,8 @@ fn main() {
                 assert_eq!(ReturnCode::Ok, error);
                 let deflated_ng = &deflated_ng[..deflated_len_ng];
 
-                std::fs::write(temp_dir().join("ng-new.txt"), &deflated_ng).unwrap();
-                std::fs::write(temp_dir().join("rs-new.txt"), &deflated_rs).unwrap();
+                std::fs::write(temp_dir().join("ng-new.txt"), deflated_ng).unwrap();
+                std::fs::write(temp_dir().join("rs-new.txt"), deflated_rs).unwrap();
 
                 if &deflated_rs != &deflated_ng {
                     panic!("length: {n}");

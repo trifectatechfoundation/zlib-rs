@@ -159,7 +159,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         flush_block!(stream, false);
     }
 
-    return BlockState::BlockDone;
+    BlockState::BlockDone
 }
 
 #[repr(C)]
@@ -207,20 +207,18 @@ fn insert_match(state: &mut State, mut m: Match) {
     if (m.match_length as usize) < WANT_MIN_MATCH {
         m.strstart += 1;
         m.match_length -= 1;
-        if m.match_length > 0 {
-            if m.strstart >= m.orgstart {
-                if m.strstart + m.match_length - 1 >= m.orgstart {
-                    (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
-                } else {
-                    (state.insert_string)(
-                        state,
-                        m.strstart as usize,
-                        (m.orgstart - m.strstart + 1) as usize,
-                    );
-                }
-                m.strstart += m.match_length;
-                m.match_length = 0;
+        if m.match_length > 0 && m.strstart >= m.orgstart {
+            if m.strstart + m.match_length > m.orgstart {
+                (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
+            } else {
+                (state.insert_string)(
+                    state,
+                    m.strstart as usize,
+                    (m.orgstart - m.strstart + 1) as usize,
+                );
             }
+            m.strstart += m.match_length;
+            m.match_length = 0;
         }
         return;
     }
@@ -235,7 +233,7 @@ fn insert_match(state: &mut State, mut m: Match) {
         m.strstart += 1;
 
         if m.strstart >= m.orgstart {
-            if m.strstart + m.match_length - 1 >= m.orgstart {
+            if m.strstart + m.match_length > m.orgstart {
                 (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
             } else {
                 (state.insert_string)(
@@ -333,7 +331,5 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
         n.orgstart += 1;
         *current = c;
         *next = n;
-    } else {
-        return;
-    }
+    } 
 }

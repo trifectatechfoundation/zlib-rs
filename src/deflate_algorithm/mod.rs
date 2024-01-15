@@ -16,7 +16,7 @@ mod stored;
 #[macro_export]
 macro_rules! flush_block {
     ($stream:expr, $is_last_block:expr) => {
-        crate::deflate::flush_block_only($stream, $is_last_block);
+        $crate::deflate::flush_block_only($stream, $is_last_block);
 
         if $stream.avail_out == 0 {
             return match $is_last_block {
