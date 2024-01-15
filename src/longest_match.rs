@@ -32,12 +32,12 @@ fn longest_match_help<const SLOW: bool>(
     let mut mbase_end: *mut u8;
     let mut limit: Pos;
     let limit_base: Pos;
-    let early_exit: bool;
+    
 
     let mut chain_length: usize;
     let mut best_len: usize;
 
-    let nice_match;
+    
     let lookahead = state.lookahead;
     let mut match_offset = 0;
 
@@ -90,7 +90,7 @@ fn longest_match_help<const SLOW: bool>(
     if best_len >= state.good_match {
         chain_length >>= 2;
     }
-    nice_match = state.nice_match;
+    let nice_match = state.nice_match;
 
     /* Stop when cur_match becomes <= limit. To simplify the code,
      * we prevent matches with the string of window index 0
@@ -147,7 +147,7 @@ fn longest_match_help<const SLOW: bool>(
 
     // NOTE skipping the slow stuff for now
 
-    early_exit = state.level < EARLY_EXIT_TRIGGER_LEVEL;
+    let early_exit: bool = state.level < EARLY_EXIT_TRIGGER_LEVEL;
 
     assert!(
         strstart <= state.window_size - MIN_LOOKAHEAD,
