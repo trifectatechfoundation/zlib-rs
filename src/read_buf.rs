@@ -258,7 +258,11 @@ impl<'a> ReadBuf<'a> {
 
     #[track_caller]
     pub fn push(&mut self, byte: u8) {
-        assert!(self.remaining() >= 1, "byte must fit in remaining()");
+        assert!(
+            self.remaining() >= 1,
+            "read_buf is full ({} bytes)",
+            self.capacity()
+        );
 
         self.buf[self.filled] = MaybeUninit::new(byte);
 

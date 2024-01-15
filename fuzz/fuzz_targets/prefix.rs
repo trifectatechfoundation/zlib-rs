@@ -1,9 +1,18 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
+use libfuzzer_sys::{arbitrary, fuzz_target};
 
 use zlib::{Flush, ReturnCode};
 
 const BYTES: &[u8] = include_bytes!("../../silesia-small.tar");
+
+#[derive(Debug)]
+struct Length(usize);
+
+impl<'a> arbitrary::Arbitrary<'a> for Length {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Length(u.int_in_range(0..=BYTES.len())?))
+    }
+}
 
 #[derive(Debug, arbitrary::Arbitrary)]
 enum Level {
@@ -19,12 +28,11 @@ enum Level {
     Nine = 9,
 }
 
-fuzz_target!(|input: (Level, String)| {
-    let (level, data) = input;
+fuzz_target!(|input: (Level, Length)| {
+    let (level, n) = input;
     let level = level as i32;
 
-    let n = n as usize % BYTES.len();
-    let data = &BYTES[..n];
+    let data = &BYTES[..n.0];
 
     if data.len() == 0 {
         return;
@@ -46,19 +54,32 @@ fuzz_target!(|input: (Level, String)| {
 
     assert_eq!(&deflated_rs, &deflated_ng);
 
-    let output = uncompress_help(&deflated_ng[..deflated_len_ng]);
+    match uncompress_help(&deflated_ng) {
+        Err(err) => {
+            let raw_path = std::env::temp_dir().join("failed-inflate-raw.dat");
+            std::fs::write(&raw_path, &data).unwrap();
 
-    if output != data {
-        let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
-        eprintln!("saved input file to {path:?}");
+            let deflated_path = std::env::temp_dir().join("failed-inflate-deflated.dat");
+            std::fs::write(&deflated_path, &deflated_ng).unwrap();
+
+            eprintln!("saved files\n    raw:      {raw_path:?}\n    deflated: {deflated_path:?}");
+
+            panic!("uncompress error {:?}", err);
+        }
+        Ok(output) => {
+            if output != data {
+                let path = std::env::temp_dir().join("deflate.txt");
+                std::fs::write(&path, &data).unwrap();
+                eprintln!("saved input file to {path:?}");
+            }
+
+            assert_eq!(output, data);
+        }
     }
-
-    assert_eq!(output, data);
 });
 
-fn uncompress_help(input: &[u8]) -> Vec<u8> {
-    let mut dest_vec = vec![0u8; 1 << 16];
+fn uncompress_help(input: &[u8]) -> Result<Vec<u8>, ReturnCode> {
+    let mut dest_vec = vec![0u8; BYTES.len()];
 
     let mut dest_len = dest_vec.len();
     let dest = dest_vec.as_mut_ptr();
@@ -69,16 +90,12 @@ fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let err = unsafe { libz_ng_sys::uncompress(dest, &mut dest_len, source, source_len) };
 
     if err != 0 {
-        let path = std::env::temp_dir().join("failed-inflate.txt");
-        std::fs::write(&path, &input).unwrap();
-        eprintln!("saved input file to {path:?}");
+        Err(zlib::ReturnCode::from(err))
+    } else {
+        dest_vec.truncate(dest_len as usize);
 
-        panic!("error {:?}", zlib::ReturnCode::from(err));
+        Ok(dest_vec)
     }
-
-    dest_vec.truncate(dest_len as usize);
-
-    dest_vec
 }
 
 fn compress_rs(
