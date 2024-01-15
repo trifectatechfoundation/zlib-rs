@@ -552,7 +552,6 @@ trait ChunkSet {
         }
 
         if len != 0 {
-            // memcpy(out, &chunk_load, len);
             std::ptr::copy_nonoverlapping(&chunk_load as *const _ as *const u8, out, len);
             out = out.add(len);
         }

@@ -1016,7 +1016,7 @@ pub(crate) fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize)
 
     // TODO gzip and maybe DEFLATE_NEED_CHECKSUM too?
     if stream.state.wrap == 1 {
-        // TODO fuse adler and memcpy
+        // TODO fuse adler and copy
         let data = unsafe { std::slice::from_raw_parts(stream.next_in, len) };
         stream.adler = adler32(stream.adler as u32, data) as _;
         unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
@@ -1083,10 +1083,10 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // move the upper half to the lower one to make room in the upper half.
         if state.strstart >= wsize + state.max_dist() {
             unsafe {
-                libc::memcpy(
-                    state.window.cast(),
-                    state.window.wrapping_add(wsize).cast(),
-                    wsize as _,
+                std::ptr::copy_nonoverlapping(
+                    state.window.wrapping_add(wsize),
+                    state.window,
+                    wsize as usize,
                 )
             };
 
