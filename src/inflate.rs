@@ -707,7 +707,7 @@ impl<'a> State<'a> {
 
         if here.op == 0 {
             if self.writer.remaining() == 0 {
-                eprintln!("self.writer.remaining == 0");
+                eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
@@ -823,7 +823,10 @@ impl<'a> State<'a> {
 
     fn match_(&mut self) -> ReturnCode {
         if self.writer.remaining() == 0 {
-            eprintln!("self.writer.remaining == 0");
+            eprintln!(
+                "BufError: read_buf is full ({} bytes)",
+                self.writer.capacity()
+            );
             return self.inflate_leave(ReturnCode::BufError);
         }
 
@@ -1249,7 +1252,9 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
         }
 
         let remaining = bit_reader.bytes_remaining();
-        if remaining.saturating_sub(INFLATE_FAST_MIN_LEFT - 1) > 0 {
+        if remaining.saturating_sub(INFLATE_FAST_MIN_LEFT - 1) > 0
+            && writer.remaining() > INFLATE_FAST_MIN_LEFT
+        {
             continue;
         }
 
