@@ -114,7 +114,7 @@ fuzz_target!(|data: String| {
     // first, deflate the data using the standard zlib
     let length = 8 * 1024;
     let mut deflated = vec![0; length as usize];
-    let (deflated, error) = unsafe { compress3(&mut deflated, data.as_bytes(), 6) };
+    let (deflated, error) = compress3(&mut deflated, data.as_bytes(), 6);
 
     assert_eq!(ReturnCode::Ok, error);
     let output = uncompress_help(&deflated);

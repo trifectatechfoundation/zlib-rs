@@ -52,7 +52,7 @@ fn main() {
                 panic!("error {err:?}");
             }
 
-            dest_vec.truncate(dest_len as usize);
+            dest_vec.truncate(dest_len);
 
             dest_vec.hash(&mut hasher);
             dbg!(hasher.finish());
@@ -76,7 +76,7 @@ fn main() {
                 panic!("error {err:?}");
             }
 
-            dest_vec.truncate(dest_len as usize);
+            dest_vec.truncate(dest_len);
 
             dest_vec.hash(&mut hasher);
             dbg!(hasher.finish());
