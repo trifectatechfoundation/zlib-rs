@@ -368,10 +368,9 @@ fn lm_set_level(state: &mut State, level: i8) {
     // properly lookup different hash chains to speed up longest_match search. Since hashing
     // method changes depending on the level we cannot put this into functable. */
     if state.max_chain_length > 1024 {
-        todo!()
-        // s->update_hash = &update_hash_roll;
-        // s->insert_string = &insert_string_roll;
-        // s->quick_insert_string = &quick_insert_string_roll;
+        state.update_hash = RollHashCalc::update_hash;
+        state.insert_string = RollHashCalc::insert_string;
+        state.quick_insert_string = RollHashCalc::quick_insert_string;
     } else {
         // NOTE: this is hardcoded currently
         state.update_hash = Crc32HashCalc::update_hash;
@@ -455,6 +454,7 @@ const MAX_BL_BITS: usize = 7;
 pub(crate) const DIST_CODE_LEN: usize = 512;
 
 #[allow(unused)]
+#[repr(C)]
 pub(crate) struct State<'a> {
     status: Status,
 
@@ -893,7 +893,8 @@ impl<'a> State<'a> {
             _ => PRESET_DICT,
         };
 
-        let h = (Z_DEFLATED + ((self.w_bits as u16 - 8) << 4)) << 8 | self.level_flags() | dict;
+        let h =
+            (Z_DEFLATED + ((self.w_bits as u16 - 8) << 4)) << 8 | (self.level_flags() << 6) | dict;
 
         h + 31 - (h % 31)
     }
@@ -996,7 +997,7 @@ enum BlockState {
 }
 
 // Maximum stored block length in deflate format (not including header).
-const MAX_STORED: usize = 65535;
+const MAX_STORED: usize = 65535; // so u16::max
 
 fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
     let len = Ord::min(stream.avail_in as usize, size);
@@ -1308,50 +1309,37 @@ trait HashCalc {
         h & Self::HASH_CALC_MASK
     }
 
-    fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let chunk = unsafe { std::slice::from_raw_parts(strstart, 4) }; // looks very unsafe; why is this allright?
-
-        // HASH_CALC_VAR_INIT;
-        let mut h = 0;
-
-        // HASH_CALC_READ;
+    fn hash_calc_read(strstart: *const u8) -> u32 {
+        // looks very unsafe; why is this allright?
+        let chunk = unsafe { std::slice::from_raw_parts(strstart, 4) };
         let mut buf = [0u8; 4];
         buf.copy_from_slice(chunk);
-        let val = u32::from_ne_bytes(buf);
-        println!("h = {}", val);
 
-        //    // HASH_CALC(s, HASH_CALC_VAR, val);
-        //    h = hash_calc(val);
-        //    h &= HASH_CALC_MASK;
+        u32::from_ne_bytes(buf)
+    }
+
+    fn quick_insert_string(state: &mut State, string: usize) -> u16 {
+        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+
+        let mut h = 0;
+
+        let val = Self::hash_calc_read(strstart);
+
         h = Self::hash_calc(h, val);
         h &= Self::HASH_CALC_MASK;
-        println!("h = {}, mask = {}", h, Self::HASH_CALC_MASK);
 
-        // hm = HASH_CALC_VAR;
         let hm = h as usize;
-        println!("hm = {}", hm);
 
         let head = state.head[hm];
         if head != string as u16 {
-            println!(
-                "prev[{}] = {}, string = {}, wmask = {}",
-                string & state.w_mask,
-                head,
-                string,
-                state.w_mask
-            );
             state.prev[string & state.w_mask] = head;
             state.head[hm] = string as u16;
         }
-
-        println!("hash head = {head}");
 
         head
     }
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
-        println!("insert string {count}");
         // safety: we have a mutable reference to the state, so nobody else can use this memory
         let mut strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
         let strend = strstart.wrapping_add(count);
@@ -1379,7 +1367,6 @@ trait HashCalc {
 
             let head = state.head[hm];
             if head != idx {
-                println!("prev[{}] = {}", idx as usize & state.w_mask, head);
                 state.prev[idx as usize & state.w_mask] = head;
                 state.head[hm] = idx;
             }
@@ -1403,6 +1390,81 @@ impl HashCalc for StandardHashCalc {
     }
 }
 
+struct RollHashCalc;
+
+#[test]
+fn foobarbaz() {
+    assert_eq!(RollHashCalc::hash_calc(2565, 93), 82173);
+    assert_eq!(RollHashCalc::hash_calc(16637, 10), 532394);
+    assert_eq!(RollHashCalc::hash_calc(8106, 100), 259364);
+    assert_eq!(RollHashCalc::hash_calc(29988, 101), 959717);
+    assert_eq!(RollHashCalc::hash_calc(9445, 98), 302274);
+    assert_eq!(RollHashCalc::hash_calc(7362, 117), 235573);
+    assert_eq!(RollHashCalc::hash_calc(6197, 103), 198343);
+    assert_eq!(RollHashCalc::hash_calc(1735, 32), 55488);
+    assert_eq!(RollHashCalc::hash_calc(22720, 61), 727101);
+    assert_eq!(RollHashCalc::hash_calc(6205, 32), 198528);
+    assert_eq!(RollHashCalc::hash_calc(3826, 117), 122421);
+    assert_eq!(RollHashCalc::hash_calc(24117, 101), 771781);
+}
+
+impl HashCalc for RollHashCalc {
+    const HASH_CALC_OFFSET: usize = STD_MIN_MATCH - 1;
+
+    const HASH_CALC_MASK: u32 = 32768 - 1;
+
+    fn hash_calc(h: u32, val: u32) -> u32 {
+        const HASH_SLIDE: u32 = 5;
+        (h << HASH_SLIDE) ^ (val & 0xFF)
+    }
+
+    fn hash_calc_read(strstart: *const u8) -> u32 {
+        (unsafe { *strstart }) as u32
+    }
+
+    fn quick_insert_string(state: &mut State, string: usize) -> u16 {
+        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+
+        let val = Self::hash_calc_read(strstart);
+        state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
+        state.ins_h &= Self::HASH_CALC_MASK as usize;
+
+        let hm = state.ins_h;
+
+        let head = state.head[hm];
+        if head != string as u16 {
+            state.prev[string & state.w_mask] = head;
+            state.head[hm] = string as u16;
+        }
+
+        head
+    }
+
+    fn insert_string(state: &mut State, string: usize, count: usize) {
+        let mut strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strend = strstart.wrapping_add(count);
+
+        let mut i = 0;
+        while strstart < strend {
+            let idx = string as u16 + i as u16;
+
+            let val = Self::hash_calc_read(strstart);
+            state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
+            state.ins_h &= Self::HASH_CALC_MASK as usize;
+            let hm = state.ins_h;
+
+            let head = state.head[hm];
+            if head != idx {
+                state.prev[idx as usize & state.w_mask] = head;
+                state.head[hm] = idx;
+            }
+
+            i += 1;
+            strstart = strstart.wrapping_add(1);
+        }
+    }
+}
+
 struct Crc32HashCalc;
 
 impl HashCalc for Crc32HashCalc {
@@ -1411,7 +1473,6 @@ impl HashCalc for Crc32HashCalc {
     const HASH_CALC_MASK: u32 = (HASH_SIZE - 1) as u32;
 
     fn hash_calc(h: u32, val: u32) -> u32 {
-        println!("h = {}, val = {}", h, val);
         unsafe { _mm_crc32_u32(h, val) }
     }
 }
@@ -1432,13 +1493,6 @@ fn fill_window(stream: &mut DeflateStream) {
                 libc::memcpy(
                     state.window.cast(),
                     state.window.wrapping_add(wsize).cast(),
-                    wsize as _,
-                )
-            };
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.window.wrapping_add(wsize),
-                    state.window,
                     wsize as _,
                 )
             };
@@ -1477,7 +1531,7 @@ fn fill_window(stream: &mut DeflateStream) {
         //
         assert!(more >= 2, "more < 2");
 
-        let ptr = state.window.wrapping_add(state.strstart);
+        let ptr = state.window.wrapping_add(state.strstart + state.lookahead);
         let n = read_buf(stream, ptr, more);
 
         let state = &mut stream.state;
@@ -1720,8 +1774,7 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     gen_bitlen(state, desc);
 
     // The field len is now set, we can generate the bit codes
-    let tree = &mut desc.dyn_tree;
-    gen_codes(tree, max_code, &state.bl_count);
+    gen_codes(&mut desc.dyn_tree, max_code, &state.bl_count);
 }
 
 fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
@@ -1863,12 +1916,17 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
             trace!(
                 "\nn {:>3} {} l {:>2} c {:>4x} ({:x}) ",
                 n,
-                match char::from_u32(n as u32) {
-                    None => ' ',
-                    Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                        true => c,
-                        false => ' ',
-                    },
+                //                match char::from_u32(n as u32) {
+                //                    None => ' ',
+                //                    Some(c) => match c.is_ascii() && !c.is_whitespace() {
+                //                        true => c,
+                //                        false => ' ',
+                //                    },
+                //                },
+                if unsafe { libc::isgraph(n as i32) } > 0 {
+                    char::from_u32(n as u32).unwrap()
+                } else {
+                    ' '
                 },
                 len,
                 tree[n].code(),
@@ -2063,6 +2121,7 @@ fn build_bl_tree(state: &mut State) -> usize {
         &mut state.l_desc.dyn_tree,
         state.l_desc.max_code,
     );
+
     scan_tree(
         &mut state.bl_desc,
         &mut state.d_desc.dyn_tree,
@@ -2289,8 +2348,94 @@ fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     BlockState::BlockDone
 }
 
-fn deflate_rle(_state: &mut State, _flush: Flush) -> BlockState {
-    todo!()
+fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    macro_rules! flush_block {
+        ($is_last_block:expr) => {
+            flush_block_only(stream, $is_last_block);
+
+            if stream.avail_out == 0 {
+                return match $is_last_block {
+                    true => BlockState::FinishStarted,
+                    false => BlockState::NeedMore,
+                };
+            }
+        };
+    }
+
+    let mut match_len = 0;
+    let mut bflush;
+
+    loop {
+        // Make sure that we always have enough lookahead, except
+        // at the end of the input file. We need STD_MAX_MATCH bytes
+        // for the next match, plus WANT_MIN_MATCH bytes to insert the
+        // string following the next match.
+        if stream.state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+                return BlockState::NeedMore;
+            }
+            if stream.state.lookahead == 0 {
+                break; /* flush the current block */
+            }
+        }
+
+        /* See how many times the previous byte repeats */
+        let state = &mut stream.state;
+        if state.lookahead >= STD_MIN_MATCH && state.strstart > 0 {
+            let mut match_len = 0;
+            let scan = state.window.wrapping_add(state.strstart - 1);
+
+            {
+                let scan = unsafe { std::slice::from_raw_parts(scan, 256) };
+
+                if scan[0] == scan[1] && scan[1] == scan[2] {
+                    match_len = crate::compare256::compare256_rle(scan[0], &scan[3..]) + 2;
+                    match_len = Ord::min(match_len, state.lookahead);
+                    match_len = Ord::min(match_len, STD_MAX_MATCH);
+                }
+            }
+
+            assert!(
+                scan.wrapping_add(match_len) <= state.window.wrapping_add(state.window_size - 1),
+                "wild scan"
+            );
+        }
+
+        /* Emit match if have run of STD_MIN_MATCH or longer, else emit literal */
+        if match_len >= STD_MIN_MATCH {
+            // check_match(s, s->strstart, s->strstart - 1, match_len);
+
+            bflush = state.tally_dist(1, match_len - STD_MIN_MATCH);
+
+            state.lookahead -= match_len;
+            state.strstart += match_len;
+            match_len = 0;
+        } else {
+            /* No match, output a literal byte */
+            let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+            bflush = state.tally_lit(lc);
+            state.lookahead -= 1;
+            state.strstart += 1;
+        }
+
+        if bflush {
+            flush_block!(false);
+        }
+    }
+
+    stream.state.insert = 0;
+
+    if flush == Flush::Finish {
+        flush_block!(true);
+        return BlockState::FinishDone;
+    }
+
+    if stream.state.sym_next != 0 {
+        flush_block!(false);
+    }
+
+    BlockState::BlockDone
 }
 
 // # Safety
@@ -2558,8 +2703,350 @@ fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     BlockState::BlockDone
 }
 
-fn deflate_medium(_stream: &mut DeflateStream, _flush: Flush) -> BlockState {
-    todo!()
+fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+    macro_rules! flush_block {
+        ($is_last_block:expr) => {
+            flush_block_only(stream, $is_last_block);
+
+            if stream.avail_out == 0 {
+                return match $is_last_block {
+                    true => BlockState::FinishStarted,
+                    false => BlockState::NeedMore,
+                };
+            }
+        };
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct Match {
+        match_start: u16,
+        match_length: u16,
+        strstart: u16,
+        orgstart: u16,
+    }
+
+    fn emit_match(state: &mut State, mut m: Match) -> bool {
+        let mut bflush = false;
+
+        /* matches that are not long enough we need to emit as literals */
+        if (m.match_length as usize) < WANT_MIN_MATCH {
+            while m.match_length > 0 {
+                let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+                bflush |= state.tally_lit(lc);
+                state.lookahead -= 1;
+                m.strstart += 1;
+                m.match_length -= 1;
+            }
+            return bflush;
+        }
+
+        // check_match(s, m.strstart, m.match_start, m.match_length);
+
+        bflush |= state.tally_dist(
+            (m.strstart - m.match_start) as usize,
+            m.match_length as usize - STD_MIN_MATCH,
+        );
+
+        state.lookahead -= m.match_length as usize;
+
+        bflush
+    }
+
+    fn insert_match(state: &mut State, mut m: Match) {
+        if state.lookahead <= (m.match_length as usize + WANT_MIN_MATCH) {
+            return;
+        }
+
+        /* matches that are not long enough we need to emit as literals */
+        if (m.match_length as usize) < WANT_MIN_MATCH {
+            m.strstart += 1;
+            m.match_length -= 1;
+            if m.match_length > 0 {
+                if m.strstart >= m.orgstart {
+                    if m.strstart + m.match_length - 1 >= m.orgstart {
+                        (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
+                    } else {
+                        (state.insert_string)(
+                            state,
+                            m.strstart as usize,
+                            (m.orgstart - m.strstart + 1) as usize,
+                        );
+                    }
+                    m.strstart += m.match_length;
+                    m.match_length = 0;
+                }
+            }
+            return;
+        }
+
+        /* Insert new strings in the hash table only if the match length
+         * is not too large. This saves time but degrades compression.
+         */
+        if (m.match_length as usize) <= 16 * state.max_insert_length()
+            && state.lookahead >= WANT_MIN_MATCH
+        {
+            m.match_length -= 1; /* string at strstart already in table */
+            m.strstart += 1;
+
+            if m.strstart >= m.orgstart {
+                if m.strstart + m.match_length - 1 >= m.orgstart {
+                    (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
+                } else {
+                    (state.insert_string)(
+                        state,
+                        m.strstart as usize,
+                        (m.orgstart - m.strstart + 1) as usize,
+                    );
+                }
+            } else if m.orgstart < m.strstart + m.match_length {
+                (state.insert_string)(
+                    state,
+                    m.orgstart as usize,
+                    (m.strstart + m.match_length - m.orgstart) as usize,
+                );
+            }
+            m.strstart += m.match_length;
+            m.match_length = 0;
+        } else {
+            m.strstart += m.match_length;
+            m.match_length = 0;
+
+            if (m.strstart as usize) >= (STD_MIN_MATCH - 2) {
+                (state.quick_insert_string)(state, m.strstart as usize + 2 - STD_MIN_MATCH);
+            }
+
+            /* If lookahead < WANT_MIN_MATCH, ins_h is garbage, but it does not
+             * matter since it will be recomputed at next deflate call.
+             */
+        }
+    }
+
+    fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
+        /* step zero: sanity checks */
+
+        if current.match_length <= 1 {
+            return;
+        }
+
+        if current.match_length > 1 + next.match_start {
+            return;
+        }
+
+        if current.match_length > 1 + next.strstart {
+            return;
+        }
+
+        let offset = (current.match_length + 1 + next.match_start) as usize;
+        let m = state.window.wrapping_sub(offset);
+        let orig = state.window.wrapping_sub(offset);
+
+        /* quick exit check.. if this fails then don't bother with anything else */
+        if unsafe { *m != *orig } {
+            return;
+        }
+
+        /* step one: try to move the "next" match to the left as much as possible */
+        let limit = next.strstart.saturating_sub(state.max_dist() as u16);
+
+        let mut c = *current;
+        let mut n = *next;
+
+        let mut m = state.window.wrapping_add(n.match_start as usize - 1);
+        let mut orig = state.window.wrapping_add(n.strstart as usize - 1);
+
+        let mut changed = 0;
+
+        while unsafe { *m == *orig } {
+            if c.match_length < 1 {
+                break;
+            }
+            if n.strstart <= limit {
+                break;
+            }
+            if n.match_length >= 256 {
+                break;
+            }
+            if n.match_start <= 1 {
+                break;
+            }
+
+            n.strstart -= 1;
+            n.match_start -= 1;
+            n.match_length += 1;
+            c.match_length -= 1;
+            m = m.wrapping_sub(1);
+            orig = orig.wrapping_sub(1);
+            changed += 1;
+        }
+
+        if changed == 0 {
+            return;
+        }
+
+        if c.match_length <= 1 && n.match_length != 2 {
+            n.orgstart += 1;
+            *current = c;
+            *next = n;
+        } else {
+            return;
+        }
+    }
+
+    // actual impl
+
+    let mut state = &mut stream.state;
+
+    // For levels below 5, don't check the next position for a better match
+    let early_exit = state.level < 5;
+
+    let mut current_match = Match {
+        match_start: 0,
+        match_length: 0,
+        strstart: 0,
+        orgstart: 0,
+    };
+    let mut next_match = Match {
+        match_start: 0,
+        match_length: 0,
+        strstart: 0,
+        orgstart: 0,
+    };
+
+    loop {
+        let mut hash_head;
+
+        /* Make sure that we always have enough lookahead, except
+         * at the end of the input file. We need STD_MAX_MATCH bytes
+         * for the next match, plus WANT_MIN_MATCH bytes to insert the
+         * string following the next match.
+         */
+        if stream.state.lookahead < MIN_LOOKAHEAD {
+            fill_window(stream);
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+                return BlockState::NeedMore;
+            }
+
+            if stream.state.lookahead == 0 {
+                break; /* flush the current block */
+            }
+
+            next_match.match_length = 0;
+        }
+
+        state = &mut stream.state;
+
+        // Insert the string window[strstart .. strstart+2] in the
+        // dictionary, and set hash_head to the head of the hash chain:
+
+        /* If we already have a future match from a previous round, just use that */
+        if !early_exit && next_match.match_length > 0 {
+            current_match = next_match;
+            next_match.match_length = 0;
+        } else {
+            hash_head = 0;
+            if state.lookahead >= WANT_MIN_MATCH {
+                hash_head = (state.quick_insert_string)(state, state.strstart);
+            }
+
+            current_match.strstart = state.strstart as u16;
+            current_match.orgstart = current_match.strstart;
+
+            /* Find the longest match, discarding those <= prev_length.
+             * At this point we have always match_length < WANT_MIN_MATCH
+             */
+
+            let dist = state.strstart as i64 - hash_head as i64;
+            if dist <= state.max_dist() as i64 && dist > 0 && hash_head != 0 {
+                /* To simplify the code, we prevent matches with the string
+                 * of window index 0 (in particular we have to avoid a match
+                 * of the string with itself at the start of the input file).
+                 */
+                current_match.match_length = longest_match::longest_match(state, hash_head) as u16;
+                current_match.match_start = state.match_start as u16;
+                if (current_match.match_length as usize) < WANT_MIN_MATCH {
+                    current_match.match_length = 1;
+                }
+                if current_match.match_start >= current_match.strstart {
+                    /* this can happen due to some restarts */
+                    current_match.match_length = 1;
+                }
+            } else {
+                /* Set up the match to be a 1 byte literal */
+                current_match.match_start = 0;
+                current_match.match_length = 1;
+            }
+        }
+
+        insert_match(state, current_match);
+
+        /* now, look ahead one */
+        if !early_exit
+            && state.lookahead > MIN_LOOKAHEAD
+            && ((current_match.strstart + current_match.match_length) as usize)
+                < (state.window_size - MIN_LOOKAHEAD)
+        {
+            state.strstart = (current_match.strstart + current_match.match_length) as usize;
+            hash_head = (state.quick_insert_string)(state, state.strstart);
+
+            next_match.strstart = state.strstart as u16;
+            next_match.orgstart = next_match.strstart;
+
+            /* Find the longest match, discarding those <= prev_length.
+             * At this point we have always match_length < WANT_MIN_MATCH
+             */
+
+            let dist = state.strstart as i64 - hash_head as i64;
+            if dist <= state.max_dist() as i64 && dist > 0 && hash_head != 0 {
+                /* To simplify the code, we prevent matches with the string
+                 * of window index 0 (in particular we have to avoid a match
+                 * of the string with itself at the start of the input file).
+                 */
+                next_match.match_length = longest_match::longest_match(state, hash_head) as u16;
+                next_match.match_start = state.match_start as u16;
+                if next_match.match_start >= next_match.strstart {
+                    /* this can happen due to some restarts */
+                    next_match.match_length = 1;
+                }
+                if (next_match.match_length as usize) < WANT_MIN_MATCH {
+                    next_match.match_length = 1;
+                } else {
+                    fizzle_matches(state, &mut current_match, &mut next_match);
+                }
+            } else {
+                /* Set up the match to be a 1 byte literal */
+                next_match.match_start = 0;
+                next_match.match_length = 1;
+            }
+
+            state.strstart = current_match.strstart as usize;
+        } else {
+            next_match.match_length = 0;
+        }
+
+        /* now emit the current match */
+        let bflush = emit_match(state, current_match);
+
+        /* move the "cursor" forward */
+        state.strstart += current_match.match_length as usize;
+
+        if bflush {
+            flush_block!(false);
+        }
+    }
+
+    stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH - 1);
+
+    if flush == Flush::Finish {
+        flush_block!(true);
+        return BlockState::FinishDone;
+    }
+
+    if stream.state.sym_next != 0 {
+        flush_block!(false);
+    }
+
+    return BlockState::BlockDone;
 }
 
 fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
@@ -2589,8 +3076,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     /* Process the input block. */
     loop {
-        println!("deflate slow loop: {}", stream.state.lookahead);
-
         /* Make sure that we always have enough lookahead, except
          * at the end of the input file. We need STD_MAX_MATCH bytes
          * for the next match, plus WANT_MIN_MATCH bytes to insert the
@@ -2613,7 +3098,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
          * dictionary, and set hash_head to the head of the hash chain:
          */
         hash_head = if state.lookahead >= WANT_MIN_MATCH {
-            println!("strstart = {}", state.strstart);
             (state.quick_insert_string)(state, state.strstart)
         } else {
             0
@@ -2624,11 +3108,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         match_len = STD_MIN_MATCH - 1;
         dist = state.strstart as isize - hash_head as isize;
 
-        println!(
-            "looking for match {} {} {}",
-            dist, state.prev_length, hash_head
-        );
-
         if dist <= state.max_dist() as isize
             && dist > 0
             && state.prev_length < state.max_lazy_match
@@ -2637,7 +3116,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             // To simplify the code, we prevent matches with the string
             // of window index 0 (in particular we have to avoid a match
             // of the string with itself at the start of the input file).
-            println!("looking for match {}", hash_head);
             match_len = (longest_match)(state, hash_head);
             /* longest_match() sets match_start */
 
@@ -2647,8 +3125,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                  */
                 match_len = STD_MIN_MATCH - 1;
             }
-
-            println!("found match {}", match_len);
         }
 
         // If there was a match at the previous step and the current
@@ -2673,7 +3149,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             state.lookahead -= state.prev_length;
 
             let mov_fwd = state.prev_length - 1;
-            println!("max_insert = {max_insert}, strstart = {}", state.strstart);
             if max_insert > state.strstart {
                 let mut insert_cnt = mov_fwd;
                 if insert_cnt > max_insert - state.strstart {
@@ -2682,7 +3157,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 (state.insert_string)(state, state.strstart + 1, insert_cnt);
             }
             state.prev_length = 0;
-            println!("1. prev_length = {}", state.prev_length);
             state.match_available = 0;
             state.strstart += mov_fwd + 1;
 
@@ -2694,14 +3168,12 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             // single literal. If there was a match but the current match
             // is longer, truncate the previous match to a single literal.
             let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
-
             bflush = state.tally_lit(lc);
             if bflush {
                 flush_block_only(stream, false);
             }
 
             stream.state.prev_length = match_len;
-            println!("2. prev_length = {}", stream.state.prev_length);
             stream.state.strstart += 1;
             stream.state.lookahead -= 1;
             if stream.avail_out == 0 {
@@ -2711,7 +3183,6 @@ fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             // There is no previous match to compare with, wait for
             // the next step to decide.
             state.prev_length = match_len;
-            println!("3. prev_length = {}", state.prev_length);
             state.match_available = 1;
             state.strstart += 1;
             state.lookahead -= 1;
@@ -2832,7 +3303,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         let bstate = match state.strategy {
             _ if state.level == 0 => deflate_stored(stream, flush),
             Strategy::HuffmanOnly => deflate_huff(stream, flush),
-            Strategy::Rle => deflate_rle(state, flush),
+            Strategy::Rle => deflate_rle(stream, flush),
             Strategy::Default | Strategy::Filtered | Strategy::Fixed => {
                 (CONFIGURATION_TABLE[state.level as usize].func)(stream, flush)
             }
@@ -2929,7 +3400,7 @@ fn flush_pending(stream: &mut DeflateStream) {
         return;
     }
 
-    trace!("\n[flush {len} bytes]");
+    trace!("\n[FLUSH {len} bytes]");
     unsafe { std::ptr::copy_nonoverlapping(pending.as_ptr(), stream.next_out, len) };
 
     stream.next_out = stream.next_out.wrapping_add(len);
@@ -3218,9 +3689,11 @@ impl Heap {
 
         while j <= self.heap_len {
             /* Set j to the smallest of the two sons: */
-            if j < self.heap_len && Self::smaller(tree, self.heap[j + 1], self.heap[j], &self.depth)
-            {
-                j += 1;
+            if j < self.heap_len {
+                let cond = Self::smaller(tree, self.heap[j + 1], self.heap[j], &self.depth);
+                if cond {
+                    j += 1;
+                }
             }
 
             /* Exit if v is smaller than both sons */
@@ -3233,7 +3706,7 @@ impl Heap {
             k = j;
 
             /* And continue down the tree, setting j to the left son of k */
-            j *= 2;
+            j <<= 1;
         }
 
         self.heap[k] = v;
@@ -3250,6 +3723,336 @@ impl Heap {
 
         top
     }
+}
+
+#[test]
+fn form_heap() {
+    const INPUT: &[u32] = &[
+        0, 0, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27,
+        28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+        52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 69, 71, 72, 73, 74, 75, 76, 77,
+        78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+        100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 130, 131, 132, 133, 134, 135, 136,
+        137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154,
+        155, 156, 157, 158, 159, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
+        174, 175, 176, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192,
+        193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210,
+        211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228,
+        229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246,
+        247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 260,
+    ];
+
+    const OUTPUT: &[u32] = &[
+        0, 69, 196, 132, 22, 99, 118, 269, 39, 165, 178, 97, 217, 225, 123, 66, 142, 146, 82, 164,
+        176, 12, 2, 199, 202, 216, 112, 15, 122, 64, 260, 8, 139, 73, 144, 78, 40, 81, 4, 86, 172,
+        89, 46, 185, 48, 193, 13, 6, 205, 106, 108, 28, 7, 29, 229, 231, 61, 241, 242, 248, 65,
+        256, 133, 35, 137, 138, 140, 143, 9, 38, 148, 20, 79, 154, 157, 41, 161, 42, 85, 168, 169,
+        171, 23, 90, 179, 180, 182, 47, 95, 96, 49, 25, 194, 50, 101, 201, 52, 27, 105, 209, 210,
+        212, 109, 14, 111, 57, 113, 58, 226, 116, 117, 60, 119, 236, 121, 31, 32, 244, 246, 16,
+        251, 128, 130, 131, 17, 3, 134, 135, 136, 71, 36, 72, 18, 141, 74, 37, 75, 145, 76, 147,
+        77, 149, 150, 151, 152, 153, 80, 155, 156, 21, 158, 159, 83, 162, 163, 84, 43, 166, 167,
+        11, 87, 170, 44, 88, 173, 174, 175, 45, 91, 24, 92, 181, 93, 183, 184, 94, 186, 187, 188,
+        189, 190, 191, 192, 98, 26, 195, 100, 197, 198, 51, 200, 102, 103, 203, 204, 104, 206, 207,
+        208, 53, 107, 211, 54, 213, 214, 215, 55, 110, 218, 219, 220, 221, 222, 223, 224, 114, 115,
+        227, 228, 59, 230, 30, 232, 233, 234, 235, 120, 237, 238, 239, 240, 62, 63, 243, 124, 245,
+        125, 247, 126, 249, 250, 127, 252, 253, 254, 255, 34, 0,
+    ];
+
+    const TREE: &[Value] = &[
+        Value::new(6, 0),
+        Value::new(0, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(2, 0),
+        Value::new(0, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(0, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(6, 0),
+        Value::new(0, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(1, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(6, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(0, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(1, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(2, 0),
+        Value::new(8, 0),
+        Value::new(4, 0),
+        Value::new(6, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(8, 0),
+        Value::new(0, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(1, 0),
+        Value::new(4, 0),
+        Value::new(0, 0),
+        Value::new(1, 0),
+        Value::new(0, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(1, 0),
+        Value::new(3, 0),
+        Value::new(8, 0),
+        Value::new(5, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(1, 0),
+        Value::new(1, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(8, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(8, 0),
+        Value::new(8, 0),
+        Value::new(6, 0),
+        Value::new(6, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(1, 0),
+        Value::new(4, 0),
+        Value::new(1, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(8, 0),
+        Value::new(4, 0),
+        Value::new(6, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(1, 0),
+        Value::new(6, 0),
+        Value::new(9, 0),
+        Value::new(4, 0),
+        Value::new(1, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(1, 0),
+        Value::new(3, 0),
+        Value::new(9, 0),
+        Value::new(2, 0),
+        Value::new(1, 0),
+        Value::new(1, 0),
+        Value::new(6, 0),
+        Value::new(6, 0),
+        Value::new(6, 0),
+        Value::new(12, 0),
+        Value::new(3, 0),
+        Value::new(0, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(1, 0),
+        Value::new(3, 0),
+        Value::new(8, 0),
+        Value::new(6, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(1, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(8, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(9, 0),
+        Value::new(2, 0),
+        Value::new(11, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(7, 0),
+        Value::new(10, 0),
+        Value::new(0, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(1, 0),
+        Value::new(1, 0),
+        Value::new(6, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(13, 0),
+        Value::new(5, 0),
+        Value::new(1, 0),
+        Value::new(0, 0),
+        Value::new(1, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(8, 0),
+        Value::new(9, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(3, 0),
+        Value::new(6, 0),
+        Value::new(4, 0),
+        Value::new(5, 0),
+        Value::new(6, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(7, 0),
+        Value::new(1, 0),
+        Value::new(3, 0),
+        Value::new(6, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(5, 0),
+        Value::new(2, 0),
+        Value::new(5, 0),
+        Value::new(7, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(7, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(8, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(6, 0),
+        Value::new(6, 0),
+        Value::new(1, 0),
+        Value::new(1, 0),
+        Value::new(11, 0),
+        Value::new(8, 0),
+        Value::new(5, 0),
+        Value::new(7, 0),
+        Value::new(5, 0),
+        Value::new(9, 0),
+        Value::new(3, 0),
+        Value::new(1, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(5, 0),
+        Value::new(2, 0),
+        Value::new(4, 0),
+        Value::new(2, 0),
+        Value::new(6, 0),
+        Value::new(8, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(4, 0),
+        Value::new(3, 0),
+        Value::new(3, 0),
+        Value::new(2, 0),
+        Value::new(3, 0),
+        Value::new(5, 0),
+        Value::new(5, 0),
+        Value::new(7, 0),
+        Value::new(4, 0),
+        Value::new(10, 0),
+        Value::new(3, 0),
+        Value::new(4, 0),
+        Value::new(5, 0),
+        Value::new(4, 0),
+        Value::new(7, 0),
+        Value::new(11, 0),
+        Value::new(10, 0),
+        Value::new(15, 0),
+        Value::new(1, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(1, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(0, 0),
+        Value::new(1, 0),
+    ];
+
+    let mut heap = Heap {
+        heap: {
+            let mut h = [0; 2 * L_CODES + 1];
+            h[..INPUT.len()].copy_from_slice(INPUT);
+
+            h
+        },
+        heap_len: INPUT.len(),
+        heap_max: 1234,
+        depth: [0; 2 * L_CODES + 1],
+    };
+
+    // The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
+    // establish sub-heaps of increasing lengths:
+    let mut n = heap.heap_len / 2;
+    while n >= 1 {
+        heap.pqdownheap(TREE, n);
+        n -= 1;
+    }
+
+    assert_eq!(&heap.heap[..OUTPUT.len()], OUTPUT);
 }
 
 mod longest_match {
@@ -3277,8 +4080,6 @@ mod longest_match {
         state: &crate::deflate::State,
         mut cur_match: u16,
     ) -> (usize, usize) {
-        // println!("longest_match_help {cur_match}");
-
         let mut match_start = state.match_start;
 
         let strstart = state.strstart;
@@ -3298,13 +4099,8 @@ mod longest_match {
         let lookahead = state.lookahead;
         let mut match_offset = 0;
 
-        // if check::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
         macro_rules! goto_next_chain {
             () => {
-                println!(
-                    "chain_length = {chain_length}, new_match ={}, limit = {limit}",
-                    state.prev[cur_match as usize & wmask]
-                );
                 chain_length -= 1;
                 if chain_length > 0 {
                     cur_match = state.prev[cur_match as usize & wmask];
@@ -3314,7 +4110,6 @@ mod longest_match {
                     }
                 }
 
-                println!("return next_chain");
                 return (best_len, match_start);
             };
         }
@@ -3439,43 +4234,38 @@ mod longest_match {
                 ) -> bool {
                     let cur_match = cur_match as usize;
 
-                    let a = || zng_memcmp_n::<N>(mbase_end.wrapping_add(cur_match), scan_end);
-                    let b = || zng_memcmp_n::<N>(mbase_start.wrapping_add(cur_match), scan_start);
-
-                    !a() && !b()
+                    if !zng_memcmp_n::<N>(mbase_end.wrapping_add(cur_match), scan_end) {
+                        !zng_memcmp_n::<N>(mbase_start.wrapping_add(cur_match), scan_start)
+                    } else {
+                        false
+                    }
                 }
 
                 let scan_start = scan_start.as_ptr();
                 let scan_end = scan_end.as_ptr();
 
                 if best_len < std::mem::size_of::<u32>() {
-                    println!("loop 1");
                     loop {
                         if check::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                             break;
                         }
 
-                        println!("next chain 1");
                         goto_next_chain!();
                     }
                 } else if best_len >= std::mem::size_of::<u64>() {
-                    println!("loop 2");
                     loop {
                         if check::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                             break;
                         }
 
-                        println!("next chain 2");
                         goto_next_chain!();
                     }
                 } else {
-                    println!("loop 3");
                     loop {
                         if check::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                             break;
                         }
 
-                        println!("next chain 3");
                         goto_next_chain!();
                     }
                 }
@@ -3498,12 +4288,10 @@ mod longest_match {
 
                 /* Do not look for matches beyond the end of the input. */
                 if len > lookahead {
-                    println!("return 1");
                     return (lookahead, match_start);
                 }
                 best_len = len;
                 if best_len >= nice_match {
-                    println!("return 2");
                     return (best_len, match_start);
                 }
 
@@ -3579,10 +4367,6 @@ mod longest_match {
                 break;
             }
 
-            println!(
-                "next chain end cur_match = {}, strstart = {}",
-                cur_match, state.strstart
-            );
             goto_next_chain!();
         }
 
@@ -3590,7 +4374,6 @@ mod longest_match {
     }
 
     fn break_matching(state: &State, best_len: usize, match_start: usize) -> (usize, usize) {
-        println!("return 4");
         (Ord::min(best_len, state.lookahead), match_start)
     }
 }

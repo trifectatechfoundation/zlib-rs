@@ -45,7 +45,7 @@ mod avx2 {
     fn slide_hash_chain(table: &mut [u16], wsize: __m256i) {
         debug_assert_eq!(table.len() % 16, 0);
 
-        for chunk in table.chunks_mut(16) {
+        for chunk in table.chunks_exact_mut(16) {
             let chunk = chunk.as_mut_ptr() as *mut __m256i;
 
             unsafe {
