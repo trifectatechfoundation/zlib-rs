@@ -26,18 +26,16 @@ fn longest_match_help<const SLOW: bool>(
 
     let strstart = state.strstart;
     let wmask = state.w_mask;
-    let window = state.window;
+    let window = state.window.as_ptr();
     let scan = window.wrapping_add(strstart);
     let mut mbase_start = window;
-    let mut mbase_end: *mut u8;
+    let mut mbase_end: *const u8;
     let mut limit: Pos;
     let limit_base: Pos;
-    
 
     let mut chain_length: usize;
     let mut best_len: usize;
 
-    
     let lookahead = state.lookahead;
     let mut match_offset = 0;
 

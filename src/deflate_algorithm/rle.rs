@@ -28,7 +28,7 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         let state = &mut stream.state;
         if state.lookahead >= STD_MIN_MATCH && state.strstart > 0 {
             let mut match_len = 0;
-            let scan = state.window.wrapping_add(state.strstart - 1);
+            let scan = state.window.as_mut_ptr().wrapping_add(state.strstart - 1);
 
             {
                 let scan = unsafe { std::slice::from_raw_parts(scan, 3 + 256) };
@@ -41,7 +41,11 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             }
 
             assert!(
-                scan.wrapping_add(match_len) <= state.window.wrapping_add(state.window_size - 1),
+                scan.wrapping_add(match_len)
+                    <= state
+                        .window
+                        .as_mut_ptr()
+                        .wrapping_add(state.window_size - 1),
                 "wild scan"
             );
         }
@@ -57,7 +61,7 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             match_len = 0;
         } else {
             /* No match, output a literal byte */
-            let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+            let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart) };
             bflush = state.tally_lit(lc);
             state.lookahead -= 1;
             state.strstart += 1;

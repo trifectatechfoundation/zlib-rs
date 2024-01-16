@@ -74,7 +74,11 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             let left = Ord::min(left, len);
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    stream.state.window.offset(stream.state.block_start),
+                    stream
+                        .state
+                        .window
+                        .as_mut_ptr()
+                        .offset(stream.state.block_start),
                     stream.next_out,
                     left,
                 );
@@ -117,7 +121,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     stream.next_in.wrapping_sub(state.w_size),
-                    state.window,
+                    state.window.as_mut_ptr(),
                     state.w_size,
                 );
             }
@@ -129,9 +133,10 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 /* Slide the window down. */
                 state.strstart -= state.w_size;
                 unsafe {
+                    let ptr = state.window.as_mut_ptr();
                     std::ptr::copy_nonoverlapping(
-                        state.window.wrapping_add(state.w_size),
-                        state.window,
+                        ptr.wrapping_add(state.w_size),
+                        ptr,
                         state.strstart,
                     );
                 }
@@ -143,7 +148,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     stream.next_in.wrapping_sub(used as usize),
-                    state.window.wrapping_add(state.strstart),
+                    state.window.as_mut_ptr().wrapping_add(state.strstart),
                     used as usize,
                 );
             }
@@ -176,11 +181,13 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     let have = Ord::min(have, stream.avail_in as usize);
     if have > 0 {
-        read_buf(
-            stream,
-            stream.state.window.wrapping_add(stream.state.strstart),
-            have,
-        );
+        let ptr = stream
+            .state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(stream.state.strstart);
+
+        read_buf(stream, ptr, have);
 
         let state = &mut stream.state;
         state.strstart += have;
@@ -218,7 +225,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    state.window.offset(state.block_start),
+                    state.window.as_mut_ptr().offset(state.block_start),
                     tmp.as_mut_ptr(),
                     len,
                 )

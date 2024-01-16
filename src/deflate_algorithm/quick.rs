@@ -93,8 +93,8 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
-                let str_start = state.window.wrapping_add(state.strstart);
-                let match_start = state.window.wrapping_add(hash_head as usize);
+                let str_start = state.window.as_mut_ptr().wrapping_add(state.strstart);
+                let match_start = state.window.as_mut_ptr().wrapping_add(hash_head as usize);
 
                 if !unsafe { memcmp_n::<2>(str_start, match_start) } {
                     let a = unsafe { &*str_start.wrapping_add(2).cast() };
@@ -128,7 +128,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             }
         }
 
-        let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+        let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart) };
         state.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;
