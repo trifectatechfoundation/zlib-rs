@@ -7,6 +7,7 @@ mod c_api;
 mod compare256;
 mod deflate;
 mod deflate_algorithm;
+mod deflate_window;
 #[cfg(test)]
 mod dynamic;
 mod hash_calc;
