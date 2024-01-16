@@ -49,6 +49,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "deflate_stored"
+path = "fuzz_targets/deflate_stored.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "deflate_huff"
 path = "fuzz_targets/deflate_huff.rs"
 test = false

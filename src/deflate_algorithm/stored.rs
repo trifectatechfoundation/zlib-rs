@@ -1,6 +1,6 @@
 use crate::{
     deflate::{
-        flush_pending, read_buf, zng_tr_stored_block, BlockState, DeflateStream, MAX_STORED,
+        flush_pending, read_buf_window, zng_tr_stored_block, BlockState, DeflateStream, MAX_STORED,
     },
     Flush,
 };
@@ -93,7 +93,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         // Copy uncompressed bytes directly from next_in to next_out, updating the check value.
         if len > 0 {
-            read_buf(stream, stream.next_out, len);
+            read_buf_direct_copy(stream, stream.next_out, len);
             stream.next_out = stream.next_out.wrapping_add(len as _);
             stream.avail_out = stream.avail_out.wrapping_sub(len as _);
             stream.total_out = stream.total_out.wrapping_add(len as _);
@@ -181,13 +181,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     let have = Ord::min(have, stream.avail_in as usize);
     if have > 0 {
-        let ptr = stream
-            .state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(stream.state.strstart);
-
-        read_buf(stream, ptr, have);
+        read_buf_window(stream, stream.state.strstart, have);
 
         let state = &mut stream.state;
         state.strstart += have;
@@ -244,4 +238,29 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     } else {
         BlockState::NeedMore
     }
+}
+
+fn read_buf_direct_copy(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
+    let len = Ord::min(stream.avail_in as usize, size);
+
+    if len == 0 {
+        return 0;
+    }
+
+    stream.avail_in -= len as u32;
+
+    // TODO gzip and maybe DEFLATE_NEED_CHECKSUM too?
+    if stream.state.wrap == 1 {
+        // TODO fuse adler and copy
+        let data = unsafe { std::slice::from_raw_parts(stream.next_in, len) };
+        stream.adler = crate::adler32::adler32(stream.adler as u32, data) as _;
+        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+    } else {
+        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+    }
+
+    stream.next_in = stream.next_in.wrapping_add(len);
+    stream.total_in += len as crate::c_api::z_size;
+
+    len
 }

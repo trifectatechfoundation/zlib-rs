@@ -147,7 +147,7 @@ pub fn init2(
     }
 
     let w_size = 1 << window_bits;
-    let window_layout = std::alloc::Layout::array::<u16>(w_size + window_padding);
+    let window_layout = std::alloc::Layout::array::<u16>(2 * (w_size + window_padding));
     let window_ptr = unsafe { stream.alloc_layout(window_layout.unwrap()) } as *mut MaybeUninit<u8>;
 
     let prev_layout = std::alloc::Layout::array::<u16>(w_size);
@@ -166,7 +166,7 @@ pub fn init2(
     }
 
     let window =
-        unsafe { Window::from_raw_parts(window_ptr, w_size + window_padding, window_bits) };
+        unsafe { Window::from_raw_parts(window_ptr, 2 * (w_size + window_padding), window_bits) };
 
     unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
     let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
@@ -487,7 +487,7 @@ impl<'a> Window<'a> {
         Self {
             buf,
             filled: 0,
-            capacity: 1 << window_bits,
+            capacity: 2 * (1 << window_bits),
         }
     }
 
@@ -530,7 +530,7 @@ pub(crate) struct State<'a> {
     bi_buf: u64,
     pub(crate) bi_valid: u8,
 
-    wrap: i8, /* bit 0 true for zlib, bit 1 true for gzip */
+    pub(crate) wrap: i8, /* bit 0 true for zlib, bit 1 true for gzip */
 
     pub(crate) strategy: Strategy,
     pub(crate) level: i8,
@@ -1066,7 +1066,7 @@ pub(crate) enum BlockState {
 // Maximum stored block length in deflate format (not including header).
 pub(crate) const MAX_STORED: usize = 65535; // so u16::max
 
-pub(crate) fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
+pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: usize) -> usize {
     let len = Ord::min(stream.avail_in as usize, size);
 
     if len == 0 {
@@ -1075,14 +1075,32 @@ pub(crate) fn read_buf(stream: &mut DeflateStream, output: *mut u8, size: usize)
 
     stream.avail_in -= len as u32;
 
-    // TODO gzip and maybe DEFLATE_NEED_CHECKSUM too?
+    let output = stream.state.window.as_mut_ptr().wrapping_add(offset);
+
+    // TODO gzip
     if stream.state.wrap == 1 {
-        // TODO fuse adler and copy
-        let data = unsafe { std::slice::from_raw_parts(stream.next_in, len) };
-        stream.adler = adler32(stream.adler as u32, data) as _;
+        // we likely cannot fuse the adler32 and the copy here because the input can be changed by
+        // a concurrent thread. Therefore it cannot be converted into a slice!
         unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+
+        if offset <= stream.state.window.filled {
+            stream.state.window.filled = Ord::min(
+                stream.state.window.filled.saturating_add(len),
+                stream.state.window.capacity,
+            );
+        }
+
+        let data = &stream.state.window.filled()[offset..][..len];
+        stream.adler = adler32(stream.adler as u32, data) as _;
     } else {
         unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+
+        if offset <= stream.state.window.filled {
+            stream.state.window.filled = Ord::min(
+                stream.state.window.filled.saturating_add(len),
+                stream.state.window.capacity,
+            );
+        }
     }
 
     stream.next_in = stream.next_in.wrapping_add(len);
@@ -1185,11 +1203,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         //
         assert!(more >= 2, "more < 2");
 
-        let ptr = state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(state.strstart + state.lookahead);
-        let n = read_buf(stream, ptr, more);
+        let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
 
         let state = &mut stream.state;
         state.lookahead += n;
