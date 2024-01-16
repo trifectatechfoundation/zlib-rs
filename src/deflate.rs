@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
 use crate::{
     adler32::adler32,
@@ -6,6 +6,7 @@ use crate::{
     deflate_algorithm::CONFIGURATION_TABLE,
     deflate_window::Window,
     hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
+    pending::Pending,
     trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS, Z_DEFLATED,
     Z_UNKNOWN,
 };
@@ -174,16 +175,11 @@ pub fn init2(
 
     let head = unsafe { &mut *head_ptr };
 
-    let pending = Pending {
-        buf: pending_buf,
-        out: pending_buf,
-        pending: 0,
-        end: pending_buf.wrapping_add(lit_bufsize),
-        _marker: PhantomData,
-    };
+    let pending = Pending::from_raw_parts(pending_buf, lit_bufsize);
 
-    unsafe { std::ptr::write_bytes(pending.end, 0, 3 * lit_bufsize) }; // initialize!
-    let sym_buf = unsafe { std::slice::from_raw_parts_mut(pending.end, 3 * lit_bufsize) };
+    let pending_end = pending_buf.wrapping_add(lit_bufsize);
+    unsafe { std::ptr::write_bytes(pending_end, 0, 3 * lit_bufsize) }; // initialize!
+    let sym_buf = unsafe { std::slice::from_raw_parts_mut(pending_end, 3 * lit_bufsize) };
 
     let state = State {
         status: Status::Init,
@@ -271,7 +267,7 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
 
     let status = stream.state.status;
 
-    let pending = stream.state.pending.buf;
+    let pending = stream.state.pending.as_mut_ptr();
     let head = stream.state.head.as_mut_ptr();
     let prev = stream.state.prev.as_mut_ptr();
     let window = stream.state.window.as_mut_ptr();
@@ -316,13 +312,7 @@ fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
 
     let state = &mut stream.state;
 
-    state.pending = Pending {
-        buf: state.pending.buf,
-        out: state.pending.buf,
-        pending: 0,
-        end: state.pending.end,
-        _marker: PhantomData,
-    };
+    state.pending.reset_keep();
 
     if state.wrap < 0 {
         // was made negative by deflate(..., Z_FINISH);
@@ -2004,65 +1994,6 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     stream.avail_out -= len as crate::c_api::uInt;
 
     state.pending.advance(len);
-}
-
-pub(crate) struct Pending<'a> {
-    buf: *mut u8,
-    out: *mut u8,
-    pub(crate) pending: usize,
-    end: *mut u8,
-    _marker: PhantomData<&'a mut [u8]>,
-}
-
-impl<'a> Pending<'a> {
-    pub fn pending(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.out, self.pending) }
-    }
-
-    // in practice, pending uses more than lit_bufsize bytes and therefore runs into sym_buf
-    // that is annoying, because we somehow need to make that safe ...
-    //
-    //    fn remaining(&self) -> usize {
-    //        self.end as usize - self.out as usize
-    //    }
-
-    pub(crate) fn capacity(&self) -> usize {
-        self.end as usize - self.buf as usize
-    }
-
-    #[inline(always)]
-    #[track_caller]
-    pub fn advance(&mut self, n: usize) {
-        // assert!(n <= self.remaining(), "advancing past the end");
-        debug_assert!(self.pending >= n);
-
-        self.out = self.out.wrapping_add(n);
-        self.pending -= n;
-
-        if self.pending == 0 {
-            self.out = self.buf;
-        }
-    }
-
-    #[inline(always)]
-    #[track_caller]
-    pub fn rewind(&mut self, n: usize) {
-        assert!(n <= self.pending, "rewinding past then start");
-
-        self.pending -= n;
-    }
-
-    #[inline(always)]
-    #[track_caller]
-    pub fn extend(&mut self, buf: &[u8]) {
-        // assert!( self.remaining() >= buf.len(), "buf.len() must fit in remaining()");
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(buf.as_ptr(), self.out.add(self.pending), buf.len());
-        }
-
-        self.pending += buf.len();
-    }
 }
 
 pub(crate) fn compress<'a>(output: &'a mut [u8], input: &[u8]) -> (&'a mut [u8], ReturnCode) {
