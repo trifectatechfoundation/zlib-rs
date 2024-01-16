@@ -183,7 +183,7 @@ fn emit_match(state: &mut State, mut m: Match) -> bool {
     /* matches that are not long enough we need to emit as literals */
     if (m.match_length as usize) < WANT_MIN_MATCH {
         while m.match_length > 0 {
-            let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart) };
+            let lc = state.window.filled()[state.strstart];
             bflush |= state.tally_lit(lc);
             state.lookahead -= 1;
             m.strstart += 1;
