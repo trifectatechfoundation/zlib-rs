@@ -152,3 +152,202 @@ impl From<i32> for ReturnCode {
         }
     }
 }
+
+#[cfg(any(test, feature = "__internal-fuzz"))]
+pub fn uncompress_help(input: &[u8]) -> Result<Vec<u8>, ReturnCode> {
+    let mut dest_vec = vec![0u8; Ord::max(1 << 16, 2 * input.len())];
+
+    let mut dest_len = dest_vec.len();
+    let dest = dest_vec.as_mut_ptr();
+
+    let source = input.as_ptr();
+    let source_len = input.len();
+
+    let err = unsafe { libz_ng_sys::uncompress(dest, &mut dest_len, source, source_len) };
+
+    if err != 0 {
+        Err(ReturnCode::from(err))
+    } else {
+        dest_vec.truncate(dest_len as usize);
+
+        Ok(dest_vec)
+    }
+}
+
+#[cfg(any(debug_assertions, feature = "__internal-fuzz"))]
+pub fn compress_rs(
+    dest: &mut [u8],
+    dest_len: &mut usize,
+    source: &[u8],
+    //
+    level: i32,
+) -> ReturnCode {
+    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
+    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+
+    let mut stream = z_stream {
+        next_in: source.as_ptr() as *mut u8,
+        avail_in: 0, // for special logic in the first  iteration
+        total_in: 0,
+        next_out: dest.as_mut_ptr(),
+        avail_out: 0, // for special logic on the first iteration
+        total_out: 0,
+        msg: std::ptr::null_mut(),
+        state: std::ptr::null_mut(),
+        zalloc: Some(allocate::zcalloc),
+        zfree: Some(allocate::zcfree),
+        opaque: std::ptr::null_mut(),
+        data_type: 0,
+        adler: 0,
+        reserved: 0,
+    };
+
+    let method = Z_DEFLATED;
+    let window_bits = 15;
+    let mem_level = 8;
+    let strategy = Z_DEFAULT_STRATEGY;
+
+    let err = {
+        let strm: *mut z_stream = &mut stream;
+        unsafe {
+            deflateInit2_(
+                strm,
+                level,
+                method,
+                window_bits,
+                mem_level,
+                strategy,
+                VERSION,
+                STREAM_SIZE,
+            )
+        }
+    };
+
+    if ReturnCode::from(err) != ReturnCode::Ok as _ {
+        return ReturnCode::from(err);
+    }
+
+    let max = libc::c_uint::MAX as usize;
+
+    let mut left = dest.len();
+    let mut source_len = source.len();
+
+    loop {
+        if stream.avail_out == 0 {
+            stream.avail_out = Ord::min(left, max) as _;
+            left -= stream.avail_out as usize;
+        }
+
+        if stream.avail_in == 0 {
+            stream.avail_in = Ord::min(source_len, max) as _;
+            source_len -= stream.avail_in as usize;
+        }
+
+        let flush = if source_len > 0 {
+            Flush::NoFlush
+        } else {
+            Flush::Finish
+        };
+
+        let err = unsafe { deflate(&mut stream, flush as i32) };
+        if ReturnCode::from(err) != ReturnCode::Ok {
+            break;
+        }
+    }
+
+    *dest_len = stream.total_out as _;
+
+    unsafe { deflateEnd(&mut stream) };
+
+    ReturnCode::Ok
+}
+
+#[cfg(any(test, feature = "__internal-fuzz"))]
+pub fn compress_ng(
+    dest: &mut [u8],
+    dest_len: &mut usize,
+    source: &[u8],
+    //
+    level: i32,
+) -> ReturnCode {
+    use libz_ng_sys::{deflate, deflateEnd, deflateInit2_, z_stream};
+
+    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
+    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+
+    let mut stream = z_stream {
+        next_in: source.as_ptr() as *mut u8,
+        avail_in: 0, // for special logic in the first  iteration
+        total_in: 0,
+        next_out: dest.as_mut_ptr(),
+        avail_out: 0, // for special logic on the first iteration
+        total_out: 0,
+        msg: std::ptr::null_mut(),
+        state: std::ptr::null_mut(),
+        zalloc: allocate::zcalloc,
+        zfree: allocate::zcfree,
+        opaque: std::ptr::null_mut(),
+        data_type: 0,
+        adler: 0,
+        reserved: 0,
+    };
+
+    let method = Z_DEFLATED;
+    let window_bits = 15;
+    let mem_level = 8;
+    let strategy = Z_DEFAULT_STRATEGY;
+
+    let err = {
+        let strm: *mut z_stream = &mut stream;
+        unsafe {
+            deflateInit2_(
+                strm,
+                level,
+                method,
+                window_bits,
+                mem_level,
+                strategy,
+                VERSION,
+                STREAM_SIZE,
+            )
+        }
+    };
+
+    if ReturnCode::from(err) != ReturnCode::Ok as _ {
+        return ReturnCode::from(err);
+    }
+
+    let max = libc::c_uint::MAX as usize;
+
+    let mut left = dest.len();
+    let mut source_len = source.len();
+
+    loop {
+        if stream.avail_out == 0 {
+            stream.avail_out = Ord::min(left, max) as _;
+            left -= stream.avail_out as usize;
+        }
+
+        if stream.avail_in == 0 {
+            stream.avail_in = Ord::min(source_len, max) as _;
+            source_len -= stream.avail_in as usize;
+        }
+
+        let flush = if source_len > 0 {
+            Flush::NoFlush
+        } else {
+            Flush::Finish
+        };
+
+        let err = unsafe { deflate(&mut stream, flush as i32) };
+        if ReturnCode::from(err) != ReturnCode::Ok {
+            break;
+        }
+    }
+
+    *dest_len = stream.total_out as _;
+
+    unsafe { deflateEnd(&mut stream) };
+
+    ReturnCode::Ok
+}
