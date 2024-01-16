@@ -108,9 +108,8 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             state.matches = 2; /* clear hash */
 
             let src = stream.next_in.wrapping_sub(state.w_size);
-            let dst = state.window.filled_mut()[..state.w_size].as_mut_ptr();
 
-            unsafe { std::ptr::copy_nonoverlapping(src, dst, state.w_size) };
+            unsafe { state.window.copy_and_initialize(0..state.w_size, src) };
 
             state.strstart = state.w_size;
             state.insert = state.strstart;
