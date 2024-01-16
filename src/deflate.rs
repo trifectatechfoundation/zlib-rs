@@ -1254,6 +1254,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             let init = Ord::min(state.window_size - curr, WIN_INIT);
             unsafe { std::ptr::write_bytes(state.window.as_mut_ptr().wrapping_add(curr), 0, init) };
             state.high_water = curr + init;
+
+            state.window.filled = Ord::min(curr + init, state.window.capacity);
         } else if state.high_water < curr + WIN_INIT {
             // High water mark at or above current data, but below current data
             // plus WIN_INIT -- zero out to current data plus WIN_INIT, or up
@@ -1270,6 +1272,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
                 )
             };
             state.high_water += init;
+            state.window.filled = Ord::min(state.high_water + init, state.window.capacity);
         }
     }
 
