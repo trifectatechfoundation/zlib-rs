@@ -861,6 +861,14 @@ fn hello_world_uncompressed() {
 }
 
 #[test]
+fn copy_direct_from_next_in_to_next_out() {
+    let deflated = [120, 1, 1, 2, 0, 253, 255, 6, 10, 0, 24, 0, 17];
+
+    let output = uncompress_help(&deflated);
+    assert_eq!(String::from_utf8(output).unwrap(), "\u{6}\n");
+}
+
+#[test]
 fn hello_world_fixed() {
     // "Hello World!" compressed with `minideflate -k -f -9`
     let deflated = [
