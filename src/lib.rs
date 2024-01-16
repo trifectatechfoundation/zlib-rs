@@ -170,7 +170,7 @@ pub fn uncompress_help(input: &[u8]) -> Result<Vec<u8>, ReturnCode> {
     if err != 0 {
         Err(ReturnCode::from(err))
     } else {
-        dest_vec.truncate(dest_len as usize);
+        dest_vec.truncate(dest_len);
 
         Ok(dest_vec)
     }

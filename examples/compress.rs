@@ -1,6 +1,6 @@
 //! a binary just so we can look at the optimized assembly
 
-use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash, path::PathBuf};
+use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 
 use zlib::{Flush, ReturnCode};
 
