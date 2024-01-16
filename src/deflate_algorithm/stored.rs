@@ -108,7 +108,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             state.matches = 2; /* clear hash */
 
             let src = stream.next_in.wrapping_sub(state.w_size);
-            let dst = state.window.filled_mut().as_mut_ptr();
+            let dst = state.window.filled_mut()[..state.w_size].as_mut_ptr();
 
             unsafe { std::ptr::copy_nonoverlapping(src, dst, state.w_size) };
 
@@ -131,17 +131,14 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             }
 
             let src = stream.next_in.wrapping_sub(used as usize);
-            let dst = state.window.filled_mut()[state.strstart..].as_mut_ptr();
-
-            unsafe { std::ptr::copy_nonoverlapping(src, dst, used as usize) };
+            let dst = state.strstart..state.strstart + used as usize;
+            unsafe { state.window.copy_and_initialize(dst, src) };
 
             state.strstart += used as usize;
             state.insert += Ord::min(used as usize, state.w_size - state.insert);
         }
         state.block_start = state.strstart as isize;
     }
-
-    stream.state.high_water = Ord::max(stream.state.high_water, stream.state.strstart);
 
     if last {
         return BlockState::FinishDone;
@@ -170,15 +167,13 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         state.insert += Ord::min(have, state.w_size - state.insert);
     }
 
-    let state = &mut stream.state;
-    state.high_water = Ord::max(state.high_water, state.strstart);
-
     // There was not enough avail_out to write a complete worthy or flushed
     // stored block to next_out. Write a stored block to pending instead, if we
     // have enough input for a worthy block, or if flushing and there is enough
     // room for the remaining input as a stored block in the pending buffer.
 
     // number of header bytes
+    let state = &mut stream.state;
     let have = ((state.bi_valid + 42) >> 3) as usize;
 
     // maximum stored block length that will fit in pending:

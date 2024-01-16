@@ -199,9 +199,6 @@ pub fn init2(
         pending,
 
         //
-        high_water: 0,
-
-        //
         lit_bufsize,
 
         //
@@ -466,8 +463,10 @@ pub struct Window<'a> {
     // number of initialized bytes
     filled: usize,
 
-    // same as 1 << window_bits
+    // same as 2 * (1 << window_bits)
     capacity: usize,
+
+    high_water: usize,
 }
 
 // TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
@@ -488,6 +487,7 @@ impl<'a> Window<'a> {
             buf,
             filled: 0,
             capacity: 2 * (1 << window_bits),
+            high_water: 0,
         }
     }
 
@@ -509,8 +509,66 @@ impl<'a> Window<'a> {
         unsafe { slice_assume_init_mut(slice) }
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+    fn as_mut_ptr(&mut self) -> *mut u8 {
         self.buf.as_mut_ptr() as *mut u8
+    }
+
+    /// # Safety
+    ///
+    /// `src` must point to `range.end - range.start` valid (initialized!) bytes
+    pub unsafe fn copy_and_initialize(&mut self, range: std::ops::Range<usize>, src: *const u8) {
+        let (start, end) = (range.start, range.end);
+
+        let dst = self.buf[range].as_mut_ptr() as *mut u8;
+        std::ptr::copy_nonoverlapping(src, dst, end - start);
+
+        if start >= self.filled {
+            self.filled = Ord::max(self.filled, end);
+        }
+
+        self.high_water = Ord::max(self.high_water, self.filled);
+    }
+
+    // this library has many functions that operated in a chunked fashion on memory. For
+    // performance, we want to minimize bounds checks. Therefore we reserve initialize some extra
+    // memory at the end of the window so that chunked operations can use the whole buffer. If they
+    // go slightly over `self.capacity` that's okay, we account for that here by making sure the
+    // memory there is initialized!
+    fn initialize_out_of_bounds(&mut self) {
+        // If the WIN_INIT bytes after the end of the current data have never been
+        // written, then zero those bytes in order to avoid memory check reports of
+        // the use of uninitialized (or uninitialised as Julian writes) bytes by
+        // the longest match routines.  Update the high water mark for the next
+        // time through here.  WIN_INIT is set to STD_MAX_MATCH since the longest match
+        // routines allow scanning to strstart + STD_MAX_MATCH, ignoring lookahead.
+        if self.high_water < self.capacity {
+            let curr = self.filled().len();
+
+            if self.high_water < curr {
+                // Previous high water mark below current data -- zero WIN_INIT
+                // bytes or up to end of window, whichever is less.
+                let init = Ord::min(self.capacity - curr, WIN_INIT);
+
+                self.buf[curr..][..init].fill(MaybeUninit::new(0));
+
+                self.high_water = curr + init;
+
+                self.filled += init;
+            } else if self.high_water < curr + WIN_INIT {
+                // High water mark at or above current data, but below current data
+                // plus WIN_INIT -- zero out to current data plus WIN_INIT, or up
+                // to end of window, whichever is less.
+                let init = Ord::min(
+                    curr + WIN_INIT - self.high_water,
+                    self.capacity - self.high_water,
+                );
+
+                self.buf[self.high_water..][..init].fill(MaybeUninit::new(0));
+
+                self.high_water += init;
+                self.filled += init;
+            }
+        }
     }
 }
 
@@ -585,12 +643,6 @@ pub(crate) struct State<'a> {
     pub(crate) sym_buf: &'a mut [u8],
     pub(crate) sym_end: usize,
     pub(crate) sym_next: usize,
-
-    /// High water mark offset in window for initialized bytes -- bytes above
-    /// this are set to zero in order to avoid memory check warnings when
-    /// longest match routines access bytes past the input.  This is then
-    /// updated to the new high water mark.
-    pub(crate) high_water: usize,
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -1071,32 +1123,18 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
 
     stream.avail_in -= len as u32;
 
-    let output = stream.state.window.as_mut_ptr().wrapping_add(offset);
-
     // TODO gzip
     if stream.state.wrap == 1 {
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
-        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
-
-        if offset <= stream.state.window.filled {
-            stream.state.window.filled = Ord::min(
-                stream.state.window.filled.saturating_add(len),
-                stream.state.window.capacity,
-            );
-        }
+        let window = &mut stream.state.window;
+        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
         let data = &stream.state.window.filled()[offset..][..len];
         stream.adler = adler32(stream.adler as u32, data) as _;
     } else {
-        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
-
-        if offset <= stream.state.window.filled {
-            stream.state.window.filled = Ord::min(
-                stream.state.window.filled.saturating_add(len),
-                stream.state.window.capacity,
-            );
-        }
+        let window = &mut stream.state.window;
+        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
 
     stream.next_in = stream.next_in.wrapping_add(len);
@@ -1162,13 +1200,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If the window is almost full and there is insufficient lookahead,
         // move the upper half to the lower one to make room in the upper half.
         if state.strstart >= wsize + state.max_dist() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.window.as_mut_ptr().wrapping_add(wsize),
-                    state.window.as_mut_ptr(),
-                    wsize as usize,
-                )
-            };
+            state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
 
             if state.match_start >= wsize {
                 state.match_start -= wsize;
@@ -1213,10 +1245,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         if state.lookahead + state.insert >= STD_MIN_MATCH {
             let string = state.strstart - state.insert;
             if state.max_chain_length > 1024 {
-                // state.ins_h = state.update_hash(s, state.window[string], state.window[string + 1]);
-
-                let v0 = unsafe { *state.window.as_mut_ptr().wrapping_add(string) } as u32;
-                let v1 = unsafe { *state.window.as_mut_ptr().wrapping_add(string + 1) } as u32;
+                let v0 = state.window.filled()[string] as u32;
+                let v1 = state.window.filled()[string + 1] as u32;
                 state.ins_h = (state.update_hash)(v0, v1) as usize;
             } else if string >= 1 {
                 (state.quick_insert_string)(state, string + 2 - STD_MIN_MATCH);
@@ -1239,46 +1269,13 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         }
     }
 
-    // If the WIN_INIT bytes after the end of the current data have never been
-    // written, then zero those bytes in order to avoid memory check reports of
-    // the use of uninitialized (or uninitialised as Julian writes) bytes by
-    // the longest match routines.  Update the high water mark for the next
-    // time through here.  WIN_INIT is set to STD_MAX_MATCH since the longest match
-    // routines allow scanning to strstart + STD_MAX_MATCH, ignoring lookahead.
-    let state = &mut stream.state;
-    if state.high_water < state.window_size {
-        let curr = state.strstart + state.lookahead;
-
-        if state.high_water < curr {
-            // Previous high water mark below current data -- zero WIN_INIT
-            // bytes or up to end of window, whichever is less.
-            let init = Ord::min(state.window_size - curr, WIN_INIT);
-            unsafe { std::ptr::write_bytes(state.window.as_mut_ptr().wrapping_add(curr), 0, init) };
-            state.high_water = curr + init;
-
-            state.window.filled = Ord::min(curr + init, state.window.capacity);
-        } else if state.high_water < curr + WIN_INIT {
-            // High water mark at or above current data, but below current data
-            // plus WIN_INIT -- zero out to current data plus WIN_INIT, or up
-            // to end of window, whichever is less.
-            let init = Ord::min(
-                curr + WIN_INIT - state.high_water,
-                state.window_size - state.high_water,
-            );
-            unsafe {
-                std::ptr::write_bytes(
-                    state.window.as_mut_ptr().wrapping_add(state.high_water),
-                    0,
-                    init,
-                )
-            };
-            state.high_water += init;
-            state.window.filled = Ord::min(state.high_water + init, state.window.capacity);
-        }
-    }
+    // initialize some memory at the end of the (filled) window, so SIMD operations can go "out of
+    // bounds" without violating any requirements. The window allocation is already slightly bigger
+    // to allow for this.
+    stream.state.window.initialize_out_of_bounds();
 
     assert!(
-        state.strstart <= state.window_size - MIN_LOOKAHEAD,
+        stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD,
         "not enough room for search"
     );
 }
