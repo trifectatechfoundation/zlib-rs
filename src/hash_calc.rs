@@ -11,20 +11,11 @@ pub trait HashCalc {
         h & Self::HASH_CALC_MASK
     }
 
-    fn hash_calc_read(strstart: &[u8]) -> u32 {
-        u32::from_ne_bytes(strstart.try_into().unwrap())
-    }
-
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let strstart = state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let slice = unsafe { std::slice::from_raw_parts(strstart, 4) };
-
         let mut h = 0;
 
-        let val = Self::hash_calc_read(slice);
+        let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
+        let val = u32::from_ne_bytes(slice[..4].try_into().unwrap());
 
         h = Self::hash_calc(h, val);
         h &= Self::HASH_CALC_MASK;
@@ -41,12 +32,7 @@ pub trait HashCalc {
     }
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
-        // safety: we have a mutable reference to the state, so nobody else can use this memory
-        let strstart = state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let slice = unsafe { std::slice::from_raw_parts(strstart, count + 3) };
+        let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
 
         for (i, w) in slice.windows(4).take(count).enumerate() {
             let idx = string as u16 + i as u16;
@@ -55,7 +41,7 @@ pub trait HashCalc {
             let mut h = 0;
 
             // HASH_CALC_READ;
-            let val = Self::hash_calc_read(w);
+            let val = u32::from_ne_bytes(w.try_into().unwrap());
 
             // HASH_CALC(s, HASH_CALC_VAR, val);
             h = Self::hash_calc(h, val);
@@ -98,16 +84,8 @@ impl HashCalc for RollHashCalc {
         (h << HASH_SLIDE) ^ val
     }
 
-    fn hash_calc_read(_strstart: &[u8]) -> u32 {
-        unreachable!("is inlined into the insert functions")
-    }
-
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let strstart = state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let slice = unsafe { std::slice::from_raw_parts(strstart, 1) };
+        let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
 
         let val = slice[0] as u32;
         state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
@@ -125,11 +103,7 @@ impl HashCalc for RollHashCalc {
     }
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
-        let strstart = state
-            .window
-            .as_mut_ptr()
-            .wrapping_add(string + Self::HASH_CALC_OFFSET);
-        let slice = unsafe { std::slice::from_raw_parts(strstart, count) };
+        let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..][..count];
 
         for (i, val) in slice.iter().copied().enumerate() {
             let idx = string as u16 + i as u16;
