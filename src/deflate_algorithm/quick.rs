@@ -1,10 +1,15 @@
 use crate::{
     deflate::{
-        fill_window, flush_pending, memcmp_n_slice, BlockState, BlockType, DeflateStream, State,
-        StaticTreeDesc, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH, WANT_MIN_MATCH,
+        fill_window, flush_pending, BlockState, BlockType, DeflateStream, State, StaticTreeDesc,
+        MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH, WANT_MIN_MATCH,
     },
     Flush,
 };
+
+#[inline(always)]
+fn memcmp_n_slice<const N: usize>(src0: &[u8], src1: &[u8]) -> bool {
+    src0[..N] != src1[..N]
+}
 
 pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     let mut state = &mut stream.state;

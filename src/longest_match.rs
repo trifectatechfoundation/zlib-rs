@@ -1,4 +1,4 @@
-use crate::deflate::{memcmp_n_ptr, State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
+use crate::deflate::{State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
 
 type Pos = u16;
 
@@ -307,4 +307,14 @@ fn longest_match_help<const SLOW: bool>(
 
 fn break_matching(state: &State, best_len: usize, match_start: usize) -> (usize, usize) {
     (Ord::min(best_len, state.lookahead), match_start)
+}
+
+// # Safety
+//
+// The two pointers must be valid for reads of N bytes.
+unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
+    let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
+    let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
+
+    src0_cmp != src1_cmp
 }

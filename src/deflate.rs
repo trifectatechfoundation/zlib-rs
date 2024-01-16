@@ -1233,7 +1233,6 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         //   strstart + s->lookahead <= input_size => more >= MIN_LOOKAHEAD.
         // Otherwise, window_size == 2*WSIZE so more >= 2.
         // If there was sliding, more >= WSIZE. So in all cases, more >= 2.
-        //
         assert!(more >= 2, "more < 2");
 
         let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
@@ -1933,21 +1932,6 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
 
     stream.state.block_start = stream.state.strstart as isize;
     flush_pending(stream)
-}
-
-#[inline(always)]
-pub(crate) fn memcmp_n_slice<const N: usize>(src0: &[u8], src1: &[u8]) -> bool {
-    src0[..N] != src1[..N]
-}
-
-// # Safety
-//
-// The two pointers must be valid for reads of N bytes.
-pub(crate) unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
-    let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
-    let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
-
-    src0_cmp != src1_cmp
 }
 
 pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
