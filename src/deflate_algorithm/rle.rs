@@ -32,15 +32,14 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
             {
                 if scan[0] == scan[1] && scan[1] == scan[2] {
-                    match_len = crate::compare256::compare256_rle(scan[0], &scan[3..]) + 2;
+                    match_len = crate::compare256::compare256_rle_slice(scan[0], &scan[3..]) + 2;
                     match_len = Ord::min(match_len, state.lookahead);
                     match_len = Ord::min(match_len, STD_MAX_MATCH);
                 }
             }
 
             assert!(
-                scan[match_len..].as_ptr()
-                    <= state.window.as_ptr().wrapping_add(state.window_size - 1),
+                state.strstart - 1 + match_len <= state.window_size - 1,
                 "wild scan"
             );
         }
