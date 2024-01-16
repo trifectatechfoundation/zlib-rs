@@ -15,6 +15,7 @@ mod inffixed_tbl;
 pub mod inflate;
 mod inftrees;
 mod longest_match;
+mod pending;
 mod read_buf;
 mod slide_hash;
 mod trees_tbl;
