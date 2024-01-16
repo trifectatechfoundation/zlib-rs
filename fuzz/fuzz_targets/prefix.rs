@@ -49,7 +49,7 @@ fuzz_target!(|input: (Level, Length)| {
 
     assert_eq!(&deflated_rs, &deflated_ng);
 
-    match zlib::uncompress_help(&deflated_ng) {
+    match uncompress_help_ng(&deflated_ng) {
         Err(err) => {
             let raw_path = std::env::temp_dir().join("failed-inflate-raw.dat");
             std::fs::write(&raw_path, &data).unwrap();
@@ -72,3 +72,24 @@ fuzz_target!(|input: (Level, Length)| {
         }
     }
 });
+
+#[allow(unused)]
+fn uncompress_help_ng(input: &[u8]) -> Result<Vec<u8>, ReturnCode> {
+    let mut dest_vec = vec![0u8; BYTES.len()];
+
+    let mut dest_len = dest_vec.len();
+    let dest = dest_vec.as_mut_ptr();
+
+    let source = input.as_ptr();
+    let source_len = input.len();
+
+    let err = unsafe { libz_ng_sys::uncompress(dest, &mut dest_len, source, source_len) };
+
+    if err != 0 {
+        Err(ReturnCode::from(err))
+    } else {
+        dest_vec.truncate(dest_len);
+
+        Ok(dest_vec)
+    }
+}
