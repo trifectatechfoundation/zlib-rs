@@ -58,7 +58,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         // Make a dummy stored block in pending to get the header bytes,
         // including any pending bits. This also updates the debugging counts.
         last = flush == Flush::Finish && len == left + stream.avail_in as usize;
-        zng_tr_stored_block(stream.state, &[], last);
+        zng_tr_stored_block(stream.state, 0..0, last);
 
         /* Replace the lengths in the dummy stored block with len. */
         stream.state.pending.rewind(4);
@@ -72,17 +72,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         if left > 0 {
             let left = Ord::min(left, len);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    stream
-                        .state
-                        .window
-                        .as_mut_ptr()
-                        .offset(stream.state.block_start),
-                    stream.next_out,
-                    left,
-                );
-            }
+            let src = &stream.state.window.filled()[stream.state.block_start as usize..];
+
+            unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), stream.next_out, left) };
 
             stream.next_out = stream.next_out.wrapping_add(left);
             stream.avail_out = stream.avail_out.wrapping_sub(left as _);
@@ -93,10 +85,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         // Copy uncompressed bytes directly from next_in to next_out, updating the check value.
         if len > 0 {
-            read_buf_direct_copy(stream, stream.next_out, len);
-            stream.next_out = stream.next_out.wrapping_add(len as _);
-            stream.avail_out = stream.avail_out.wrapping_sub(len as _);
-            stream.total_out = stream.total_out.wrapping_add(len as _);
+            read_buf_direct_copy(stream, len);
         }
 
         if last {
@@ -118,13 +107,10 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             /* supplant the previous history */
             state.matches = 2; /* clear hash */
 
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    stream.next_in.wrapping_sub(state.w_size),
-                    state.window.as_mut_ptr(),
-                    state.w_size,
-                );
-            }
+            let src = stream.next_in.wrapping_sub(state.w_size);
+            let dst = state.window.filled_mut().as_mut_ptr();
+
+            unsafe { std::ptr::copy_nonoverlapping(src, dst, state.w_size) };
 
             state.strstart = state.w_size;
             state.insert = state.strstart;
@@ -132,26 +118,22 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             if state.window_size - state.strstart <= used as usize {
                 /* Slide the window down. */
                 state.strstart -= state.w_size;
-                unsafe {
-                    let ptr = state.window.as_mut_ptr();
-                    std::ptr::copy_nonoverlapping(
-                        ptr.wrapping_add(state.w_size),
-                        ptr,
-                        state.strstart,
-                    );
-                }
+
+                state
+                    .window
+                    .filled_mut()
+                    .copy_within(state.w_size..state.w_size + state.strstart, 0);
+
                 if state.matches < 2 {
                     state.matches += 1; /* add a pending slide_hash() */
                 }
                 state.insert = Ord::min(state.insert, state.strstart);
             }
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    stream.next_in.wrapping_sub(used as usize),
-                    state.window.as_mut_ptr().wrapping_add(state.strstart),
-                    used as usize,
-                );
-            }
+
+            let src = stream.next_in.wrapping_sub(used as usize);
+            let dst = state.window.filled_mut()[state.strstart..].as_mut_ptr();
+
+            unsafe { std::ptr::copy_nonoverlapping(src, dst, used as usize) };
 
             state.strstart += used as usize;
             state.insert += Ord::min(used as usize, state.w_size - state.insert);
@@ -213,20 +195,8 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         let len = Ord::min(left as usize, have); // TODO wrapping?
         last = flush == Flush::Finish && stream.avail_in == 0 && len == (left as usize);
 
-        {
-            // TODO hack remove
-            let mut tmp = vec![0; len];
-
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.window.as_mut_ptr().offset(state.block_start),
-                    tmp.as_mut_ptr(),
-                    len,
-                )
-            }
-
-            zng_tr_stored_block(state, &tmp, last);
-        }
+        let range = state.block_start as usize..state.block_start as usize + len;
+        zng_tr_stored_block(state, range, last);
 
         state.block_start += len as isize;
         flush_pending(stream);
@@ -240,8 +210,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     }
 }
 
-fn read_buf_direct_copy(stream: &mut DeflateStream, output: *mut u8, size: usize) -> usize {
+fn read_buf_direct_copy(stream: &mut DeflateStream, size: usize) -> usize {
     let len = Ord::min(stream.avail_in as usize, size);
+    let output = stream.next_out;
 
     if len == 0 {
         return 0;
@@ -251,16 +222,23 @@ fn read_buf_direct_copy(stream: &mut DeflateStream, output: *mut u8, size: usize
 
     // TODO gzip and maybe DEFLATE_NEED_CHECKSUM too?
     if stream.state.wrap == 1 {
-        // TODO fuse adler and copy
-        let data = unsafe { std::slice::from_raw_parts(stream.next_in, len) };
-        stream.adler = crate::adler32::adler32(stream.adler as u32, data) as _;
+        // we cannot fuse the adler and the copy in our case, because adler32 takes a slice.
+        // Another process is allowed to concurrently modify stream.next_in, so we cannot turn it
+        // into a rust slice (violates its safety requirements)
         unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+
+        let data = unsafe { std::slice::from_raw_parts(output, len) };
+        stream.adler = crate::adler32::adler32(stream.adler as u32, data) as _;
     } else {
         unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
     }
 
     stream.next_in = stream.next_in.wrapping_add(len);
     stream.total_in += len as crate::c_api::z_size;
+
+    stream.next_out = stream.next_out.wrapping_add(len as _);
+    stream.avail_out = stream.avail_out.wrapping_sub(len as _);
+    stream.total_out = stream.total_out.wrapping_add(len as _);
 
     len
 }
