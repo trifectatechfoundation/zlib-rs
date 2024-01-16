@@ -1,7 +1,14 @@
 #[cfg(test)]
 const MAX_COMPARE_SIZE: usize = 256;
 
-pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
+    let src0 = first_chunk::<_, 256>(src0).unwrap();
+    let src1 = first_chunk::<_, 256>(src1).unwrap();
+
+    compare256(src0, src1)
+}
+
+fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
         debug_assert_eq!(avx2::compare256(src0, src1), rust::compare256(src0, src1));
@@ -12,8 +19,19 @@ pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     rust::compare256(src0, src1)
 }
 
-pub fn compare256_rle(byte: u8, src: &[u8]) -> usize {
+pub fn compare256_rle_slice(byte: u8, src: &[u8]) -> usize {
     rust::compare256_rle(byte, src)
+}
+
+#[inline]
+pub const fn first_chunk<T, const N: usize>(slice: &[T]) -> Option<&[T; N]> {
+    if slice.len() < N {
+        None
+    } else {
+        // SAFETY: We explicitly check for the correct number of elements,
+        //   and do not let the reference outlive the slice.
+        Some(unsafe { &*(slice.as_ptr() as *const [T; N]) })
+    }
 }
 
 mod rust {

@@ -97,9 +97,8 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 let match_start = &state.window.filled()[hash_head as usize..];
 
                 if !memcmp_n_slice::<2>(str_start, match_start) {
-                    let a = first_chunk(&str_start[2..]).unwrap();
-                    let b = first_chunk(&match_start[2..]).unwrap();
-                    let mut match_len = crate::compare256::compare256(a, b) + 2;
+                    let mut match_len =
+                        crate::compare256::compare256_slice(&str_start[2..], &match_start[2..]) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
                         if match_len > state.lookahead {
@@ -146,15 +145,4 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     quick_end_block!();
     BlockState::BlockDone
-}
-
-#[inline]
-pub const fn first_chunk<T, const N: usize>(slice: &[T]) -> Option<&[T; N]> {
-    if slice.len() < N {
-        None
-    } else {
-        // SAFETY: We explicitly check for the correct number of elements,
-        //   and do not let the reference outlive the slice.
-        Some(unsafe { &*(slice.as_ptr() as *const [T; N]) })
-    }
 }

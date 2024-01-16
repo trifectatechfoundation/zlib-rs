@@ -26,12 +26,11 @@ fn longest_match_help<const SLOW: bool>(
 
     let strstart = state.strstart;
     let wmask = state.w_mask;
-    let window = state.window.as_ptr();
-    let scan = window.wrapping_add(strstart);
-    let mut mbase_start = window;
-    let mut mbase_end: *const u8;
+    let window = state.window.filled();
+    let scan = &window[strstart..];
     let mut limit: Pos;
     let limit_base: Pos;
+    let early_exit: bool;
 
     let mut chain_length: usize;
     let mut best_len: usize;
@@ -73,15 +72,11 @@ fn longest_match_help<const SLOW: bool>(
         }
     }
 
-    let scan_start;
-    let mut scan_end;
+    let scan_start = scan;
+    let mut scan_end = &scan[offset..];
 
-    unsafe {
-        scan_start = std::ptr::read(scan as *mut [u8; 8]);
-        scan_end = std::ptr::read(scan.wrapping_add(offset) as *mut [u8; 8]);
-    }
-
-    mbase_end = mbase_start.wrapping_add(offset);
+    let mut mbase_start = window.as_ptr();
+    let mut mbase_end = window[offset..].as_ptr();
 
     // Do not waste too much time if we already have a good match
     chain_length = state.max_chain_length;
@@ -113,13 +108,12 @@ fn longest_match_help<const SLOW: bool>(
              * to cur_match). We cannot use s->prev[strstart+1,...] immediately, because
              * these strings are not yet inserted into the hash table.
              */
-            let get_scan = |n: usize| unsafe { *scan.wrapping_add(n) as u32 };
 
-            hash = (state.update_hash)(0, get_scan(1));
-            hash = (state.update_hash)(hash, get_scan(2));
+            hash = (state.update_hash)(0, scan[1] as u32);
+            hash = (state.update_hash)(hash, scan[2] as u32);
 
             for i in 3..=best_len {
-                hash = (state.update_hash)(hash, get_scan(i));
+                hash = (state.update_hash)(hash, scan[i] as u32);
 
                 /* If we're starting with best_len >= 3, we can use offset search. */
                 pos = state.head[hash as usize];
@@ -138,14 +132,13 @@ fn longest_match_help<const SLOW: bool>(
             mbase_start = mbase_start.wrapping_sub(match_offset as usize);
             mbase_end = mbase_end.wrapping_sub(match_offset as usize);
         }
+
+        early_exit = false;
     } else {
         // must initialize this variable
         limit_base = 0;
+        early_exit = state.level < EARLY_EXIT_TRIGGER_LEVEL;
     }
-
-    // NOTE skipping the slow stuff for now
-
-    let early_exit: bool = state.level < EARLY_EXIT_TRIGGER_LEVEL;
 
     assert!(
         strstart <= state.window_size - MIN_LOOKAHEAD,
@@ -213,13 +206,14 @@ fn longest_match_help<const SLOW: bool>(
 
         let len = {
             // TODO this just looks so incredibly unsafe!
-            let src0 = unsafe { &*scan.wrapping_add(2).cast() };
-            let src1 = unsafe { &*mbase_start.wrapping_add(cur_match as usize + 2).cast() };
+            let src1: &[u8; 256] =
+                unsafe { &*mbase_start.wrapping_add(cur_match as usize + 2).cast() };
 
-            crate::compare256::compare256(src0, src1) + 2
+            crate::compare256::compare256_slice(&scan[2..], src1) + 2
         };
+
         assert!(
-            scan as usize + len <= window as usize + (state.window_size - 1),
+            scan.as_ptr() as usize + len <= window.as_ptr() as usize + (state.window_size - 1),
             "wild scan"
         );
 
@@ -243,8 +237,7 @@ fn longest_match_help<const SLOW: bool>(
                 }
             }
 
-            scan_end =
-                unsafe { std::ptr::read_unaligned(scan.wrapping_add(offset) as *mut [u8; 8]) };
+            scan_end = &scan[offset..];
 
             // Look for a better string offset
             if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
@@ -276,13 +269,12 @@ fn longest_match_help<const SLOW: bool>(
                  * us include one more byte into hash - the byte which will be checked
                  * in main loop now, and which allows to grow match by 1.
                  */
-                let scan_endstr = scan.wrapping_add(len - (STD_MIN_MATCH + 1));
-                let get_scan_endstr = |n: usize| unsafe { *scan_endstr.wrapping_add(n) as u32 };
+                let scan_endstr = &scan[len - (STD_MIN_MATCH + 1)..];
 
                 let mut hash;
-                hash = (state.update_hash)(0, get_scan_endstr(0));
-                hash = (state.update_hash)(hash, get_scan_endstr(1));
-                hash = (state.update_hash)(hash, get_scan_endstr(2));
+                hash = (state.update_hash)(0, scan_endstr[0] as u32);
+                hash = (state.update_hash)(hash, scan_endstr[1] as u32);
+                hash = (state.update_hash)(hash, scan_endstr[2] as u32);
 
                 pos = state.head[hash as usize];
                 if pos < cur_match {
@@ -295,7 +287,7 @@ fn longest_match_help<const SLOW: bool>(
 
                 /* Update offset-dependent variables */
                 limit = limit_base + match_offset;
-                mbase_start = window.wrapping_sub(match_offset as usize);
+                mbase_start = window.as_ptr().wrapping_sub(match_offset as usize);
                 mbase_end = mbase_start.wrapping_add(offset);
                 continue;
             }
