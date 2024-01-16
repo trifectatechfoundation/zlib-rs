@@ -34,6 +34,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
          */
         if stream.state.lookahead < MIN_LOOKAHEAD {
             fill_window(stream);
+
             if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
                 return BlockState::NeedMore;
             }
@@ -124,7 +125,12 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 if (next_match.match_length as usize) < WANT_MIN_MATCH {
                     next_match.match_length = 1;
                 } else {
-                    fizzle_matches(state, &mut current_match, &mut next_match);
+                    fizzle_matches(
+                        state.window.filled(),
+                        state.max_dist(),
+                        &mut current_match,
+                        &mut next_match,
+                    );
                 }
             } else {
                 /* Set up the match to be a 1 byte literal */
@@ -265,7 +271,7 @@ fn insert_match(state: &mut State, mut m: Match) {
     }
 }
 
-fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
+fn fizzle_matches(window: &[u8], max_dist: usize, current: &mut Match, next: &mut Match) {
     /* step zero: sanity checks */
 
     if current.match_length <= 1 {
@@ -280,38 +286,29 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
         return;
     }
 
-    let m = state
-        .window
-        .as_mut_ptr()
-        .wrapping_sub((current.match_length + 1 + next.match_start) as usize);
-    let orig = state
-        .window
-        .as_mut_ptr()
-        .wrapping_sub((current.match_length + 1 + next.strstart) as usize);
+    let m = &window[(-(current.match_length as isize) + 1 + next.match_start as isize) as usize..];
+    let orig = &window[(-(current.match_length as isize) + 1 + next.strstart as isize) as usize..];
 
     /* quick exit check.. if this fails then don't bother with anything else */
-    if unsafe { *m != *orig } {
+    if m[0] != orig[0] {
         return;
     }
 
     /* step one: try to move the "next" match to the left as much as possible */
-    let limit = next.strstart.saturating_sub(state.max_dist() as u16);
+    let limit = next.strstart.saturating_sub(max_dist as u16);
 
     let mut c = *current;
     let mut n = *next;
 
-    let mut m = state
-        .window
-        .as_mut_ptr()
-        .wrapping_add(n.match_start as usize - 1);
-    let mut orig = state
-        .window
-        .as_mut_ptr()
-        .wrapping_add(n.strstart as usize - 1);
+    let m = &window[..n.match_start as usize];
+    let orig = &window[..n.strstart as usize];
+
+    let mut m = m.iter().rev();
+    let mut orig = orig.iter().rev();
 
     let mut changed = 0;
 
-    while unsafe { *m == *orig } {
+    while m.next() == orig.next() {
         if c.match_length < 1 {
             break;
         }
@@ -329,8 +326,6 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
         n.match_start -= 1;
         n.match_length += 1;
         c.match_length -= 1;
-        m = m.wrapping_sub(1);
-        orig = orig.wrapping_sub(1);
         changed += 1;
     }
 
