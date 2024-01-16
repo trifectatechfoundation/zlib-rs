@@ -112,8 +112,8 @@ fn longest_match_help<const SLOW: bool>(
             hash = (state.update_hash)(0, scan[1] as u32);
             hash = (state.update_hash)(hash, scan[2] as u32);
 
-            for i in 3..=best_len {
-                hash = (state.update_hash)(hash, scan[i] as u32);
+            for (i, b) in scan.iter().enumerate().take(best_len + 1).skip(3) {
+                hash = (state.update_hash)(hash, *b as u32);
 
                 /* If we're starting with best_len >= 3, we can use offset search. */
                 pos = state.head[hash as usize];
