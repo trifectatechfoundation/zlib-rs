@@ -4,26 +4,6 @@ use libfuzzer_sys::fuzz_target;
 use libc::{c_char, c_int};
 use zlib::ReturnCode;
 
-fn uncompress_help(input: &[u8]) -> Vec<u8> {
-    let mut dest_vec = vec![0u8; 1 << 16];
-
-    let mut dest_len = dest_vec.len();
-    let dest = dest_vec.as_mut_ptr();
-
-    let source = input.as_ptr();
-    let source_len = input.len();
-
-    let err = unsafe { libz_ng_sys::uncompress(dest, &mut dest_len, source, source_len) };
-
-    if err != 0 {
-        panic!("error {:?}", zlib::ReturnCode::from(err));
-    }
-
-    dest_vec.truncate(dest_len as usize);
-
-    dest_vec
-}
-
 pub(crate) fn compress3<'a>(
     output: &'a mut [u8],
     input: &[u8],
@@ -117,7 +97,7 @@ fuzz_target!(|data: String| {
     let (deflated, error) = compress3(&mut deflated, data.as_bytes(), 6);
 
     assert_eq!(ReturnCode::Ok, error);
-    let output = uncompress_help(&deflated);
+    let output = zlib::uncompress_help(&deflated).unwrap();
 
     if output != data.as_bytes() {
         let path = std::env::temp_dir().join("deflate.txt");

@@ -160,7 +160,6 @@ fn compress_rs(
     let mut source_len = source.len();
 
     loop {
-        println!("rs loop");
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
@@ -329,7 +328,6 @@ fn compress_dynamic(
     let mut source_len = source.len();
 
     loop {
-        println!("dynamic loop");
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
