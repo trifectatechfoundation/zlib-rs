@@ -136,7 +136,7 @@ pub mod quick {
     ];
 
     #[test]
-    fn block_open() {
+    fn block_open_quick() {
         let mut stream = zlib::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,

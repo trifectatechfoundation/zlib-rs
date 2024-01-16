@@ -81,8 +81,7 @@ fn main() {
             dest_vec.hash(&mut hasher);
             dbg!(hasher.finish());
 
-            let path = PathBuf::from(path);
-            std::fs::write(path.with_extension(""), &dest_vec).unwrap();
+            std::fs::write(temp_dir().join("xx.tar.gz"), &dest_vec).unwrap();
 
             drop(dest_vec)
         }

@@ -9,7 +9,7 @@ pub struct Pending<'a> {
 }
 
 impl<'a> Pending<'a> {
-    pub fn from_raw_parts(data: *mut u8, len: usize) -> Self {
+    pub unsafe fn from_raw_parts(data: *mut u8, len: usize) -> Self {
         Self {
             buf: data,
             out: data,

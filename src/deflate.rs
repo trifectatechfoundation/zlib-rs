@@ -175,7 +175,7 @@ pub fn init2(
 
     let head = unsafe { &mut *head_ptr };
 
-    let pending = Pending::from_raw_parts(pending_buf, lit_bufsize);
+    let pending = unsafe { Pending::from_raw_parts(pending_buf, lit_bufsize) };
 
     let pending_end = pending_buf.wrapping_add(lit_bufsize);
     unsafe { std::ptr::write_bytes(pending_end, 0, 3 * lit_bufsize) }; // initialize!

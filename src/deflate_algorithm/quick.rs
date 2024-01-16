@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::{
     deflate::{
         fill_window, flush_pending, BlockState, BlockType, DeflateStream, State, StaticTreeDesc,

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::{Code, ENOUGH_DISTS, ENOUGH_LENS};
 
 pub(crate) enum CodeType {
