@@ -177,7 +177,7 @@ fn emit_match(state: &mut State, mut m: Match) -> bool {
     /* matches that are not long enough we need to emit as literals */
     if (m.match_length as usize) < WANT_MIN_MATCH {
         while m.match_length > 0 {
-            let lc = unsafe { *state.window.wrapping_add(state.strstart) };
+            let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart) };
             bflush |= state.tally_lit(lc);
             state.lookahead -= 1;
             m.strstart += 1;
@@ -281,8 +281,8 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
     }
 
     let offset = (current.match_length + 1 + next.match_start) as usize;
-    let m = state.window.wrapping_sub(offset);
-    let orig = state.window.wrapping_sub(offset);
+    let m = state.window.as_mut_ptr().wrapping_sub(offset);
+    let orig = state.window.as_mut_ptr().wrapping_sub(offset);
 
     /* quick exit check.. if this fails then don't bother with anything else */
     if unsafe { *m != *orig } {
@@ -295,8 +295,14 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
     let mut c = *current;
     let mut n = *next;
 
-    let mut m = state.window.wrapping_add(n.match_start as usize - 1);
-    let mut orig = state.window.wrapping_add(n.strstart as usize - 1);
+    let mut m = state
+        .window
+        .as_mut_ptr()
+        .wrapping_add(n.match_start as usize - 1);
+    let mut orig = state
+        .window
+        .as_mut_ptr()
+        .wrapping_add(n.strstart as usize - 1);
 
     let mut changed = 0;
 
@@ -331,5 +337,5 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
         n.orgstart += 1;
         *current = c;
         *next = n;
-    } 
+    }
 }

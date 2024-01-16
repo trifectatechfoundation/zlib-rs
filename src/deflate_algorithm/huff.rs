@@ -19,7 +19,8 @@ pub fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         /* Output a literal byte */
         let state = &mut stream.state;
-        let bflush = state.tally_lit(unsafe { *state.window.wrapping_add(state.strstart) });
+        let window = state.window.as_mut_ptr();
+        let bflush = state.tally_lit(unsafe { *window.wrapping_add(state.strstart) });
         state.lookahead -= 1;
         state.strstart += 1;
         if bflush {

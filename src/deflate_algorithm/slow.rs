@@ -111,7 +111,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             // If there was no match at the previous position, output a
             // single literal. If there was a match but the current match
             // is longer, truncate the previous match to a single literal.
-            let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
+            let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart - 1) };
             bflush = state.tally_lit(lc);
             if bflush {
                 flush_block_only(stream, false);
@@ -138,7 +138,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     let state = &mut stream.state;
 
     if state.match_available > 0 {
-        let lc = unsafe { *state.window.wrapping_add(state.strstart - 1) };
+        let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart - 1) };
         let _ = state.tally_lit(lc);
         state.match_available = 0;
     }

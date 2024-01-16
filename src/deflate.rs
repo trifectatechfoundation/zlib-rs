@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
     adler32::adler32,
@@ -148,7 +148,7 @@ pub fn init2(
 
     let w_size = 1 << window_bits;
     let window_layout = std::alloc::Layout::array::<u16>(w_size + window_padding);
-    let window_ptr = unsafe { stream.alloc_layout(window_layout.unwrap()) } as *mut u8;
+    let window_ptr = unsafe { stream.alloc_layout(window_layout.unwrap()) } as *mut MaybeUninit<u8>;
 
     let prev_layout = std::alloc::Layout::array::<u16>(w_size);
     let prev_ptr = unsafe { stream.alloc_layout(prev_layout.unwrap()) } as *mut u16;
@@ -165,8 +165,8 @@ pub fn init2(
         // return ReturnCode::MemError;
     }
 
-    // TODO make window a slice (or use Window?)
-    unsafe { std::ptr::write_bytes(window_ptr, 0, w_size + window_padding) }; // initialize!
+    let window =
+        unsafe { Window::from_raw_parts(window_ptr, w_size + window_padding, window_bits) };
 
     unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
     let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
@@ -193,7 +193,7 @@ pub fn init2(
         w_mask: w_size - 1,
 
         // allocated values
-        window: window_ptr,
+        window,
         prev,
         head,
         pending,
@@ -276,7 +276,7 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
     let pending = stream.state.pending.buf;
     let head = stream.state.head.as_mut_ptr();
     let prev = stream.state.prev.as_mut_ptr();
-    let window = stream.state.window;
+    let window = stream.state.window.as_mut_ptr();
     let state = stream.state as *mut State;
 
     let opaque = stream.opaque;
@@ -457,6 +457,67 @@ const MAX_BL_BITS: usize = 7;
 
 pub(crate) const DIST_CODE_LEN: usize = 512;
 
+#[derive(Debug)]
+pub struct Window<'a> {
+    // the full window allocation. This is longer than w_size so that operations don't need to
+    // perform bounds checks.
+    buf: &'a mut [MaybeUninit<u8>],
+
+    // number of initialized bytes
+    filled: usize,
+
+    // same as 1 << window_bits
+    capacity: usize,
+}
+
+// TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
+unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
+    &*(slice as *const [MaybeUninit<u8>] as *const [u8])
+}
+
+// TODO: This could use `MaybeUninit::slice_assume_init_mut` when it is stable.
+unsafe fn slice_assume_init_mut(slice: &mut [MaybeUninit<u8>]) -> &mut [u8] {
+    &mut *(slice as *mut [MaybeUninit<u8>] as *mut [u8])
+}
+
+impl<'a> Window<'a> {
+    unsafe fn from_raw_parts(data: *mut MaybeUninit<u8>, len: usize, window_bits: i32) -> Self {
+        let buf = std::slice::from_raw_parts_mut(data, len);
+
+        Self {
+            buf,
+            filled: 0,
+            capacity: 1 << window_bits,
+        }
+    }
+
+    /// Returns a shared reference to the filled portion of the buffer.
+    #[inline]
+    pub fn filled(&self) -> &[u8] {
+        let slice = &self.buf[..self.filled];
+        // safety: filled describes how far into the buffer that the
+        // user has filled with bytes, so it's been initialized.
+        unsafe { slice_assume_init(slice) }
+    }
+
+    /// Returns a mutable reference to the filled portion of the buffer.
+    #[inline]
+    pub fn filled_mut(&mut self) -> &mut [u8] {
+        let slice = &mut self.buf[..self.filled];
+        // safety: filled describes how far into the buffer that the
+        // user has filled with bytes, so it's been initialized.
+        unsafe { slice_assume_init_mut(slice) }
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.buf.as_ptr() as *const u8
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.buf.as_mut_ptr() as *mut u8
+    }
+}
+
 #[allow(unused)]
 #[repr(C)]
 pub(crate) struct State<'a> {
@@ -523,7 +584,7 @@ pub(crate) struct State<'a> {
     /// true if there is an active block, or false if the block was just closed
     pub(crate) block_open: u8,
 
-    pub(crate) window: *mut u8,
+    pub(crate) window: Window<'a>,
 
     pub(crate) sym_buf: &'a mut [u8],
     pub(crate) sym_end: usize,
@@ -1084,8 +1145,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         if state.strstart >= wsize + state.max_dist() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    state.window.wrapping_add(wsize),
-                    state.window,
+                    state.window.as_mut_ptr().wrapping_add(wsize),
+                    state.window.as_mut_ptr(),
                     wsize as usize,
                 )
             };
@@ -1124,7 +1185,10 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         //
         assert!(more >= 2, "more < 2");
 
-        let ptr = state.window.wrapping_add(state.strstart + state.lookahead);
+        let ptr = state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(state.strstart + state.lookahead);
         let n = read_buf(stream, ptr, more);
 
         let state = &mut stream.state;
@@ -1136,8 +1200,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             if state.max_chain_length > 1024 {
                 // state.ins_h = state.update_hash(s, state.window[string], state.window[string + 1]);
 
-                let v0 = unsafe { *state.window.wrapping_add(string) } as u32;
-                let v1 = unsafe { *state.window.wrapping_add(string + 1) } as u32;
+                let v0 = unsafe { *state.window.as_mut_ptr().wrapping_add(string) } as u32;
+                let v1 = unsafe { *state.window.as_mut_ptr().wrapping_add(string + 1) } as u32;
                 state.ins_h = (state.update_hash)(v0, v1) as usize;
             } else if string >= 1 {
                 (state.quick_insert_string)(state, string + 2 - STD_MIN_MATCH);
@@ -1174,7 +1238,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             // Previous high water mark below current data -- zero WIN_INIT
             // bytes or up to end of window, whichever is less.
             let init = Ord::min(state.window_size - curr, WIN_INIT);
-            unsafe { std::ptr::write_bytes(state.window.wrapping_add(curr), 0, init) };
+            unsafe { std::ptr::write_bytes(state.window.as_mut_ptr().wrapping_add(curr), 0, init) };
             state.high_water = curr + init;
         } else if state.high_water < curr + WIN_INIT {
             // High water mark at or above current data, but below current data
@@ -1184,7 +1248,13 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
                 curr + WIN_INIT - state.high_water,
                 state.window_size - state.high_water,
             );
-            unsafe { std::ptr::write_bytes(state.window.wrapping_add(state.high_water), 0, init) };
+            unsafe {
+                std::ptr::write_bytes(
+                    state.window.as_mut_ptr().wrapping_add(state.high_water),
+                    0,
+                    init,
+                )
+            };
             state.high_water += init;
         }
     }
@@ -1833,13 +1903,16 @@ fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32,
 }
 
 pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
+    let ptr = stream
+        .state
+        .window
+        .as_mut_ptr()
+        .wrapping_add(stream.state.block_start as usize);
+
     zng_tr_flush_block(
         stream,
         if stream.state.block_start >= 0 {
-            stream
-                .state
-                .window
-                .wrapping_add(stream.state.block_start as usize)
+            ptr
         } else {
             std::ptr::null_mut()
         },

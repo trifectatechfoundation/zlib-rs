@@ -16,7 +16,10 @@ pub trait HashCalc {
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strstart = state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(string + Self::HASH_CALC_OFFSET);
         let slice = unsafe { std::slice::from_raw_parts(strstart, 4) };
 
         let mut h = 0;
@@ -39,7 +42,10 @@ pub trait HashCalc {
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
         // safety: we have a mutable reference to the state, so nobody else can use this memory
-        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strstart = state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(string + Self::HASH_CALC_OFFSET);
         let slice = unsafe { std::slice::from_raw_parts(strstart, count + 3) };
 
         for (i, w) in slice.windows(4).take(count).enumerate() {
@@ -97,7 +103,10 @@ impl HashCalc for RollHashCalc {
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strstart = state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(string + Self::HASH_CALC_OFFSET);
         let slice = unsafe { std::slice::from_raw_parts(strstart, 1) };
 
         let val = slice[0] as u32;
@@ -116,7 +125,10 @@ impl HashCalc for RollHashCalc {
     }
 
     fn insert_string(state: &mut State, string: usize, count: usize) {
-        let strstart = state.window.wrapping_add(string + Self::HASH_CALC_OFFSET);
+        let strstart = state
+            .window
+            .as_mut_ptr()
+            .wrapping_add(string + Self::HASH_CALC_OFFSET);
         let slice = unsafe { std::slice::from_raw_parts(strstart, count) };
 
         for (i, val) in slice.iter().copied().enumerate() {
