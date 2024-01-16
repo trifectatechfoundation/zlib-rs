@@ -4,20 +4,11 @@ use libfuzzer_sys::{arbitrary, fuzz_target};
 use libc::{c_char, c_int};
 use zlib::{Flush, ReturnCode};
 
-#[derive(Debug, arbitrary::Arbitrary)]
-enum Level {
-    Three = 3,
-    Four = 4,
-    Five = 5,
-    Six = 6,
-}
-
-fuzz_target!(|input: (Level, String)| {
-    let (level, data) = input;
+fuzz_target!(|data: String| {
+    let level = 0;
 
     let output_length = 2 * 4096;
     let data = data.as_bytes();
-    let level = level as i32;
 
     let mut deflated_rs = vec![0; output_length as usize];
     let mut deflated_len_rs = output_length;
@@ -30,13 +21,6 @@ fuzz_target!(|input: (Level, String)| {
     let error = compress_ng(&mut deflated_ng, &mut deflated_len_ng, data, level);
     assert_eq!(ReturnCode::Ok, error);
     deflated_ng.truncate(deflated_len_ng);
-
-    if deflated_ng != deflated_rs {
-        let deflated_path = std::env::temp_dir().join("unequal-deflated.dat");
-        std::fs::write(&deflated_path, data).unwrap();
-
-        eprintln!("saved files\n    deflated: {deflated_path:?}");
-    }
 
     assert_eq!(&deflated_rs, &deflated_ng);
 
