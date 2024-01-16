@@ -1941,10 +1941,15 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
+#[inline(always)]
+pub(crate) fn memcmp_n_slice<const N: usize>(src0: &[u8], src1: &[u8]) -> bool {
+    src0[..N] != src1[..N]
+}
+
 // # Safety
 //
 // The two pointers must be valid for reads of N bytes.
-pub(crate) unsafe fn memcmp_n<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
+pub(crate) unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
     let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
     let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
 
