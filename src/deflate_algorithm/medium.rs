@@ -280,9 +280,14 @@ fn fizzle_matches(state: &mut State, current: &mut Match, next: &mut Match) {
         return;
     }
 
-    let offset = (current.match_length + 1 + next.match_start) as usize;
-    let m = state.window.as_mut_ptr().wrapping_sub(offset);
-    let orig = state.window.as_mut_ptr().wrapping_sub(offset);
+    let m = state
+        .window
+        .as_mut_ptr()
+        .wrapping_sub((current.match_length + 1 + next.match_start) as usize);
+    let orig = state
+        .window
+        .as_mut_ptr()
+        .wrapping_sub((current.match_length + 1 + next.strstart) as usize);
 
     /* quick exit check.. if this fails then don't bother with anything else */
     if unsafe { *m != *orig } {
