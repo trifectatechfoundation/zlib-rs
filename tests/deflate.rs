@@ -429,3 +429,108 @@ pub mod quick {
         assert_eq!(uncompressed, BLOCK_OPEN_INPUT);
     }
 }
+
+#[test]
+fn deflate_medium_fizzle_bug() {
+    const EXPECTED: &[u8] = &[
+        120, 156, 99, 96, 128, 3, 73, 6, 26, 3, 71, 218, 2, 28, 182, 214, 17, 225, 50, 85, 100, 30,
+        0, 132, 7, 24, 220,
+    ];
+
+    const INPUT: &str = "\0\0\0\0\0\0\0\0\0\0\0\u{19}\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0~\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0%\0\0\0\0\0\0\0\0\0\0\0\0";
+
+    let mut output = [0; EXPECTED.len()];
+    let mut dest_len = output.len();
+
+    let err = compress_rs(&mut output, &mut dest_len, INPUT.as_bytes(), 6);
+    assert_eq!(err, ReturnCode::Ok);
+
+    assert_eq!(&output[..dest_len], EXPECTED);
+}
+
+fn compress_rs(
+    dest: &mut [u8],
+    dest_len: &mut usize,
+    source: &[u8],
+    //
+    level: i32,
+) -> ReturnCode {
+    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
+    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+
+    let mut stream = z_stream {
+        next_in: source.as_ptr() as *mut u8,
+        avail_in: 0, // for special logic in the first  iteration
+        total_in: 0,
+        next_out: dest.as_mut_ptr(),
+        avail_out: 0, // for special logic on the first iteration
+        total_out: 0,
+        msg: std::ptr::null_mut(),
+        state: std::ptr::null_mut(),
+        zalloc: Some(zlib::allocate::zcalloc),
+        zfree: Some(zlib::allocate::zcfree),
+        opaque: std::ptr::null_mut(),
+        data_type: 0,
+        adler: 0,
+        reserved: 0,
+    };
+
+    let method = zlib::Z_DEFLATED;
+    let window_bits = 15;
+    let mem_level = 8;
+    let strategy = zlib::Z_DEFAULT_STRATEGY;
+
+    let err = {
+        let strm: *mut z_stream = &mut stream;
+        unsafe {
+            deflateInit2_(
+                strm,
+                level,
+                method,
+                window_bits,
+                mem_level,
+                strategy,
+                VERSION,
+                STREAM_SIZE,
+            )
+        }
+    };
+
+    if ReturnCode::from(err) != ReturnCode::Ok as _ {
+        return ReturnCode::from(err);
+    }
+
+    let max = libc::c_uint::MAX as usize;
+
+    let mut left = dest.len();
+    let mut source_len = source.len();
+
+    loop {
+        if stream.avail_out == 0 {
+            stream.avail_out = Ord::min(left, max) as _;
+            left -= stream.avail_out as usize;
+        }
+
+        if stream.avail_in == 0 {
+            stream.avail_in = Ord::min(source_len, max) as _;
+            source_len -= stream.avail_in as usize;
+        }
+
+        let flush = if source_len > 0 {
+            Flush::NoFlush
+        } else {
+            Flush::Finish
+        };
+
+        let err = unsafe { deflate(&mut stream, flush as i32) };
+        if ReturnCode::from(err) != ReturnCode::Ok {
+            break;
+        }
+    }
+
+    *dest_len = stream.total_out as _;
+
+    unsafe { deflateEnd(&mut stream) };
+
+    ReturnCode::Ok
+}
