@@ -1111,7 +1111,11 @@ pub(crate) enum BlockType {
     DynamicTrees = 2,
 }
 
-pub(crate) fn zng_tr_stored_block(state: &mut State, input_block: &[u8], is_last: bool) {
+pub(crate) fn zng_tr_stored_block(
+    state: &mut State,
+    window_range: std::ops::Range<usize>,
+    is_last: bool,
+) {
     // send block type
     state.emit_tree(BlockType::StoredBlock, is_last);
 
@@ -1120,6 +1124,7 @@ pub(crate) fn zng_tr_stored_block(state: &mut State, input_block: &[u8], is_last
 
     // cmpr_bits_align(s);
 
+    let input_block: &[u8] = &state.window.filled()[window_range];
     let stored_len = input_block.len() as u16;
 
     state.pending.extend(&stored_len.to_le_bytes());
@@ -1798,8 +1803,13 @@ fn build_bl_tree(state: &mut State) -> usize {
     max_blindex
 }
 
-fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32, last: bool) {
-    /* buf: input block, or NULL if too old */
+fn zng_tr_flush_block(
+    stream: &mut DeflateStream,
+    window_offset: Option<usize>,
+    stored_len: u32,
+    last: bool,
+) {
+    /* window_offset: offset of the input block into the window */
     /* stored_len: length of input block */
     /* last: one if this is the last block for a file */
 
@@ -1861,13 +1871,13 @@ fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32,
             opt_lenb = static_lenb;
         }
     } else {
-        assert!(!buf.is_null(), "lost buf");
+        assert!(window_offset.is_some(), "lost buf");
         /* force a stored block */
         opt_lenb = stored_len as usize + 5;
         static_lenb = stored_len as usize + 5;
     }
 
-    if stored_len as usize + 4 <= opt_lenb && !buf.is_null() {
+    if stored_len as usize + 4 <= opt_lenb && window_offset.is_some() {
         /* 4: two words for the lengths
          * The test buf != NULL is only necessary if LIT_BUFSIZE > WSIZE.
          * Otherwise we can't have processed more than WSIZE input bytes since
@@ -1875,8 +1885,9 @@ fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32,
          * successful. If LIT_BUFSIZE <= WSIZE, it is never too late to
          * transform a block into a stored block.
          */
-        let slice = unsafe { std::slice::from_raw_parts(buf, stored_len as usize) };
-        zng_tr_stored_block(state, slice, last);
+        let window_offset = window_offset.unwrap();
+        let range = window_offset..window_offset + stored_len as usize;
+        zng_tr_stored_block(state, range, last);
     } else if static_lenb == opt_lenb {
         state.emit_tree(BlockType::StaticTrees, last);
         state.compress_block(
@@ -1916,19 +1927,9 @@ fn zng_tr_flush_block(stream: &mut DeflateStream, buf: *mut u8, stored_len: u32,
 }
 
 pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
-    let ptr = stream
-        .state
-        .window
-        .as_mut_ptr()
-        .wrapping_add(stream.state.block_start as usize);
-
     zng_tr_flush_block(
         stream,
-        if stream.state.block_start >= 0 {
-            ptr
-        } else {
-            std::ptr::null_mut()
-        },
+        (stream.state.block_start >= 0).then_some(stream.state.block_start as usize),
         (stream.state.strstart as isize - stream.state.block_start) as u32,
         is_last,
     );
