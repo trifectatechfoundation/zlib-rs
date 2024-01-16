@@ -77,8 +77,8 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             match_len = 0;
         } else {
             /* No match, output a literal byte */
-            let window = state.window.as_mut_ptr();
-            bflush = state.tally_lit(unsafe { *window.wrapping_add(state.strstart) });
+            let lc = state.window.filled()[state.strstart];
+            bflush = state.tally_lit(lc);
             state.lookahead -= 1;
             state.strstart += 1;
         }

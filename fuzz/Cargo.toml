@@ -74,6 +74,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "deflate_fast"
+path = "fuzz_targets/deflate_fast.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "deflate_medium"
 path = "fuzz_targets/deflate_medium.rs"
 test = false
