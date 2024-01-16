@@ -1,4 +1,4 @@
-use crate::deflate::{memcmp_n, State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
+use crate::deflate::{memcmp_n_ptr, State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
 
 type Pos = u16;
 
@@ -174,8 +174,8 @@ fn longest_match_help<const SLOW: bool>(
             ) -> bool {
                 let cur_match = cur_match as usize;
 
-                if !memcmp_n::<N>(mbase_end.wrapping_add(cur_match), scan_end) {
-                    !memcmp_n::<N>(mbase_start.wrapping_add(cur_match), scan_start)
+                if !memcmp_n_ptr::<N>(mbase_end.wrapping_add(cur_match), scan_end) {
+                    !memcmp_n_ptr::<N>(mbase_start.wrapping_add(cur_match), scan_start)
                 } else {
                     false
                 }

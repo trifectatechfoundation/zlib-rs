@@ -1,6 +1,6 @@
 use crate::{
     deflate::{
-        fill_window, flush_pending, memcmp_n, BlockState, BlockType, DeflateStream, State,
+        fill_window, flush_pending, memcmp_n_slice, BlockState, BlockType, DeflateStream, State,
         StaticTreeDesc, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH, WANT_MIN_MATCH,
     },
     Flush,
@@ -93,13 +93,12 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
-                let str_start = state.window.as_mut_ptr().wrapping_add(state.strstart);
-                let match_start = state.window.as_mut_ptr().wrapping_add(hash_head as usize);
+                let str_start = &state.window.filled()[state.strstart..];
+                let match_start = &state.window.filled()[hash_head as usize..];
 
-                if !unsafe { memcmp_n::<2>(str_start, match_start) } {
-                    let a = unsafe { &*str_start.wrapping_add(2).cast() };
-                    let b = unsafe { &*match_start.wrapping_add(2).cast() };
-
+                if !memcmp_n_slice::<2>(str_start, match_start) {
+                    let a = first_chunk(&str_start[2..]).unwrap();
+                    let b = first_chunk(&match_start[2..]).unwrap();
                     let mut match_len = crate::compare256::compare256(a, b) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
@@ -128,7 +127,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             }
         }
 
-        let lc = unsafe { *state.window.as_mut_ptr().wrapping_add(state.strstart) };
+        let lc = state.window.filled()[state.strstart];
         state.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;
@@ -147,4 +146,15 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     quick_end_block!();
     BlockState::BlockDone
+}
+
+#[inline]
+pub const fn first_chunk<T, const N: usize>(slice: &[T]) -> Option<&[T; N]> {
+    if slice.len() < N {
+        None
+    } else {
+        // SAFETY: We explicitly check for the correct number of elements,
+        //   and do not let the reference outlive the slice.
+        Some(unsafe { &*(slice.as_ptr() as *const [T; N]) })
+    }
 }
