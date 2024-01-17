@@ -77,7 +77,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                  * of the string with itself at the start of the input file).
                  */
                 current_match.match_length =
-                    crate::longest_match::longest_match(state, hash_head) as u16;
+                    crate::deflate::longest_match::longest_match(state, hash_head) as u16;
                 current_match.match_start = state.match_start as u16;
                 if (current_match.match_length as usize) < WANT_MIN_MATCH {
                     current_match.match_length = 1;
@@ -118,7 +118,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                  * of the string with itself at the start of the input file).
                  */
                 next_match.match_length =
-                    crate::longest_match::longest_match(state, hash_head) as u16;
+                    crate::deflate::longest_match::longest_match(state, hash_head) as u16;
                 next_match.match_start = state.match_start as u16;
                 if next_match.match_start >= next_match.strstart {
                     /* this can happen due to some restarts */

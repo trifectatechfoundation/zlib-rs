@@ -34,7 +34,8 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
             {
                 if scan[0] == scan[1] && scan[1] == scan[2] {
-                    match_len = crate::compare256::compare256_rle_slice(scan[0], &scan[3..]) + 2;
+                    match_len =
+                        crate::deflate::compare256::compare256_rle_slice(scan[0], &scan[3..]) + 2;
                     match_len = Ord::min(match_len, state.lookahead);
                     match_len = Ord::min(match_len, STD_MAX_MATCH);
                 }

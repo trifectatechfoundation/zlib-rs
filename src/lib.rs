@@ -2,24 +2,11 @@ use std::ffi::c_void;
 
 mod adler32;
 pub mod allocate;
-mod bitreader;
 mod c_api;
-mod compare256;
 mod deflate;
-mod deflate_algorithm;
-mod deflate_window;
 #[cfg(test)]
 mod dynamic;
-mod hash_calc;
-mod inffixed_tbl;
 pub mod inflate;
-mod inftrees;
-mod longest_match;
-mod pending;
-mod read_buf;
-mod slide_hash;
-mod trees_tbl;
-mod window;
 
 pub use c_api::*;
 pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();

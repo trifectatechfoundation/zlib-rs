@@ -104,8 +104,10 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 let match_start = &state.window.filled()[hash_head as usize..];
 
                 if !memcmp_n_slice::<2>(str_start, match_start) {
-                    let mut match_len =
-                        crate::compare256::compare256_slice(&str_start[2..], &match_start[2..]) + 2;
+                    let mut match_len = crate::deflate::compare256::compare256_slice(
+                        &str_start[2..],
+                        &match_start[2..],
+                    ) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
                         if match_len > state.lookahead {

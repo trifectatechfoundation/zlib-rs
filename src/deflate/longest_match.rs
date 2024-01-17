@@ -209,7 +209,7 @@ fn longest_match_help<const SLOW: bool>(
             let src1: &[u8; 256] =
                 unsafe { &*mbase_start.wrapping_add(cur_match as usize + 2).cast() };
 
-            crate::compare256::compare256_slice(&scan[2..], src1) + 2
+            crate::deflate::compare256::compare256_slice(&scan[2..], src1) + 2
         };
 
         assert!(

@@ -351,7 +351,7 @@ mod test {
         let mut work = [0; 512];
         let generated = build_fixed_length_table(&mut work);
 
-        assert_eq!(generated, crate::inffixed_tbl::LENFIX);
+        assert_eq!(generated, crate::inflate::inffixed_tbl::LENFIX);
     }
 
     fn build_fixed_distance_table(work: &mut [u16]) -> [Code; 32] {
@@ -375,6 +375,6 @@ mod test {
         let mut work = [0; 512];
         let generated = build_fixed_distance_table(&mut work);
 
-        assert_eq!(generated, crate::inffixed_tbl::DISTFIX);
+        assert_eq!(generated, crate::inflate::inffixed_tbl::DISTFIX);
     }
 }
