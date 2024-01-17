@@ -15,9 +15,9 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     let mut match_len;
 
     let longest_match = if stream.state.max_chain_length <= 1024 {
-        crate::longest_match::longest_match
+        crate::deflate::longest_match::longest_match
     } else {
-        crate::longest_match::longest_match_slow
+        crate::deflate::longest_match::longest_match_slow
     };
 
     /* Process the input block. */

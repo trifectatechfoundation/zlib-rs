@@ -1,15 +1,25 @@
 use std::mem::MaybeUninit;
 
 use crate::{
-    adler32::adler32,
-    deflateEnd,
-    deflate_algorithm::CONFIGURATION_TABLE,
-    deflate_window::Window,
+    adler32::adler32, deflateEnd, trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE,
+    MAX_WBITS, MIN_WBITS, Z_DEFLATED, Z_UNKNOWN,
+};
+
+use self::{
+    algorithm::CONFIGURATION_TABLE,
     hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
     pending::Pending,
-    trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS, Z_DEFLATED,
-    Z_UNKNOWN,
+    window::Window,
 };
+
+mod algorithm;
+mod compare256;
+mod hash_calc;
+mod longest_match;
+mod pending;
+mod slide_hash;
+mod trees_tbl;
+mod window;
 
 #[repr(C)]
 pub(crate) struct DeflateStream<'a> {
@@ -656,7 +666,7 @@ impl<'a> State<'a> {
             "tally_dist: bad match"
         );
 
-        let index = crate::trees_tbl::LENGTH_CODE[len] as usize + LITERALS + 1;
+        let index = self::trees_tbl::LENGTH_CODE[len] as usize + LITERALS + 1;
         *self.l_desc.dyn_tree[index].freq_mut() += 1;
 
         *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
@@ -785,9 +795,9 @@ impl<'a> State<'a> {
 
     const fn d_code(dist: usize) -> u8 {
         if dist < 256 {
-            crate::trees_tbl::DIST_CODE[dist]
+            self::trees_tbl::DIST_CODE[dist]
         } else {
-            crate::trees_tbl::DIST_CODE[256 + (dist >> 7)]
+            self::trees_tbl::DIST_CODE[256 + (dist >> 7)]
         }
     }
 
@@ -801,7 +811,7 @@ impl<'a> State<'a> {
         let mut lc = lc as usize;
 
         /* Send the length code, len is the match length - STD_MIN_MATCH */
-        let mut code = crate::trees_tbl::LENGTH_CODE[lc] as usize;
+        let mut code = self::trees_tbl::LENGTH_CODE[lc] as usize;
         let c = code + LITERALS + 1;
         assert!(c < L_CODES, "bad l_code");
         // send_code_trace(s, c);
@@ -810,7 +820,7 @@ impl<'a> State<'a> {
         let mut match_bits_len = ltree[c].len() as usize;
         let mut extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
         if extra != 0 {
-            lc -= crate::trees_tbl::BASE_LENGTH[code] as usize;
+            lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
             match_bits |= lc << match_bits_len;
             match_bits_len += extra;
         }
@@ -825,7 +835,7 @@ impl<'a> State<'a> {
         match_bits_len += dtree[code].len() as usize;
         extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
         if extra != 0 {
-            dist -= crate::trees_tbl::BASE_DIST[code] as usize;
+            dist -= self::trees_tbl::BASE_DIST[code] as usize;
             match_bits |= dist << match_bits_len;
             match_bits_len += extra;
         }
@@ -1086,7 +1096,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
                 state.insert = state.strstart;
             }
 
-            crate::slide_hash::slide_hash(state);
+            self::slide_hash::slide_hash(state);
 
             more += wsize;
         }
@@ -1194,7 +1204,7 @@ impl StaticTreeDesc {
     ];
 
     pub(crate) const L: Self = Self {
-        static_tree: &crate::trees_tbl::STATIC_LTREE,
+        static_tree: &self::trees_tbl::STATIC_LTREE,
         extra_bits: &Self::EXTRA_LBITS,
         extra_base: LITERALS + 1,
         elems: L_CODES,
@@ -1202,7 +1212,7 @@ impl StaticTreeDesc {
     };
 
     pub(crate) const D: Self = Self {
-        static_tree: &crate::trees_tbl::STATIC_DTREE,
+        static_tree: &self::trees_tbl::STATIC_DTREE,
         extra_bits: &Self::EXTRA_DBITS,
         extra_base: 0,
         elems: D_CODES,
@@ -1422,7 +1432,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
         *tree[n].code_mut() = next_code[len as usize].reverse_bits() >> (16 - len);
         next_code[len as usize] += 1;
 
-        if tree != crate::trees_tbl::STATIC_LTREE.as_slice() {
+        if tree != self::trees_tbl::STATIC_LTREE.as_slice() {
             trace!(
                 "\nn {:>3} {} l {:>2} c {:>4x} ({:x}) ",
                 n,
@@ -1759,8 +1769,8 @@ fn zng_tr_flush_block(
     } else if static_lenb == opt_lenb {
         state.emit_tree(BlockType::StaticTrees, last);
         state.compress_block(
-            &crate::trees_tbl::STATIC_LTREE,
-            &crate::trees_tbl::STATIC_DTREE,
+            &self::trees_tbl::STATIC_LTREE,
+            &self::trees_tbl::STATIC_DTREE,
         );
     // cmpr_bits_add(s, s.static_len);
     } else {
@@ -1893,7 +1903,7 @@ pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         || state.lookahead != 0
         || (flush != Flush::NoFlush && state.status != Status::Finish)
     {
-        let bstate = crate::deflate_algorithm::run(stream, flush);
+        let bstate = self::algorithm::run(stream, flush);
 
         let state = &mut stream.state;
 

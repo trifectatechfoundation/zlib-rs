@@ -43,7 +43,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
                 // To simplify the code, we prevent matches with the string
                 // of window index 0 (in particular we have to avoid a match
                 // of the string with itself at the start of the input file).
-                match_len = crate::longest_match::longest_match(state, hash_head);
+                match_len = crate::deflate::longest_match::longest_match(state, hash_head);
                 // longest_match() sets match_start
             }
         }
