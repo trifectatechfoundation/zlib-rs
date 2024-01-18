@@ -57,13 +57,13 @@ impl<'a> ZlibHashMap<'a> {
 
 pub trait HashCalc {
     const HASH_CALC_OFFSET: usize;
-    const HASH_CALC_MASK: u32;
+    const HASH_CALC_MASK: u16;
 
     fn hash_calc(h: u32, val: u32) -> u32;
 
     fn update_hash(h: u32, val: u32) -> u32 {
         let h = Self::hash_calc(h, val);
-        h & Self::HASH_CALC_MASK
+        h & Self::HASH_CALC_MASK as u32
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
@@ -73,7 +73,7 @@ pub trait HashCalc {
         let val = u32::from_ne_bytes(slice[..4].try_into().unwrap());
 
         h = Self::hash_calc(h, val);
-        h &= Self::HASH_CALC_MASK;
+        h &= Self::HASH_CALC_MASK as u32;
 
         state.hash_map.insert(h as u16, string as u16)
     }
@@ -92,7 +92,7 @@ pub trait HashCalc {
 
             // HASH_CALC(s, HASH_CALC_VAR, val);
             h = Self::hash_calc(h, val);
-            h &= Self::HASH_CALC_MASK;
+            h &= Self::HASH_CALC_MASK as u32;
 
             state.hash_map.insert(h as u16, idx);
         }
@@ -104,7 +104,7 @@ pub struct StandardHashCalc;
 impl HashCalc for StandardHashCalc {
     const HASH_CALC_OFFSET: usize = 0;
 
-    const HASH_CALC_MASK: u32 = 32768 - 1;
+    const HASH_CALC_MASK: u16 = 32768 - 1;
 
     fn hash_calc(_: u32, val: u32) -> u32 {
         const HASH_SLIDE: u32 = 16;
@@ -119,9 +119,9 @@ impl RollHashCalc {
     #[inline(always)]
     fn quick_insert_string_help(
         window: &[u8],
-        string: usize,
         hash_map: &mut ZlibHashMap,
         ins_h: &mut usize,
+        string: usize,
     ) -> u16 {
         let slice = &window[string + Self::HASH_CALC_OFFSET..];
 
@@ -136,7 +136,7 @@ impl RollHashCalc {
 impl HashCalc for RollHashCalc {
     const HASH_CALC_OFFSET: usize = STD_MIN_MATCH - 1;
 
-    const HASH_CALC_MASK: u32 = 32768 - 1;
+    const HASH_CALC_MASK: u16 = 32768 - 1;
 
     fn hash_calc(h: u32, val: u32) -> u32 {
         const HASH_SLIDE: u32 = 5;
@@ -146,9 +146,9 @@ impl HashCalc for RollHashCalc {
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         Self::quick_insert_string_help(
             state.window.filled(),
-            string,
             &mut state.hash_map,
             &mut state.ins_h,
+            string,
         )
     }
 
@@ -171,7 +171,11 @@ pub struct Crc32HashCalc;
 impl HashCalc for Crc32HashCalc {
     const HASH_CALC_OFFSET: usize = 0;
 
-    const HASH_CALC_MASK: u32 = (HASH_SIZE - 1) as u32;
+    const HASH_CALC_MASK: u16 = {
+        const _: () = assert!(HASH_SIZE > u16::MAX as usize);
+
+        (HASH_SIZE - 1) as u16
+    };
 
     fn hash_calc(h: u32, val: u32) -> u32 {
         unsafe { std::arch::x86_64::_mm_crc32_u32(h, val) }
@@ -214,7 +218,7 @@ mod test {
         let mut hash_map = ZlibHashMap::new(&mut prev, &mut head);
 
         for (i, _) in window.as_bytes().iter().take(window.len() - 2).enumerate() {
-            RollHashCalc::quick_insert_string_help(window.as_bytes(), i, &mut hash_map, &mut ins_h);
+            RollHashCalc::quick_insert_string_help(window.as_bytes(), &mut hash_map, &mut ins_h, i);
         }
 
         assert_eq!(&prev[..10], &[0, 0, 0, 0, 0, 1, 0, 0, 0, 5]);
