@@ -4,7 +4,7 @@
 
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
-use crate::{deflate::DeflateStream, inflate::InflateStream, ReturnCode};
+use crate::{deflate::DeflateStream, inflate::{InflateStream, GzipHeader}, ReturnCode};
 
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type Bytef = u8;
@@ -58,6 +58,39 @@ impl Default for z_stream {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct gz_header {
+
+    /// true if contents is propably text
+    pub text: c_int,
+
+    /// modification time
+    pub time: z_size,
+    pub xflags: c_int,
+    pub os: c_int,
+
+    pub extra: *mut Bytef,
+    pub extra_len: uInt,
+    pub extra_max: uInt,
+
+    /// file name
+    pub name: *mut Bytef,
+    pub name_max: uInt,
+
+    /// comment
+    pub comment: *mut Bytef,
+    pub comment_max: uInt,
+
+    /// true for a header CRC16
+    pub hcrc: c_int,
+
+    /// true when done reading header
+    pub done: c_int,
+}
+
+pub type gz_headerp = *mut gz_header;
 
 // // zlib stores Adler-32 and CRC-32 checksums in unsigned long; zlib-ng uses uint32_t.
 pub(crate) type z_size = c_ulong;
@@ -258,9 +291,18 @@ pub unsafe extern "C" fn inflateSetDictionary(
     crate::inflate::set_dictionary(stream, dict) as _
 }
 
-// pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
-//     todo!("part of gzip support")
-// }
+// part of gzib
+pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        if let Some(header) = GzipHeader::from_header_mut(head) {
+            crate::inflate::get_header(stream, header) as i32
+        } else {
+            ReturnCode::StreamError as _
+        }
+    } else {
+        ReturnCode::StreamError as _
+    }
+}
 
 // undocumented but exposed function
 pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> libc::c_int {

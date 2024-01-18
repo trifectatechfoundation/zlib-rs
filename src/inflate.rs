@@ -12,12 +12,50 @@ use crate::{
     adler32::adler32, allocate, z_stream, Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
+use crate::gz_header;
+
 use self::{
     bitreader::BitReader,
     inftrees::{inflate_table, CodeType, InflateTable},
     read_buf::ReadBuf,
     window::Window,
 };
+
+/// TODO: Move to separate file?
+#[repr(C)]
+pub(crate) struct GzipHeader {
+    pub text: libc::c_int,
+    pub time: crate::c_api::z_size,
+    pub xflags: libc::c_int,
+    pub os: libc::c_int,
+    pub extra: *mut crate::c_api::Bytef,
+    pub extra_len: crate::c_api::uInt,
+    pub extra_max: crate::c_api::uInt,
+    pub name: *mut crate::c_api::Bytef,
+    pub name_max: crate::c_api::uInt,
+    pub comment: *mut crate::c_api::Bytef,
+    pub comment_max: crate::c_api::uInt,
+    pub hcrc: libc::c_int,
+    pub done: libc::c_int,
+}
+
+/// TODO: Move to separate file?
+impl<'a> GzipHeader {
+    #[inline(always)]
+    pub(crate) unsafe fn from_header_mut(head: *mut gz_header) -> Option<&'a mut Self> {
+        if head.is_null() {
+            return None;
+        }
+
+        // safety: ptr points to a valid value of type z_stream (if non-null)
+        let header = unsafe { &mut *head };
+
+        // safety: GzipHeader has the same layout as gz_header
+        let header = unsafe { &mut *(head as *mut GzipHeader) };
+
+        Some(header)
+    }
+}
 
 #[repr(C)]
 pub(crate) struct InflateStream<'a> {
@@ -1820,4 +1858,9 @@ fn init_window<'a>(
     let window = unsafe { Window::from_raw_parts(ptr as *mut MaybeUninit<u8>, wsize) };
 
     Ok(window)
+}
+
+pub fn get_header(stream: &mut InflateStream, head: &mut GzipHeader) -> ReturnCode {
+    unimplemented!("TODO: implement");
+    ReturnCode::Ok
 }
