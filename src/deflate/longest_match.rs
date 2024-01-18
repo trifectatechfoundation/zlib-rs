@@ -42,7 +42,7 @@ fn longest_match_help<const SLOW: bool>(
         () => {
             chain_length -= 1;
             if chain_length > 0 {
-                cur_match = state.prev[cur_match as usize & wmask];
+                cur_match = state.hash_map.get_prev(cur_match);
 
                 if cur_match > limit {
                     continue;
@@ -116,7 +116,7 @@ fn longest_match_help<const SLOW: bool>(
                 hash = (state.update_hash)(hash, *b as u32);
 
                 /* If we're starting with best_len >= 3, we can use offset search. */
-                pos = state.head[hash as usize];
+                pos = state.hash_map.get_head(hash as u16);
                 if pos < cur_match {
                     match_offset = (i - 2) as Pos;
                     cur_match = pos;
@@ -251,7 +251,7 @@ fn longest_match_help<const SLOW: bool>(
                 let mut next_pos = cur_match;
 
                 for i in 0..=len - STD_MIN_MATCH {
-                    pos = state.prev[(cur_match as usize + i) & wmask];
+                    pos = state.hash_map.get_prev(cur_match + i as Pos);
                     if pos < next_pos {
                         /* Hash chain is more distant, use it */
                         if pos <= limit_base + i as Pos {
@@ -276,7 +276,8 @@ fn longest_match_help<const SLOW: bool>(
                 hash = (state.update_hash)(hash, scan_endstr[1] as u32);
                 hash = (state.update_hash)(hash, scan_endstr[2] as u32);
 
-                pos = state.head[hash as usize];
+                pos = state.hash_map.get_head(hash as u16);
+
                 if pos < cur_match {
                     match_offset = (len - (STD_MIN_MATCH + 1)) as Pos;
                     if pos <= limit_base + match_offset {

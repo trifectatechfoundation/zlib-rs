@@ -15,8 +15,8 @@ mod rust {
     pub fn slide_hash(state: &mut State) {
         let wsize = state.w_size as u16;
 
-        slide_hash_chain(state.head, wsize);
-        slide_hash_chain(state.prev, wsize);
+        slide_hash_chain(state.hash_map.head, wsize);
+        slide_hash_chain(state.hash_map.prev, wsize);
     }
 
     fn slide_hash_chain(table: &mut [u16], wsize: u16) {
@@ -38,8 +38,8 @@ mod avx2 {
         let wsize = state.w_size as u16;
         let ymm_wsize = unsafe { _mm256_set1_epi16(wsize as i16) };
 
-        slide_hash_chain(state.head, ymm_wsize);
-        slide_hash_chain(state.prev, ymm_wsize);
+        slide_hash_chain(state.hash_map.head, ymm_wsize);
+        slide_hash_chain(state.hash_map.prev, ymm_wsize);
     }
 
     fn slide_hash_chain(table: &mut [u16], wsize: __m256i) {

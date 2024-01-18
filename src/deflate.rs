@@ -7,7 +7,7 @@ use crate::{
 
 use self::{
     algorithm::CONFIGURATION_TABLE,
-    hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
+    hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc, ZlibHashMap},
     pending::Pending,
     window::Window,
 };
@@ -185,6 +185,8 @@ pub fn init2(
 
     let head = unsafe { &mut *head_ptr };
 
+    let hash_map = ZlibHashMap::new(prev, head);
+
     let pending = unsafe { Pending::from_raw_parts(pending_buf, lit_bufsize) };
 
     let pending_end = pending_buf.wrapping_add(lit_bufsize);
@@ -201,9 +203,8 @@ pub fn init2(
 
         // allocated values
         window,
-        prev,
-        head,
         pending,
+        hash_map,
 
         //
         lit_bufsize,
@@ -278,8 +279,8 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
     let status = stream.state.status;
 
     let pending = stream.state.pending.as_mut_ptr();
-    let head = stream.state.head.as_mut_ptr();
-    let prev = stream.state.prev.as_mut_ptr();
+    let head = stream.state.hash_map.head.as_mut_ptr();
+    let prev = stream.state.hash_map.prev.as_mut_ptr();
     let window = stream.state.window.as_mut_ptr();
     let state = stream.state as *mut State;
 
@@ -345,7 +346,7 @@ fn lm_init(state: &mut State) {
     state.window_size = 2 * state.w_size;
 
     // zlib uses CLEAR_HASH here
-    state.head.fill(0);
+    state.hash_map.clear();
 
     // Set the default configuration parameters:
     lm_set_level(state, state.level);
@@ -565,8 +566,9 @@ pub(crate) struct State<'a> {
     pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
-    pub(crate) prev: &'a mut [u16],
-    pub(crate) head: &'a mut [u16; HASH_SIZE],
+    // pub(crate) prev: &'a mut [u16],
+    // pub(crate) head: &'a mut [u16; HASH_SIZE],
+    pub(crate) hash_map: ZlibHashMap<'a>,
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
