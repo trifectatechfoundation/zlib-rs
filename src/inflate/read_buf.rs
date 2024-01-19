@@ -319,7 +319,7 @@ impl<'a> ReadBuf<'a> {
         self.filled = end;
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
         let current = self.filled;
 
@@ -333,28 +333,39 @@ impl<'a> ReadBuf<'a> {
 
         if end > self.filled {
             if offset_from_end == 1 {
+                use std::arch::x86_64::{_mm256_set1_epi8, _mm256_storeu_si256};
+
                 // this will just repeat this value many times
                 let element = self.buf[current - 1];
-                self.buf[current..][..length].fill(element);
-            } else {
-                for i in 0..length {
-                    self.buf[current + i] = self.buf[start + i];
+
+                let b = unsafe { element.assume_init() };
+                let chunk = unsafe { std::arch::x86_64::_mm256_set1_epi8(b as i8) };
+
+                for d in self.buf[current..][..length].chunks_mut(32) {
+                    unsafe {
+                        _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
+                    }
                 }
+            } else {
+                //                for i in 0..length {
+                //                    self.buf[current + i] = self.buf[start + i];
+                //                }
+
+                unsafe { copy_many_chunked(self.buf, start, end, current) }
             }
         } else {
-            let (before, after) = self.buf.split_at_mut(current);
-            let (d, _) = slice_as_chunks_mut::<_, 32>(after);
+            //            let (before, after) = self.buf.split_at_mut(current);
+            //
+            //            for (s, d) in before[start..end].chunks(32).zip(after.chunks_mut(32)) {
+            //                use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
+            //
+            //                unsafe {
+            //                    let chunk = _mm256_loadu_si256(s.as_ptr().cast());
+            //                    _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
+            //                }
+            //            }
 
-            for (s, d) in before[start..end].chunks(32).zip(d.iter_mut()) {
-                use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
-
-                unsafe {
-                    let chunk = _mm256_loadu_si256(s.as_ptr().cast());
-                    _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
-                }
-            }
-
-            // self.buf.copy_within(start..end, current);
+            unsafe { copy_once_chunked(self.buf, start, end, current) }
         }
 
         // safety: we just copied length initialized bytes right beyond self.filled
@@ -362,6 +373,67 @@ impl<'a> ReadBuf<'a> {
 
         self.advance(length);
     }
+}
+
+#[inline(always)]
+unsafe fn copy_once_chunked(
+    buf: &mut [MaybeUninit<u8>],
+    start: usize,
+    end: usize,
+    write_index: usize,
+) {
+    let mut s = buf.as_ptr().wrapping_add(start);
+    let end_ptr = buf.as_ptr().wrapping_add(end);
+    let mut d = buf.as_mut_ptr().wrapping_add(write_index);
+
+    while s < end_ptr {
+        use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
+        unsafe {
+            let chunk = _mm256_loadu_si256(s.cast());
+            _mm256_storeu_si256(d.cast(), chunk);
+        }
+
+        s = s.wrapping_add(32);
+        d = d.wrapping_add(32);
+    }
+}
+
+unsafe fn copy_many_chunked(
+    buf: &mut [MaybeUninit<u8>],
+    start: usize,
+    end: usize,
+    mut write_index: usize,
+) {
+    let step = write_index - start;
+    let input_end = write_index;
+
+    loop {
+        unsafe { copy_once_chunked(buf, start, input_end, write_index) }
+
+        if write_index >= end {
+            break;
+        }
+
+        write_index += step;
+    }
+}
+
+#[test]
+fn foobar() {
+    let mut buf = [MaybeUninit::new(0); 64];
+
+    buf[0] = MaybeUninit::new(b'x');
+    buf[1] = MaybeUninit::new(b'y');
+
+    let write_index = 2;
+    let start = 0;
+    let end = 5;
+
+    unsafe { copy_many_chunked(&mut buf, start, end, write_index) };
+
+    let buf = unsafe { buf.map(|v| v.assume_init()) };
+
+    assert_eq!(&buf[..5], b"xyxyx")
 }
 
 fn slice_as_chunks<T, const N: usize>(slice: &[T]) -> (&[[T; N]], &[T]) {
