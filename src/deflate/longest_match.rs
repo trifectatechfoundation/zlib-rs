@@ -38,7 +38,7 @@ fn longest_match_help<const SLOW: bool>(
     let lookahead = state.lookahead;
     let mut match_offset = 0;
 
-    macro_rules! goto_next_chain {
+    macro_rules! goto_next_in_chain {
         () => {
             chain_length -= 1;
             if chain_length > 0 {
@@ -78,22 +78,16 @@ fn longest_match_help<const SLOW: bool>(
     let mut mbase_start = window.as_ptr();
     let mut mbase_end = window[offset..].as_ptr();
 
-    // Do not waste too much time if we already have a good match
+    // Don't waste too much time by following a chain if we already have a good match
     chain_length = state.max_chain_length;
     if best_len >= state.good_match {
         chain_length >>= 2;
     }
     let nice_match = state.nice_match;
 
-    /* Stop when cur_match becomes <= limit. To simplify the code,
-     * we prevent matches with the string of window index 0
-     */
-    // TODO saturating sub
-    limit = if strstart > state.max_dist() {
-        (strstart - state.max_dist()) as Pos
-    } else {
-        0
-    };
+    // Stop when cur_match becomes <= limit. To simplify the code,
+    // we prevent matches with the string of window index 0
+    limit = strstart.saturating_sub(state.max_dist()) as Pos;
 
     // look for a better string offset
     if SLOW {
@@ -156,54 +150,66 @@ fn longest_match_help<const SLOW: bool>(
         // Therefore uninitialized memory will be accessed and conditional jumps will be made
         // that depend on those values. However the length of the match is limited to the
         // lookahead, so the output of deflate is not affected by the uninitialized values.
+
+        // # Safety
+        //
+        // The two pointers must be valid for reads of N bytes.
+        #[inline(always)]
+        unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
+            let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
+            let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
+
+            src0_cmp == src1_cmp
+        }
+
+        #[inline(always)]
+        unsafe fn is_match<const N: usize>(
+            cur_match: u16,
+            mbase_start: *const u8,
+            mbase_end: *const u8,
+            scan_start: *const u8,
+            scan_end: *const u8,
+        ) -> bool {
+            let be = mbase_end.wrapping_add(cur_match as usize);
+            let bs = mbase_start.wrapping_add(cur_match as usize);
+
+            memcmp_n_ptr::<N>(be, scan_end) && memcmp_n_ptr::<N>(bs, scan_start)
+        }
+
+        // first, do a quick check on the start and end bytes. Go to the next item in the chain if
+        // these bytes don't match.
         unsafe {
-            #[inline(always)]
-            unsafe fn check<const N: usize>(
-                cur_match: u16,
-                mbase_start: *const u8,
-                mbase_end: *const u8,
-                scan_start: *const u8,
-                scan_end: *const u8,
-            ) -> bool {
-                let cur_match = cur_match as usize;
-
-                if !memcmp_n_ptr::<N>(mbase_end.wrapping_add(cur_match), scan_end) {
-                    !memcmp_n_ptr::<N>(mbase_start.wrapping_add(cur_match), scan_start)
-                } else {
-                    false
-                }
-            }
-
             let scan_start = scan_start.as_ptr();
             let scan_end = scan_end.as_ptr();
 
             if best_len < std::mem::size_of::<u32>() {
                 loop {
-                    if check::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
                     }
 
-                    goto_next_chain!();
+                    goto_next_in_chain!();
                 }
             } else if best_len >= std::mem::size_of::<u64>() {
                 loop {
-                    if check::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
                     }
 
-                    goto_next_chain!();
+                    goto_next_in_chain!();
                 }
             } else {
                 loop {
-                    if check::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
                     }
 
-                    goto_next_chain!();
+                    goto_next_in_chain!();
                 }
             }
         }
 
+        // we know that there is at least some match. Now count how many bytes really match
         let len = {
             // TODO this just looks so incredibly unsafe!
             let src1: &[u8; 256] =
@@ -299,7 +305,7 @@ fn longest_match_help<const SLOW: bool>(
             break;
         }
 
-        goto_next_chain!();
+        goto_next_in_chain!();
     }
 
     (best_len, match_start)
@@ -307,14 +313,4 @@ fn longest_match_help<const SLOW: bool>(
 
 fn break_matching(state: &State, best_len: usize, match_start: usize) -> (usize, usize) {
     (Ord::min(best_len, state.lookahead), match_start)
-}
-
-// # Safety
-//
-// The two pointers must be valid for reads of N bytes.
-unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
-    let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
-    let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
-
-    src0_cmp != src1_cmp
 }
