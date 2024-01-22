@@ -116,23 +116,17 @@ pub(crate) fn inflate_table(
 
     // offsets in table for each length
     let mut offs = [0u16; MAX_BITS + 1];
-    let mut len = 1;
-    while len < MAX_BITS {
+    for len in 1..MAX_BITS {
         offs[len + 1] = offs[len] + count[len];
-        len += 1;
     }
 
     /* sort symbols by length, by symbol order within each length */
-    let mut sym = 0;
-    while sym < codes {
-        if lens[sym] != 0 {
-            work[{
-                let tmp = offs[lens[sym] as usize];
-                offs[lens[sym] as usize] += 1;
-                tmp as usize
-            }] = sym as u16;
+    for (sym, len) in lens[0..codes].iter().copied().enumerate() {
+        if len != 0 {
+            let offset = offs[len as usize];
+            offs[len as usize] += 1;
+            work[offset as usize] = sym as u16;
         }
-        sym += 1;
     }
 
     let (base, extra, match_) = match codetype {
