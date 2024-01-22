@@ -70,10 +70,8 @@ pub(crate) fn inflate_table(
     // number of codes of each length
     let mut count = [0u16; MAX_BITS + 1];
 
-    let mut sym = 0;
-    while sym < codes {
-        count[lens[sym] as usize] += 1;
-        sym += 1;
+    for len in lens[0..codes].iter().copied() {
+        count[len as usize] += 1;
     }
 
     let mut root = bits;
@@ -189,16 +187,11 @@ pub(crate) fn inflate_table(
 
         // replicate for those indices with low len bits equal to huff
         let incr = 1 << (len - drop_);
-        let mut fill = 1 << curr;
+        let min = 1 << curr; // also has the name 'fill' in the C code
 
-        let min = fill as usize;
-        loop {
-            fill -= incr;
-            table[next..][((huff >> drop_) as i32 + fill) as usize] = here;
-
-            if fill == 0 {
-                break;
-            }
+        let base = &mut table[next + (huff >> drop_)..];
+        for fill in (0..min).step_by(incr) {
+            base[fill] = here;
         }
 
         // backwards increment the len-bit code huff
