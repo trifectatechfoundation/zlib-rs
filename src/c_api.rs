@@ -4,7 +4,11 @@
 
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
-use crate::{deflate::DeflateStream, inflate::InflateStream, ReturnCode};
+use crate::{
+    deflate::DeflateStream,
+    inflate::{InflateConfig, InflateStream},
+    ReturnCode,
+};
 
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type Bytef = u8;
@@ -122,7 +126,7 @@ pub unsafe extern "C" fn uncompress(
     source: *const u8,
     sourceLen: c_ulong,
 ) -> c_int {
-    crate::inflate::uncompress(dest, destLen, source, sourceLen)
+    crate::inflate::uncompress(dest, destLen, source, sourceLen, InflateConfig::default())
 }
 
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
@@ -200,7 +204,11 @@ pub unsafe extern "C" fn inflateInit_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> c_int {
-    crate::inflate::init(strm)
+    if strm.is_null() {
+        ReturnCode::StreamError as _
+    } else {
+        crate::inflate::init_with_config(&mut *strm, InflateConfig::default())
+    }
 }
 
 pub unsafe extern "C" fn inflateInit2_(
@@ -213,7 +221,14 @@ pub unsafe extern "C" fn inflateInit2_(
 }
 
 pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
-    crate::inflate::init2(strm, windowBits)
+    if strm.is_null() {
+        ReturnCode::StreamError as _
+    } else {
+        let config = InflateConfig {
+            window_bits: windowBits,
+        };
+        crate::inflate::init_with_config(&mut *strm, config)
+    }
 }
 
 pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
@@ -234,7 +249,10 @@ pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
 
 pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        crate::inflate::reset2(stream, windowBits) as _
+        let config = InflateConfig {
+            window_bits: windowBits,
+        };
+        crate::inflate::reset_with_config(stream, config) as _
     } else {
         ReturnCode::StreamError as _
     }
