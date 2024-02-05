@@ -2,7 +2,8 @@
 
 use crate::{
     deflate::{
-        fill_window, BlockState, DeflateStream, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH,
+        compare256::compare256_rle_slice, fill_window, BlockState, DeflateStream, MIN_LOOKAHEAD,
+        STD_MAX_MATCH, STD_MIN_MATCH,
     },
     flush_block, Flush,
 };
@@ -29,13 +30,11 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         /* See how many times the previous byte repeats */
         let state = &mut stream.state;
         if state.lookahead >= STD_MIN_MATCH && state.strstart > 0 {
-            let mut match_len = 0;
             let scan = &state.window.filled()[state.strstart - 1..][..3 + 256];
 
             {
                 if scan[0] == scan[1] && scan[1] == scan[2] {
-                    match_len =
-                        crate::deflate::compare256::compare256_rle_slice(scan[0], &scan[3..]) + 2;
+                    match_len = compare256_rle_slice(scan[0], &scan[3..]) + 2;
                     match_len = Ord::min(match_len, state.lookahead);
                     match_len = Ord::min(match_len, STD_MAX_MATCH);
                 }
