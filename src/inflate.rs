@@ -120,6 +120,7 @@ pub(crate) unsafe fn uncompress(
     dest_len: *mut std::ffi::c_ulong,
     source: *const u8,
     source_len: std::ffi::c_ulong,
+    config: InflateConfig,
 ) -> std::ffi::c_int {
     let dest_len_ptr = dest_len;
     let dest_len = unsafe { *dest_len };
@@ -155,7 +156,7 @@ pub(crate) unsafe fn uncompress(
         reserved: 0,
     };
 
-    let err = init(&mut stream);
+    let err = init_with_config(&mut stream, config);
     if err != ReturnCode::Ok as _ {
         return err;
     }
@@ -1296,30 +1297,21 @@ pub(crate) fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> Return
     ReturnCode::Ok
 }
 
-/// Initialize the stream in an inflate state
-///
-/// # Safety
-///
-/// The `strm` must be either NULL or a valid mutable reference to a `z_stream`.
-pub(crate) unsafe fn init(strm: *mut z_stream) -> i32 {
-    init2(strm, DEF_WBITS)
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct InflateConfig {
+    pub window_bits: i32,
+}
+
+impl Default for InflateConfig {
+    fn default() -> Self {
+        Self {
+            window_bits: DEF_WBITS,
+        }
+    }
 }
 
 /// Initialize the stream in an inflate state
-///
-/// # Safety
-///
-/// The `strm` must be either NULL or a valid mutable reference to a `z_stream`.
-pub(crate) unsafe fn init2(strm: *mut z_stream, windowBits: i32) -> i32 {
-    let stream = strm;
-
-    if stream.is_null() {
-        eprintln!("stream.is_null()");
-        return ReturnCode::StreamError as _;
-    }
-
-    let stream = unsafe { &mut *stream };
-
+pub(crate) fn init_with_config(stream: &mut z_stream, config: InflateConfig) -> i32 {
     stream.msg = std::ptr::null_mut();
 
     if stream.zalloc.is_none() {
@@ -1339,14 +1331,16 @@ pub(crate) unsafe fn init2(strm: *mut z_stream, windowBits: i32) -> i32 {
     // TODO this can change depending on the used/supported SIMD instructions
     state.chunksize = 0;
 
-    stream.state = stream.alloc_value(state).cast();
+    // SAFETY: we assume allocation does not cause UB
+    stream.state = unsafe { stream.alloc_value(state).cast() };
 
     if stream.state.is_null() {
         return ReturnCode::MemError as _;
     }
 
-    let ret = if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        reset2(stream, windowBits)
+    // SAFETY: we've correctly initialized the stream to be an InflateStream
+    let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
+        reset_with_config(stream, config)
     } else {
         ReturnCode::StreamError
     };
@@ -1354,13 +1348,15 @@ pub(crate) unsafe fn init2(strm: *mut z_stream, windowBits: i32) -> i32 {
     if ret != ReturnCode::Ok as _ {
         let ptr = stream.state;
         stream.state = std::ptr::null_mut();
-        stream.dealloc(ptr);
+        // SAFETY: we assume deallocation does not cause UB
+        unsafe { stream.dealloc(ptr) };
     }
 
     ret as i32
 }
 
-pub(crate) fn reset2(stream: &mut InflateStream, mut window_bits: i32) -> ReturnCode {
+pub(crate) fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
+    let mut window_bits = config.window_bits;
     let wrap;
 
     if window_bits < 0 {
