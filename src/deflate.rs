@@ -173,8 +173,18 @@ pub fn init2(
     let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
 
     if window_ptr.is_null() || prev_ptr.is_null() || head_ptr.is_null() || pending_buf.is_null() {
-        todo!("mem error");
-        // return ReturnCode::MemError;
+        unsafe {
+            let opaque = (*strm).opaque;
+            let free = (*strm).zfree.unwrap();
+
+            free(opaque, pending_buf.cast());
+            free(opaque, head_ptr.cast());
+            free(opaque, prev_ptr.cast());
+            free(opaque, window_ptr.cast());
+            free(opaque, state_ptr.cast());
+        }
+
+        return ReturnCode::MemError;
     }
 
     let window =
@@ -264,6 +274,17 @@ pub fn init2(
     stream.state = state_ptr.cast();
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+        unsafe {
+            let opaque = (*strm).opaque;
+            let free = (*strm).zfree.unwrap();
+
+            free(opaque, pending_buf.cast());
+            free(opaque, head_ptr.cast());
+            free(opaque, prev_ptr.cast());
+            free(opaque, window_ptr.cast());
+            free(opaque, state_ptr.cast());
+        }
+
         return ReturnCode::StreamError;
     };
 
