@@ -304,7 +304,7 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
     }
 }
 
-fn reset(stream: &mut DeflateStream) -> ReturnCode {
+pub fn reset(stream: &mut DeflateStream) -> ReturnCode {
     let ret = reset_keep(stream);
 
     if ret == ReturnCode::Ok {
