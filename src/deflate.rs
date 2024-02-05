@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use crate::{
     adler32::adler32, deflateEnd, trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE,
-    MAX_WBITS, MIN_WBITS, Z_DEFLATED, Z_UNKNOWN,
+    MAX_WBITS, MIN_WBITS, Z_UNKNOWN,
 };
 
 use self::{
@@ -79,25 +79,63 @@ pub(crate) const HASH_SIZE: usize = 65536;
 const MAX_MEM_LEVEL: i32 = 9;
 const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
 
-pub fn init(stream: &mut z_stream, level: i32) -> ReturnCode {
-    init2(
-        stream,
-        level,
-        crate::c_api::Z_DEFLATED,
-        crate::MAX_WBITS,
-        DEF_MEM_LEVEL,
-        crate::c_api::Z_DEFAULT_STRATEGY,
-    )
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Method {
+    #[default]
+    Deflated = 8,
 }
 
-pub fn init2(
-    stream: &mut z_stream,
-    mut level: i32,
-    method: i32,
-    mut window_bits: i32,
-    mem_level: i32,
-    strategy: i32,
-) -> ReturnCode {
+impl TryFrom<i32> for Method {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            8 => Ok(Self::Deflated),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeflateConfig {
+    pub level: i32,
+    pub method: Method,
+    pub window_bits: i32,
+    pub mem_level: i32,
+    pub strategy: Strategy,
+}
+
+impl DeflateConfig {
+    pub fn new(level: i32) -> Self {
+        Self {
+            level,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for DeflateConfig {
+    fn default() -> Self {
+        Self {
+            level: crate::c_api::Z_DEFAULT_COMPRESSION,
+            method: Method::Deflated,
+            window_bits: MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        }
+    }
+}
+
+pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
+    let DeflateConfig {
+        mut level,
+        method: _,
+        mut window_bits,
+        mem_level,
+        strategy,
+    } = config;
+
     /* Todo: ignore strm->next_in if we use it as window */
     let window_padding = 0;
     let mut wrap = 1;
@@ -128,12 +166,7 @@ pub fn init2(
         window_bits -= 16;
     }
 
-    let Ok(strategy) = Strategy::try_from(strategy) else {
-        return ReturnCode::StreamError;
-    };
-
     if (!(1..=MAX_MEM_LEVEL).contains(&mem_level))
-        || method != Z_DEFLATED
         || !(MIN_WBITS..=MAX_WBITS).contains(&window_bits)
         || !(0..=9).contains(&level)
         || (window_bits == 8 && wrap != 1)
@@ -593,8 +626,9 @@ pub(crate) struct State<'a> {
     pub(crate) quick_insert_string: fn(state: &mut State, string: usize) -> u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub(crate) enum Strategy {
+    #[default]
     Default = 0,
     Filtered = 1,
     HuffmanOnly = 2,
@@ -2021,50 +2055,32 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     state.pending.advance(len);
 }
 
-pub(crate) fn compress<'a>(output: &'a mut [u8], input: &[u8]) -> (&'a mut [u8], ReturnCode) {
-    // TODO this is normally CompressionLevel::DefaultCompression but that does not work yet
-    compress2(output, input, CompressionLevel::NoCompression as i32)
-}
-
-#[repr(i32)]
 #[allow(unused)]
-enum CompressionLevel {
-    NoCompression = 0,
-    BestSpeed = 1,
-    BestCompression = 9,
-    DefaultCompression = -1,
-}
-
-pub(crate) fn compress2<'a>(
+fn compress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
-    level: i32,
+    config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
-    compress3(
-        output,
-        input,
-        level,
-        crate::c_api::Z_DEFLATED,
-        crate::MAX_WBITS,
-        DEF_MEM_LEVEL,
-        crate::c_api::Z_DEFAULT_STRATEGY,
-    )
+    let output_uninit = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+    };
+    let (output, ret) = compress(output_uninit, input, config);
+    let output =
+        unsafe { std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, output.len()) };
+
+    (output, ret)
 }
 
-pub(crate) fn compress3<'a>(
-    output: &'a mut [u8],
+pub(crate) fn compress<'a>(
+    output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
-    level: i32,
-    method: i32,
-    window_bits: i32,
-    mem_level: i32,
-    strategy: i32,
-) -> (&'a mut [u8], ReturnCode) {
+    config: DeflateConfig,
+) -> (&'a mut [MaybeUninit<u8>], ReturnCode) {
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
         avail_in: 0, // for special logic in the first  iteration
         total_in: 0,
-        next_out: output.as_mut_ptr(),
+        next_out: output.as_mut_ptr() as *mut u8,
         avail_out: 0, // for special logic on the first iteration
         total_out: 0,
         msg: std::ptr::null_mut(),
@@ -2077,7 +2093,7 @@ pub(crate) fn compress3<'a>(
         reserved: 0,
     };
 
-    let err = init2(&mut stream, level, method, window_bits, mem_level, strategy);
+    let err = init(&mut stream, config);
 
     if err != ReturnCode::Ok {
         return (output, err);
@@ -2362,15 +2378,15 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            6,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_HUFFMAN_ONLY,
-        );
+        let config = DeflateConfig {
+            level: 6,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::HuffmanOnly,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
@@ -2390,15 +2406,15 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            1,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_DEFAULT_STRATEGY,
-        );
+        let config = DeflateConfig {
+            level: 1,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
@@ -2418,15 +2434,15 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            1,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_DEFAULT_STRATEGY,
-        );
+        let config = DeflateConfig {
+            level: 1,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
