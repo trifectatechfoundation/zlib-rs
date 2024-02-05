@@ -110,38 +110,33 @@ const MAX_BITS: u8 = 15; // maximum number of bits in a code
 const MAX_DIST_EXTRA_BITS: u8 = 13; // maximum number of extra distance bits
 
 /// Inflates `source` into `dest`, and writes the final inflated size into `dest_len`.
-///
-/// # Safety
-///
-/// dest must be writable for dest_len bytes (but may be uninitialized).
-/// source must be valid for source_len bytes.
-pub(crate) unsafe fn uncompress(
-    mut dest: *mut u8,
-    dest_len: *mut std::ffi::c_ulong,
-    source: *const u8,
-    source_len: std::ffi::c_ulong,
+pub(crate) unsafe fn uncompress<'a>(
+    output: &'a mut [MaybeUninit<u8>],
+    input: &[u8],
     config: InflateConfig,
-) -> std::ffi::c_int {
-    let dest_len_ptr = dest_len;
-    let dest_len = unsafe { *dest_len };
+) -> (&'a mut [u8], ReturnCode) {
+    let mut dest_len_ptr = output.len() as u64;
+    let dest_len = output.len() as u64;
 
     // for detection of incomplete stream when *destLen == 0
     let mut buf = [0u8];
 
     let mut left;
-    let mut len = source_len;
+    let mut len = input.len() as u64;
 
+    let dest;
     if dest_len != 0 {
         left = dest_len;
-        unsafe { *dest_len_ptr = 0 };
+        dest_len_ptr = 0;
+        dest = output.as_mut_ptr() as *mut u8;
     } else {
         left = 1;
         dest = buf.as_mut_ptr();
     }
 
     let mut stream = z_stream {
-        next_in: source as *mut u8,
-        avail_in: source_len as _,
+        next_in: input.as_ptr() as *mut u8,
+        avail_in: input.len() as _,
         total_in: 0,
         next_out: dest,
         avail_out: dest_len as _,
@@ -157,8 +152,8 @@ pub(crate) unsafe fn uncompress(
     };
 
     let err = init_with_config(&mut stream, config);
-    if err != ReturnCode::Ok as _ {
-        return err;
+    if err != ReturnCode::Ok {
+        return (&mut [], err);
     }
 
     stream.next_out = dest;
@@ -187,19 +182,26 @@ pub(crate) unsafe fn uncompress(
     };
 
     if dest_len != 0 {
-        unsafe { *dest_len_ptr = stream.total_out as _ }
+        dest_len_ptr = stream.total_out;
     } else if stream.total_out != 0 && err == ReturnCode::BufError as _ {
         left = 1;
     }
 
     end(&mut stream);
 
-    match err {
-        ReturnCode::StreamEnd => ReturnCode::Ok as _,
-        ReturnCode::NeedDict => ReturnCode::DataError as _,
-        ReturnCode::BufError if (left + stream.avail_out as u64) != 0 => ReturnCode::DataError as _,
-        _ => err as _,
-    }
+    let ret = match err {
+        ReturnCode::StreamEnd => ReturnCode::Ok,
+        ReturnCode::NeedDict => ReturnCode::DataError,
+        ReturnCode::BufError if (left + stream.avail_out as u64) != 0 => ReturnCode::DataError,
+        _ => err,
+    };
+
+    // SAFETY: we have now initialized these bytes
+    let output_slice = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, dest_len_ptr as usize)
+    };
+
+    (output_slice, ret)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1311,7 +1313,7 @@ impl Default for InflateConfig {
 }
 
 /// Initialize the stream in an inflate state
-pub(crate) fn init_with_config(stream: &mut z_stream, config: InflateConfig) -> i32 {
+pub(crate) fn init_with_config(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     stream.msg = std::ptr::null_mut();
 
     if stream.zalloc.is_none() {
@@ -1352,7 +1354,7 @@ pub(crate) fn init_with_config(stream: &mut z_stream, config: InflateConfig) -> 
         unsafe { stream.dealloc(ptr) };
     }
 
-    ret as i32
+    ret
 }
 
 pub(crate) fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
