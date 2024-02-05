@@ -23,6 +23,7 @@ use self::{
 
 /// TODO: Move to separate file?
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub(crate) struct GzipHeader {
     pub text: libc::c_int,
     pub time: crate::c_api::z_size,
@@ -308,6 +309,9 @@ pub(crate) struct State<'a> {
     // allocated window if needed (capacity == 0 if unused)
     window: Window<'a>,
 
+    /// place to store gzip header if needed
+    head: Option<GzipHeader>,
+
     //
     /// number of code length code lengths
     ncode: usize,
@@ -393,6 +397,7 @@ impl<'a> State<'a> {
             bit_reader: BitReader::new(reader),
             writer,
             window: Window::empty(),
+            head: None,
 
             lens: [0u16; 320],
             work: [0u16; 288],
@@ -1667,6 +1672,7 @@ pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> Return
         dist_table: state.dist_table,
         wbits: state.wbits,
         window: Window::empty(),
+        head: state.head,
         ncode: state.ncode,
         nlen: state.nlen,
         ndist: state.ndist,
