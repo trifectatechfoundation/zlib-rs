@@ -128,7 +128,19 @@ pub unsafe extern "C" fn uncompress(
     source: *const u8,
     sourceLen: c_ulong,
 ) -> c_int {
-    crate::inflate::uncompress(dest, destLen, source, sourceLen, InflateConfig::default())
+    let data = dest;
+    let len = std::ptr::read(destLen) as usize;
+    let output = std::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
+
+    let data = source;
+    let len = sourceLen as usize;
+    let input = std::slice::from_raw_parts(data, len);
+
+    let (output, err) = crate::inflate::uncompress(output, input, InflateConfig::default());
+
+    std::ptr::write(destLen, output.len() as _);
+
+    err as c_int
 }
 
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
@@ -209,7 +221,7 @@ pub unsafe extern "C" fn inflateInit_(
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
-        crate::inflate::init_with_config(&mut *strm, InflateConfig::default())
+        crate::inflate::init_with_config(&mut *strm, InflateConfig::default()) as _
     }
 }
 
@@ -229,7 +241,7 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
         let config = InflateConfig {
             window_bits: windowBits,
         };
-        crate::inflate::init_with_config(&mut *strm, config)
+        crate::inflate::init_with_config(&mut *strm, config) as _
     }
 }
 

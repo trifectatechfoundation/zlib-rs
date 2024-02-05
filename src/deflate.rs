@@ -2064,18 +2064,15 @@ fn compress_slice<'a>(
     let output_uninit = unsafe {
         std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
-    let (output, ret) = compress(output_uninit, input, config);
-    let output =
-        unsafe { std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, output.len()) };
 
-    (output, ret)
+    compress(output_uninit, input, config)
 }
 
 pub(crate) fn compress<'a>(
     output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
     config: DeflateConfig,
-) -> (&'a mut [MaybeUninit<u8>], ReturnCode) {
+) -> (&'a mut [u8], ReturnCode) {
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
         avail_in: 0, // for special logic in the first  iteration
@@ -2096,7 +2093,7 @@ pub(crate) fn compress<'a>(
     let err = init(&mut stream, config);
 
     if err != ReturnCode::Ok {
-        return (output, err);
+        return (&mut [], err);
     }
 
     let max = libc::c_uint::MAX as usize;
@@ -2132,11 +2129,14 @@ pub(crate) fn compress<'a>(
         }
     }
 
-    let output = &mut output[..stream.total_out as usize];
+    // SAFETY: we have now initialized these bytes
+    let output_slice = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
+    };
 
     unsafe { deflateEnd(&mut stream) };
 
-    (output, ReturnCode::Ok)
+    (output_slice, ReturnCode::Ok)
 }
 
 ///  heap used to build the Huffman trees
