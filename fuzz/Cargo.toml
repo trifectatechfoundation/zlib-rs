@@ -99,3 +99,9 @@ name = "prefix"
 path = "fuzz_targets/prefix.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "end_to_end"
+path = "fuzz_targets/end_to_end.rs"
+test = false
+doc = false

@@ -108,9 +108,22 @@ impl<'a> InflateStream<'a> {
 
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
 const MAX_DIST_EXTRA_BITS: u8 = 13; // maximum number of extra distance bits
+                                    //
+#[cfg(any(test, feature = "__internal-fuzz"))]
+pub fn uncompress_slice<'a>(
+    output: &'a mut [u8],
+    input: &[u8],
+    config: InflateConfig,
+) -> (&'a mut [u8], ReturnCode) {
+    let output_uninit = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+    };
+
+    uncompress(output_uninit, input, config)
+}
 
 /// Inflates `source` into `dest`, and writes the final inflated size into `dest_len`.
-pub(crate) unsafe fn uncompress<'a>(
+pub(crate) fn uncompress<'a>(
     output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
     config: InflateConfig,
@@ -151,7 +164,7 @@ pub(crate) unsafe fn uncompress<'a>(
         reserved: 0,
     };
 
-    let err = init_with_config(&mut stream, config);
+    let err = init(&mut stream, config);
     if err != ReturnCode::Ok {
         return (&mut [], err);
     }
@@ -170,8 +183,8 @@ pub(crate) unsafe fn uncompress<'a>(
             len -= stream.avail_in as u64;
         }
 
-        let err = if let Some(stream) = InflateStream::from_stream_mut(&mut stream) {
-            inflate(stream, Flush::NoFlush)
+        let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
+            unsafe { inflate(stream, Flush::NoFlush) }
         } else {
             ReturnCode::StreamError
         };
@@ -187,7 +200,7 @@ pub(crate) unsafe fn uncompress<'a>(
         left = 1;
     }
 
-    end(&mut stream);
+    unsafe { end(&mut stream) };
 
     let ret = match err {
         ReturnCode::StreamEnd => ReturnCode::Ok,
@@ -1313,7 +1326,7 @@ impl Default for InflateConfig {
 }
 
 /// Initialize the stream in an inflate state
-pub(crate) fn init_with_config(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
+pub(crate) fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     stream.msg = std::ptr::null_mut();
 
     if stream.zalloc.is_none() {

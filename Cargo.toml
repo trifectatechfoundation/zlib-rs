@@ -7,11 +7,12 @@ edition = "2021"
 
 [features]
 default = []
-__internal-fuzz = ["libz-ng-sys"]
+__internal-fuzz = ["libz-ng-sys", "arbitrary"]
 
 [dependencies]
 libc = "0.2.151"
 libz-ng-sys = { version = "1.1.12", optional = true }
+arbitrary = { version = "1.0", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 libloading = "0.8.1"

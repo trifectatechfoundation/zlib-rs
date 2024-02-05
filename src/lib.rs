@@ -3,7 +3,7 @@ use std::ffi::c_void;
 mod adler32;
 pub mod allocate;
 mod c_api;
-mod deflate;
+pub mod deflate;
 #[cfg(test)]
 mod dynamic;
 pub mod inflate;

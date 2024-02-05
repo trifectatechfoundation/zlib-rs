@@ -22,21 +22,21 @@ mod trees_tbl;
 mod window;
 
 #[repr(C)]
-pub(crate) struct DeflateStream<'a> {
-    pub next_in: *mut crate::c_api::Bytef,
-    pub avail_in: crate::c_api::uInt,
-    pub total_in: crate::c_api::z_size,
-    pub next_out: *mut crate::c_api::Bytef,
-    pub avail_out: crate::c_api::uInt,
-    pub total_out: crate::c_api::z_size,
-    pub msg: *const libc::c_char,
-    pub state: &'a mut State<'a>,
-    pub zalloc: crate::c_api::alloc_func,
-    pub zfree: crate::c_api::free_func,
-    pub opaque: crate::c_api::voidpf,
-    pub data_type: libc::c_int,
-    pub adler: crate::c_api::z_checksum,
-    pub reserved: crate::c_api::uLong,
+pub struct DeflateStream<'a> {
+    pub(crate) next_in: *mut crate::c_api::Bytef,
+    pub(crate) avail_in: crate::c_api::uInt,
+    pub(crate) total_in: crate::c_api::z_size,
+    pub(crate) next_out: *mut crate::c_api::Bytef,
+    pub(crate) avail_out: crate::c_api::uInt,
+    pub(crate) total_out: crate::c_api::z_size,
+    pub(crate) msg: *const libc::c_char,
+    pub(crate) state: &'a mut State<'a>,
+    pub(crate) zalloc: crate::c_api::alloc_func,
+    pub(crate) zfree: crate::c_api::free_func,
+    pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) data_type: libc::c_int,
+    pub(crate) adler: crate::c_api::z_checksum,
+    pub(crate) reserved: crate::c_api::uLong,
 }
 
 impl<'a> DeflateStream<'a> {
@@ -81,6 +81,7 @@ const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
 pub enum Method {
     #[default]
     Deflated = 8,
@@ -98,6 +99,7 @@ impl TryFrom<i32> for Method {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
 pub struct DeflateConfig {
     pub level: i32,
     pub method: Method,
@@ -627,7 +629,8 @@ pub(crate) struct State<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-pub(crate) enum Strategy {
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
+pub enum Strategy {
     #[default]
     Default = 0,
     Filtered = 1,
@@ -2055,8 +2058,8 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     state.pending.advance(len);
 }
 
-#[allow(unused)]
-fn compress_slice<'a>(
+#[cfg(any(test, feature = "__internal-fuzz"))]
+pub fn compress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
     config: DeflateConfig,
@@ -2091,7 +2094,6 @@ pub(crate) fn compress<'a>(
     };
 
     let err = init(&mut stream, config);
-
     if err != ReturnCode::Ok {
         return (&mut [], err);
     }

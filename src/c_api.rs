@@ -221,7 +221,7 @@ pub unsafe extern "C" fn inflateInit_(
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
-        crate::inflate::init_with_config(&mut *strm, InflateConfig::default()) as _
+        crate::inflate::init(&mut *strm, InflateConfig::default()) as _
     }
 }
 
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
         let config = InflateConfig {
             window_bits: windowBits,
         };
-        crate::inflate::init_with_config(&mut *strm, config) as _
+        crate::inflate::init(&mut *strm, config) as _
     }
 }
 
