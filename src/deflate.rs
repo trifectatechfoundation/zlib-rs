@@ -79,9 +79,9 @@ pub(crate) const HASH_SIZE: usize = 65536;
 const MAX_MEM_LEVEL: i32 = 9;
 const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
 
-pub fn init(strm: *mut z_stream, level: i32) -> ReturnCode {
+pub fn init(stream: &mut z_stream, level: i32) -> ReturnCode {
     init2(
-        strm,
+        stream,
         level,
         crate::c_api::Z_DEFLATED,
         crate::MAX_WBITS,
@@ -91,7 +91,7 @@ pub fn init(strm: *mut z_stream, level: i32) -> ReturnCode {
 }
 
 pub fn init2(
-    strm: *mut z_stream,
+    stream: &mut z_stream,
     mut level: i32,
     method: i32,
     mut window_bits: i32,
@@ -101,12 +101,6 @@ pub fn init2(
     /* Todo: ignore strm->next_in if we use it as window */
     let window_padding = 0;
     let mut wrap = 1;
-
-    if strm.is_null() {
-        return ReturnCode::StreamError;
-    }
-
-    let stream = unsafe { &mut *strm };
 
     stream.msg = std::ptr::null_mut();
 
@@ -173,14 +167,15 @@ pub fn init2(
     let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
 
     if window_ptr.is_null() || prev_ptr.is_null() || head_ptr.is_null() || pending_buf.is_null() {
-        unsafe {
-            let opaque = (*strm).opaque;
-            let free = (*strm).zfree.unwrap();
+        let opaque = stream.opaque;
+        let free = stream.zfree.unwrap();
 
+        unsafe {
             free(opaque, pending_buf.cast());
             free(opaque, head_ptr.cast());
             free(opaque, prev_ptr.cast());
             free(opaque, window_ptr.cast());
+
             free(opaque, state_ptr.cast());
         }
 
@@ -273,15 +268,16 @@ pub fn init2(
     unsafe { *(state_ptr as *mut State) = state };
     stream.state = state_ptr.cast();
 
-    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
-        unsafe {
-            let opaque = (*strm).opaque;
-            let free = (*strm).zfree.unwrap();
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
+        let opaque = stream.opaque;
+        let free = stream.zfree.unwrap();
 
+        unsafe {
             free(opaque, pending_buf.cast());
             free(opaque, head_ptr.cast());
             free(opaque, prev_ptr.cast());
             free(opaque, window_ptr.cast());
+
             free(opaque, state_ptr.cast());
         }
 
@@ -291,11 +287,7 @@ pub fn init2(
     reset(stream)
 }
 
-pub unsafe fn end(strm: *mut z_stream) -> i32 {
-    let Some(stream) = DeflateStream::from_stream_mut(strm) else {
-        return ReturnCode::StreamError as _;
-    };
-
+pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     let status = stream.state.status;
 
     let pending = stream.state.pending.as_mut_ptr();
@@ -308,20 +300,22 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
     let free = stream.zfree;
 
     // safety: a valid &mut DeflateStream is also a valid &mut z_stream
-    let stream = unsafe { &mut *strm };
+    let stream = unsafe { &mut *(stream as *mut DeflateStream as *mut z_stream) };
     stream.state = std::ptr::null_mut();
 
     // deallocate in reverse order of allocations
-    unsafe { free(opaque, pending.cast()) };
-    unsafe { free(opaque, head.cast()) };
-    unsafe { free(opaque, prev.cast()) };
-    unsafe { free(opaque, window.cast()) };
+    unsafe {
+        free(opaque, pending.cast());
+        free(opaque, head.cast());
+        free(opaque, prev.cast());
+        free(opaque, window.cast());
 
-    unsafe { free(opaque, state.cast()) };
+        free(opaque, state.cast());
+    }
 
     match status {
-        Status::Busy => ReturnCode::DataError as i32,
-        _ => ReturnCode::Ok as i32,
+        Status::Busy => ReturnCode::DataError,
+        _ => ReturnCode::Ok,
     }
 }
 
@@ -2083,12 +2077,9 @@ pub(crate) fn compress3<'a>(
         reserved: 0,
     };
 
-    let err = {
-        let strm: *mut z_stream = &mut stream;
-        init2(strm, level, method, window_bits, mem_level, strategy)
-    };
+    let err = init2(&mut stream, level, method, window_bits, mem_level, strategy);
 
-    if err != ReturnCode::Ok as _ {
+    if err != ReturnCode::Ok {
         return (output, err);
     }
 

@@ -318,7 +318,10 @@ pub unsafe extern "C" fn compress(
 }
 
 pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
-    crate::deflate::end(strm)
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => crate::deflate::end(stream) as _,
+        None => ReturnCode::StreamError as _,
+    }
 }
 
 pub unsafe extern "C" fn deflateInit_(
@@ -327,7 +330,11 @@ pub unsafe extern "C" fn deflateInit_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> libc::c_int {
-    crate::deflate::init(strm, level) as _
+    if strm.is_null() {
+        ReturnCode::StreamError as _
+    } else {
+        crate::deflate::init(&mut *strm, level) as _
+    }
 }
 
 pub unsafe extern "C" fn deflateInit2_(
@@ -340,5 +347,9 @@ pub unsafe extern "C" fn deflateInit2_(
     _version: *const c_char,
     _stream_size: c_int,
 ) -> libc::c_int {
-    crate::deflate::init2(strm, level, method, windowBits, memLevel, strategy) as _
+    if strm.is_null() {
+        ReturnCode::StreamError as _
+    } else {
+        crate::deflate::init2(&mut *strm, level, method, windowBits, memLevel, strategy) as _
+    }
 }
