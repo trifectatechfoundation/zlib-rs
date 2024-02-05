@@ -2,10 +2,12 @@
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
+use std::mem::MaybeUninit;
+
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
 use crate::{
-    deflate::DeflateStream,
+    deflate::{DeflateConfig, DeflateStream, Method, Strategy},
     inflate::{InflateConfig, InflateStream},
     ReturnCode,
 };
@@ -322,13 +324,13 @@ pub unsafe extern "C" fn compress(
 ) -> c_int {
     let data = dest;
     let len = std::ptr::read(destLen) as usize;
-    let output = std::slice::from_raw_parts_mut(data, len);
+    let output = std::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
 
     let data = source;
     let len = sourceLen as usize;
     let input = std::slice::from_raw_parts(data, len);
 
-    let (output, err) = crate::deflate::compress(output, input);
+    let (output, err) = crate::deflate::compress(output, input, DeflateConfig::default());
 
     std::ptr::write(destLen, output.len() as _);
 
@@ -351,7 +353,7 @@ pub unsafe extern "C" fn deflateInit_(
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
-        crate::deflate::init(&mut *strm, level) as _
+        crate::deflate::init(&mut *strm, DeflateConfig::new(level)) as _
     }
 }
 
@@ -368,6 +370,22 @@ pub unsafe extern "C" fn deflateInit2_(
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
-        crate::deflate::init2(&mut *strm, level, method, windowBits, memLevel, strategy) as _
+        let Ok(method) = Method::try_from(method) else {
+            return ReturnCode::StreamError as _;
+        };
+
+        let Ok(strategy) = Strategy::try_from(strategy) else {
+            return ReturnCode::StreamError as _;
+        };
+
+        let config = DeflateConfig {
+            level,
+            method,
+            window_bits: windowBits,
+            mem_level: memLevel,
+            strategy,
+        };
+
+        crate::deflate::init(&mut *strm, config) as _
     }
 }
