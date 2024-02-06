@@ -108,6 +108,14 @@ impl<'a> Window<'a> {
             }
         }
     }
+
+    pub fn initialize_at_least(&mut self, at_least: usize) {
+        let end = at_least.clamp(self.high_water, self.buf.len());
+        self.buf[self.high_water..end].fill(MaybeUninit::new(0));
+
+        self.high_water = end;
+        self.filled = end;
+    }
 }
 
 // TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
