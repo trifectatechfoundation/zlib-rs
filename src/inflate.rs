@@ -515,7 +515,7 @@ impl<'a> State<'a> {
 
         self.dmax = 1 << len;
         self.flags = 0; // indicate zlib header
-        self.checksum = 1; // adler32 initial value
+        self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
         if self.bit_reader.hold() & 0x200 != 0 {
             self.bit_reader.init_bits();
@@ -1111,7 +1111,7 @@ impl<'a> State<'a> {
             return self.inflate_leave(ReturnCode::NeedDict);
         }
 
-        self.checksum = zswap32(self.bit_reader.hold() as u32);
+        self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
         self.mode = Mode::Type;
         self.type_()
