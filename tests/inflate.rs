@@ -2,7 +2,7 @@ use std::mem::ManuallyDrop;
 
 use libc::{c_char, c_int, c_void};
 
-use zlib::{inflate::uncompress_slice, *};
+use zlib::*;
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<zlib::z_stream>() as c_int;
@@ -892,26 +892,6 @@ fn hello_world_dynamic() {
     assert_eq!(String::from_utf8(output).unwrap(), input);
 }
 
-unsafe fn uncompress_dynamic(
-    dest: *mut u8,
-    dest_len: *mut std::ffi::c_ulong,
-    source: *const u8,
-    source_len: std::ffi::c_ulong,
-) -> std::ffi::c_int {
-    let lib = libloading::Library::new("/home/folkertdev/rust/zlib-ng/libz-ng.so").unwrap();
-
-    type Func = unsafe extern "C" fn(
-        dest: *mut u8,
-        dest_len: *mut std::ffi::c_ulong,
-        source: *const u8,
-        source_len: std::ffi::c_ulong,
-    ) -> std::ffi::c_int;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_uncompress").unwrap();
-
-    f(dest, dest_len, source, source_len)
-}
-
 #[test]
 fn copy_match_small_output() {
     // this will perform a `ReadBuf::copy_match` that does not fit neatly into a 32-bit SIMD register
@@ -923,19 +903,6 @@ fn copy_match_small_output() {
     ];
 
     let config = inflate::InflateConfig { window_bits: 15 };
-
-    let mut output = vec![0; input.len()];
-    let mut len = output.len() as u64;
-    let err = unsafe {
-        uncompress_dynamic(
-            output.as_mut_ptr(),
-            &mut len,
-            deflated.as_ptr(),
-            deflated.len() as _,
-        )
-    };
-
-    assert_eq!(err, 0);
 
     let mut output = vec![0; input.len()];
     let (output, err) = zlib::inflate::uncompress_slice(&mut output, deflated, config);
