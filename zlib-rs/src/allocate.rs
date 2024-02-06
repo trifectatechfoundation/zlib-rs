@@ -1,5 +1,7 @@
 use std::ffi::{c_uint, c_void};
 
+use libc::size_t;
+
 /// # Safety
 ///
 /// The `ptr` must be allocated with the allocator that the `zfree` function belongs to.
@@ -26,7 +28,7 @@ pub unsafe fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, 
 /// This function is safe, but must have this type signature to be used elsewhere in the library
 pub unsafe extern "C" fn zcalloc(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
-    zng_alloc(items as libc::size_t * size as libc::size_t)
+    zng_alloc(items as size_t * size as size_t)
 }
 
 /// # Safety
@@ -38,7 +40,7 @@ pub unsafe extern "C" fn zcfree(opaque: *mut c_void, ptr: *mut c_void) {
 }
 
 #[cfg(unix)]
-unsafe fn zng_alloc(size: libc::size_t) -> *mut c_void {
+unsafe fn zng_alloc(size: size_t) -> *mut c_void {
     let mut ptr = std::ptr::null_mut();
     match libc::posix_memalign(&mut ptr, 64, size) {
         0 => ptr,

@@ -1,9 +1,15 @@
-use zlib::*;
+use crate as libz_rs_sys;
 
 use libc::{c_char, c_int};
 
+use libz_rs_sys::{
+    deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
+    Z_NO_FLUSH,
+};
+use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
+
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
-const STREAM_SIZE: c_int = std::mem::size_of::<zlib::z_stream>() as c_int;
+const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 pub mod quick {
     use super::*;
@@ -49,7 +55,7 @@ pub mod quick {
 
     #[test]
     fn bi_valid() {
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -137,7 +143,7 @@ pub mod quick {
 
     #[test]
     fn block_open_quick() {
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -197,7 +203,7 @@ pub mod quick {
         let err = unsafe { deflateEnd(&mut stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -235,7 +241,7 @@ pub mod quick {
 
     #[test]
     fn block_open_fast() {
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -295,7 +301,7 @@ pub mod quick {
         let err = unsafe { deflateEnd(&mut stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -333,7 +339,7 @@ pub mod quick {
 
     #[test]
     fn block_open_slow() {
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -393,7 +399,7 @@ pub mod quick {
         let err = unsafe { deflateEnd(&mut stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let mut stream = zlib::z_stream {
+        let mut stream = libz_rs_sys::z_stream {
             next_in: std::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
@@ -440,10 +446,10 @@ fn deflate_medium_fizzle_bug() {
     const INPUT: &str = "\0\0\0\0\0\0\0\0\0\0\0\u{19}\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0~\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0%\0\0\0\0\0\0\0\0\0\0\0\0";
 
     let mut output = [0; EXPECTED.len()];
-    let mut dest_len = output.len();
 
-    let err = zlib::compress_rs(&mut output, &mut dest_len, INPUT.as_bytes(), 6);
+    let config = DeflateConfig::new(6);
+    let (output, err) = zlib_rs::deflate::compress_slice(&mut output, INPUT.as_bytes(), config);
     assert_eq!(err, ReturnCode::Ok);
 
-    assert_eq!(&output[..dest_len], EXPECTED);
+    assert_eq!(output, EXPECTED);
 }

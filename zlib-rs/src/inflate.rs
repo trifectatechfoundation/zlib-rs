@@ -1,5 +1,7 @@
 #![allow(non_snake_case)] // TODO ultimately remove this
+#![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
+use std::ffi::{c_char, c_int, c_long, c_ulong, c_void};
 use std::{alloc::Layout, mem::MaybeUninit};
 
 mod bitreader;
@@ -9,7 +11,8 @@ mod read_buf;
 mod window;
 
 use crate::{
-    adler32::adler32, allocate, z_stream, Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
+    adler32::adler32, allocate, c_api::z_stream, Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS,
+    MIN_WBITS,
 };
 
 use self::{
@@ -19,22 +22,25 @@ use self::{
     window::Window,
 };
 
+// TODO should only be used by tests; only export when running tests
+pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
+
 #[repr(C)]
-pub(crate) struct InflateStream<'a> {
-    pub next_in: *mut crate::c_api::Bytef,
-    pub avail_in: crate::c_api::uInt,
-    pub total_in: crate::c_api::z_size,
-    pub next_out: *mut crate::c_api::Bytef,
-    pub avail_out: crate::c_api::uInt,
-    pub total_out: crate::c_api::z_size,
-    pub msg: *mut libc::c_char,
-    pub state: &'a mut State<'a>,
-    pub zalloc: crate::c_api::alloc_func,
-    pub zfree: crate::c_api::free_func,
-    pub opaque: crate::c_api::voidpf,
-    pub data_type: libc::c_int,
-    pub adler: crate::c_api::z_checksum,
-    pub reserved: crate::c_api::uLong,
+pub struct InflateStream<'a> {
+    pub(crate) next_in: *mut crate::c_api::Bytef,
+    pub(crate) avail_in: crate::c_api::uInt,
+    pub(crate) total_in: crate::c_api::z_size,
+    pub(crate) next_out: *mut crate::c_api::Bytef,
+    pub(crate) avail_out: crate::c_api::uInt,
+    pub(crate) total_out: crate::c_api::z_size,
+    pub(crate) msg: *mut c_char,
+    pub(crate) state: &'a mut State<'a>,
+    pub(crate) zalloc: crate::c_api::alloc_func,
+    pub(crate) zfree: crate::c_api::free_func,
+    pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) data_type: c_int,
+    pub(crate) adler: crate::c_api::z_checksum,
+    pub(crate) reserved: crate::c_api::uLong,
 }
 
 impl<'a> InflateStream<'a> {
@@ -47,7 +53,7 @@ impl<'a> InflateStream<'a> {
     /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
     /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
     #[inline(always)]
-    pub(crate) unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
+    pub unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
         if strm.is_null() {
             return None;
         }
@@ -75,7 +81,7 @@ impl<'a> InflateStream<'a> {
     /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
     /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
     #[inline(always)]
-    pub(crate) unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
+    pub unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
         if strm.is_null() {
             return None;
         }
@@ -97,7 +103,7 @@ impl<'a> InflateStream<'a> {
         Some(stream)
     }
 
-    unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut libc::c_void {
+    unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut c_void {
         (self.zalloc)(self.opaque, 1, layout.size() as u32)
     }
 
@@ -122,7 +128,7 @@ pub fn uncompress_slice<'a>(
 }
 
 /// Inflates `source` into `dest`, and writes the final inflated size into `dest_len`.
-pub(crate) fn uncompress<'a>(
+pub fn uncompress<'a>(
     output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
     config: InflateConfig,
@@ -1297,7 +1303,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     }
 }
 
-pub(crate) fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> ReturnCode {
+pub fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> ReturnCode {
     if bits == 0 {
         /* fall through */
     } else if bits < 0 {
@@ -1325,7 +1331,7 @@ impl Default for InflateConfig {
 }
 
 /// Initialize the stream in an inflate state
-pub(crate) fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
+pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     stream.msg = std::ptr::null_mut();
 
     if stream.zalloc.is_none() {
@@ -1369,7 +1375,7 @@ pub(crate) fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     ret
 }
 
-pub(crate) fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
+pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
     let mut window_bits = config.window_bits;
     let wrap;
 
@@ -1409,7 +1415,7 @@ pub(crate) fn reset_with_config(stream: &mut InflateStream, config: InflateConfi
     reset(stream)
 }
 
-pub(crate) fn reset(stream: &mut InflateStream) -> ReturnCode {
+pub fn reset(stream: &mut InflateStream) -> ReturnCode {
     // reset the state of the window
     stream.state.window.clear();
 
@@ -1418,7 +1424,7 @@ pub(crate) fn reset(stream: &mut InflateStream) -> ReturnCode {
     reset_keep(stream)
 }
 
-pub(crate) fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
+pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     stream.total_in = 0;
     stream.total_out = 0;
     // stream.state.total = 0;
@@ -1452,7 +1458,7 @@ pub(crate) fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     ReturnCode::Ok
 }
 
-pub(crate) unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
+pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return ReturnCode::StreamError as _;
     }
@@ -1534,7 +1540,7 @@ fn syncsearch(mut got: usize, buf: &[u8]) -> (usize, usize) {
     (got, next)
 }
 
-pub(crate) fn sync(stream: &mut InflateStream) -> ReturnCode {
+pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     let state = &mut stream.state;
 
     if stream.avail_in == 0 && state.bit_reader.bits_in_buffer() < 8 {
@@ -1592,11 +1598,11 @@ pub(crate) fn sync(stream: &mut InflateStream) -> ReturnCode {
   block. When decompressing, PPP checks that at the end of input packet,
   inflate is waiting for these length bytes.
 */
-pub(crate) fn sync_point(stream: &mut InflateStream) -> bool {
+pub fn sync_point(stream: &mut InflateStream) -> bool {
     matches!(stream.state.mode, Mode::Stored) && stream.state.bit_reader.bits_in_buffer() == 0
 }
 
-pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
+pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
     let stream = source;
 
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
@@ -1697,15 +1703,15 @@ pub(crate) unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> Return
     ReturnCode::Ok
 }
 
-pub(crate) fn undermine(stream: &mut InflateStream, subvert: i32) -> ReturnCode {
+pub fn undermine(stream: &mut InflateStream, subvert: i32) -> ReturnCode {
     stream.state.sane = (!subvert) != 0;
 
     ReturnCode::Ok
 }
 
-pub(crate) fn mark(stream: &InflateStream) -> libc::c_long {
+pub fn mark(stream: &InflateStream) -> c_long {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return libc::c_long::MIN;
+        return c_long::MIN;
     }
 
     let state = &stream.state;
@@ -1716,10 +1722,10 @@ pub(crate) fn mark(stream: &InflateStream) -> libc::c_long {
         _ => 0,
     };
 
-    (((state.back as libc::c_long) as libc::c_ulong) << 16) as libc::c_long + length as libc::c_long
+    (((state.back as c_long) as c_ulong) << 16) as c_long + length as c_long
 }
 
-pub(crate) fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCode {
+pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCode {
     if stream.state.wrap != 0 && !matches!(stream.state.mode, Mode::Dict) {
         return ReturnCode::StreamError;
     }
@@ -1814,7 +1820,7 @@ fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode
 }
 
 fn init_window<'a>(
-    alloc_layout: impl FnOnce(Layout) -> *mut libc::c_void,
+    alloc_layout: impl FnOnce(Layout) -> *mut c_void,
     wbits: usize,
     chunk_size: usize,
 ) -> Result<Window<'a>, ReturnCode> {

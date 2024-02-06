@@ -2,7 +2,9 @@
 
 use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 
-use zlib::{Flush, ReturnCode};
+use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
+
+use std::ffi::{c_char, c_int, c_uint};
 
 fn main() {
     let mut it = std::env::args();
@@ -99,10 +101,10 @@ fn main() {
     }
 }
 
-const METHOD: i32 = zlib::Z_DEFLATED;
+const METHOD: i32 = zlib_rs::c_api::Z_DEFLATED;
 const WINDOW_BITS: i32 = 15;
 const MEM_LEVEL: i32 = 8;
-const STRATEGY: i32 = zlib::Z_DEFAULT_STRATEGY;
+const STRATEGY: i32 = zlib_rs::c_api::Z_DEFAULT_STRATEGY;
 
 fn compress_rs(
     dest: &mut [u8],
@@ -111,10 +113,10 @@ fn compress_rs(
     //
     level: i32,
 ) -> ReturnCode {
-    use zlib::{deflate, deflateEnd, deflateInit2_, z_stream};
+    use libz_rs_sys::{deflate, deflateEnd, deflateInit2_, z_stream};
 
-    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
-    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+    const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
+    const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
 
     let mut stream = z_stream {
         next_in: source.as_ptr() as *mut u8,
@@ -125,8 +127,8 @@ fn compress_rs(
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: Some(zlib::allocate::zcalloc),
-        zfree: Some(zlib::allocate::zcfree),
+        zalloc: Some(zlib_rs::allocate::zcalloc),
+        zfree: Some(zlib_rs::allocate::zcfree),
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,
@@ -153,7 +155,7 @@ fn compress_rs(
         return ReturnCode::from(err);
     }
 
-    let max = libc::c_uint::MAX as usize;
+    let max = c_uint::MAX as usize;
 
     let mut left = dest.len();
     let mut source_len = source.len();
@@ -197,8 +199,8 @@ fn compress_ng(
 ) -> ReturnCode {
     use libz_ng_sys::{deflate, deflateEnd, deflateInit2_, z_stream};
 
-    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
-    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+    const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
+    const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
 
     let mut stream = z_stream {
         next_in: source.as_ptr() as *mut u8,
@@ -209,8 +211,8 @@ fn compress_ng(
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: zlib::allocate::zcalloc,
-        zfree: zlib::allocate::zcfree,
+        zalloc: zlib_rs::allocate::zcalloc,
+        zfree: zlib_rs::allocate::zcfree,
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,
@@ -237,7 +239,7 @@ fn compress_ng(
         return ReturnCode::from(err);
     }
 
-    let max = libc::c_uint::MAX as usize;
+    let max = c_uint::MAX as usize;
 
     let mut left = dest.len();
     let mut source_len = source.len();
@@ -279,133 +281,18 @@ fn compress_dynamic(
     //
     level: i32,
 ) -> ReturnCode {
-    use libz_ng_sys::{deflateEnd, z_stream};
+    let config = DeflateConfig::new(level);
+    let (output, err) = load_dynamic_libz_ng::compress_slice(
+        dest,
+        source,
+        config.level,
+        config.method as i32,
+        config.window_bits,
+        config.mem_level,
+        config.strategy as i32,
+    );
 
-    const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
-    const STREAM_SIZE: libc::c_int = std::mem::size_of::<z_stream>() as libc::c_int;
+    *dest_len = output.len();
 
-    let mut stream = z_stream {
-        next_in: source.as_ptr() as *mut u8,
-        avail_in: 0, // for special logic in the first  iteration
-        total_in: 0,
-        next_out: dest.as_mut_ptr(),
-        avail_out: 0, // for special logic on the first iteration
-        total_out: 0,
-        msg: std::ptr::null_mut(),
-        state: std::ptr::null_mut(),
-        zalloc: zlib::allocate::zcalloc,
-        zfree: zlib::allocate::zcfree,
-        opaque: std::ptr::null_mut(),
-        data_type: 0,
-        adler: 0,
-        reserved: 0,
-    };
-
-    let err = {
-        let strm: *mut z_stream = &mut stream;
-        unsafe {
-            deflateInit2__dynamic(
-                strm,
-                level,
-                METHOD,
-                WINDOW_BITS,
-                MEM_LEVEL,
-                STRATEGY,
-                VERSION,
-                STREAM_SIZE,
-            )
-        }
-    };
-
-    if ReturnCode::from(err) != ReturnCode::Ok as _ {
-        return ReturnCode::from(err);
-    }
-
-    let max = libc::c_uint::MAX as usize;
-
-    let mut left = dest.len();
-    let mut source_len = source.len();
-
-    loop {
-        if stream.avail_out == 0 {
-            stream.avail_out = Ord::min(left, max) as _;
-            left -= stream.avail_out as usize;
-        }
-
-        if stream.avail_in == 0 {
-            stream.avail_in = Ord::min(source_len, max) as _;
-            source_len -= stream.avail_in as usize;
-        }
-
-        let flush = if source_len > 0 {
-            Flush::NoFlush
-        } else {
-            Flush::Finish
-        };
-
-        let err = unsafe { deflate_dynamic(&mut stream, flush as i32) };
-        if ReturnCode::from(err) != ReturnCode::Ok {
-            break;
-        }
-    }
-
-    *dest_len = stream.total_out as _;
-
-    unsafe { deflateEnd(&mut stream) };
-
-    ReturnCode::Ok
-}
-
-unsafe fn deflate_dynamic(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
-    const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
-
-    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
-
-    type Func = unsafe extern "C" fn(strm: *mut libz_ng_sys::z_stream, flush: i32) -> i32;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_deflate").unwrap();
-
-    f(strm, flush)
-}
-
-#[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-#[allow(clippy::too_many_arguments)]
-unsafe fn deflateInit2__dynamic(
-    strm: *mut libz_ng_sys::z_stream,
-    level: libc::c_int,
-    method: libc::c_int,
-    windowBits: libc::c_int,
-    memLevel: libc::c_int,
-    strategy: libc::c_int,
-    version: *const libc::c_char,
-    stream_size: libc::c_int,
-) -> std::ffi::c_int {
-    const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
-
-    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
-
-    type Func = unsafe extern "C" fn(
-        strm: *mut libz_ng_sys::z_stream,
-        level: libc::c_int,
-        method: libc::c_int,
-        windowBits: libc::c_int,
-        memLevel: libc::c_int,
-        strategy: libc::c_int,
-        version: *const libc::c_char,
-        stream_size: libc::c_int,
-    ) -> i32;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_deflateInit2_").unwrap();
-
-    f(
-        strm,
-        level,
-        method,
-        windowBits,
-        memLevel,
-        strategy,
-        version,
-        stream_size,
-    )
+    ReturnCode::from(err)
 }

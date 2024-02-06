@@ -1,0 +1,8 @@
+[package]
+name = "load-dynamic-libz-ng"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libloading.workspace = true
+libz-ng-sys.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "libz-rs-sys"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type=["rlib", "cdylib"]
+
+[dependencies]
+zlib-rs.workspace = true
+
+
+[dev-dependencies]
+libz-ng-sys.workspace = true
+libloading.workspace = true
+load-dynamic-libz-ng.workspace = true
+libc.workspace = true
