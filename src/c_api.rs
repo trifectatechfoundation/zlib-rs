@@ -353,3 +353,22 @@ pub unsafe extern "C" fn deflateInit2_(
         crate::deflate::init2(&mut *strm, level, method, windowBits, memLevel, strategy) as _
     }
 }
+
+pub unsafe extern "C" fn deflateInit2(
+    strm: z_streamp,
+    level: c_int,
+    method: c_int,
+    windowBits: c_int,
+    memLevel: c_int,
+    strategy: c_int,
+) -> libc::c_int {
+    crate::deflate::init2(strm, level, method, windowBits, memLevel, strategy) as _
+}
+
+pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
+    if let Some(stream) = DeflateStream::from_stream_mut(strm) {
+        crate::deflate::reset(stream) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
+}
