@@ -109,7 +109,6 @@ impl<'a> InflateStream<'a> {
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
 const MAX_DIST_EXTRA_BITS: u8 = 13; // maximum number of extra distance bits
                                     //
-#[cfg(any(test, feature = "__internal-fuzz"))]
 pub fn uncompress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
@@ -1344,7 +1343,7 @@ pub(crate) fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     // state.mode = Mode::Head;
 
     // TODO this can change depending on the used/supported SIMD instructions
-    state.chunksize = 0;
+    state.chunksize = 32;
 
     // SAFETY: we assume allocation does not cause UB
     stream.state = unsafe { stream.alloc_value(state).cast() };
