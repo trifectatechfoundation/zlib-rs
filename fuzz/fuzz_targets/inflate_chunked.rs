@@ -1,9 +1,9 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use zlib::ReturnCode;
+use zlib_rs::ReturnCode;
 
 const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
-const STREAM_SIZE: libc::c_int = std::mem::size_of::<zlib::z_stream>() as libc::c_int;
+const STREAM_SIZE: libc::c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as libc::c_int;
 
 fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
     // first, deflate the data using the standard zlib
@@ -19,8 +19,8 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: ::zlib::allocate::zcalloc,
-        zfree: ::zlib::allocate::zcfree,
+        zalloc: ::zlib_rs::allocate::zcalloc,
+        zfree: ::zlib_rs::allocate::zcfree,
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,
@@ -48,7 +48,7 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
         assert_eq!(ReturnCode::Ok, return_code);
     };
 
-    let error = unsafe { libz_ng_sys::deflate(&mut stream, zlib::Flush::Finish as _) };
+    let error = unsafe { libz_ng_sys::deflate(&mut stream, libz_ng_sys::Z_FINISH) };
 
     let error: ReturnCode = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::StreamEnd, error);
@@ -76,10 +76,10 @@ fuzz_target!(|input: (String, usize)| {
 
     let deflated = deflate_ng(data.as_bytes(), window_bits as i32);
 
-    let mut stream = zlib::z_stream::default();
+    let mut stream = libz_rs_sys::z_stream::default();
 
     unsafe {
-        let err = zlib::inflateInit2_(&mut stream, window_bits as i32, VERSION, STREAM_SIZE);
+        let err = libz_rs_sys::inflateInit2_(&mut stream, window_bits as i32, VERSION, STREAM_SIZE);
         let return_code: ReturnCode = ReturnCode::from(err);
 
         assert_eq!(ReturnCode::Ok, return_code);
@@ -93,7 +93,7 @@ fuzz_target!(|input: (String, usize)| {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { zlib::inflate(&mut stream, ::zlib::Flush::NoFlush as _) };
+        let err = unsafe { libz_rs_sys::inflate(&mut stream, ::libz_rs_sys::Z_NO_FLUSH) };
         let return_code: ReturnCode = ReturnCode::from(err);
 
         match return_code {
@@ -114,7 +114,7 @@ fuzz_target!(|input: (String, usize)| {
     let output = String::from_utf8(output).unwrap();
 
     unsafe {
-        let err = zlib::inflateEnd(&mut stream);
+        let err = libz_rs_sys::inflateEnd(&mut stream);
         let return_code: ReturnCode = ReturnCode::from(err);
         assert_eq!(ReturnCode::Ok, return_code);
     }

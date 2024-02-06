@@ -65,7 +65,7 @@ fn main() {
             let source = input.as_ptr();
             let source_len = input.len() as _;
 
-            let err = unsafe { ::zlib::uncompress(dest, &mut dest_len, source, source_len) };
+            let err = unsafe { ::libz_rs_sys::uncompress(dest, &mut dest_len, source, source_len) };
 
             if err != 0 {
                 panic!("error {err}");

@@ -1,9 +1,9 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use zlib::deflate::DeflateConfig;
-use zlib::inflate::InflateConfig;
-use zlib::{Flush, ReturnCode};
+use zlib_rs::deflate::DeflateConfig;
+use zlib_rs::inflate::InflateConfig;
+use zlib_rs::{Flush, ReturnCode};
 
 fuzz_target!(|input: (String, DeflateConfig)| {
     let (data, config) = input;
@@ -14,27 +14,27 @@ fuzz_target!(|input: (String, DeflateConfig)| {
     }
 
     // only proceed if this is a valid config
-    let mut stream = zlib::z_stream::default();
-    let err = zlib::deflate::init(&mut stream, config);
+    let mut stream = libz_rs_sys::z_stream::default();
+    let err = zlib_rs::deflate::init(&mut stream, config);
     if err != ReturnCode::Ok {
         return;
     }
-    unsafe { zlib::deflateEnd(&mut stream) };
+    unsafe { libz_rs_sys::deflateEnd(&mut stream) };
 
     let length = 8 * 1024;
 
     // first, deflate the data using the standard zlib
     let mut deflated_rs = vec![0; length as usize];
     let (deflated_rs, error) =
-        zlib::deflate::compress_slice(&mut deflated_rs, data.as_bytes(), config);
+        zlib_rs::deflate::compress_slice(&mut deflated_rs, data.as_bytes(), config);
 
-    let error = zlib::ReturnCode::from(error as i32);
+    let error = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::Ok, error);
 
     let mut deflated_ng = vec![0; length as usize];
     let (deflated_ng, error) = compress_slice_ng(&mut deflated_ng, data.as_bytes(), config);
 
-    let error = zlib::ReturnCode::from(error as i32);
+    let error = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::Ok, error);
 
     assert_eq!(deflated_rs, deflated_ng);
@@ -58,7 +58,7 @@ fuzz_target!(|input: (String, DeflateConfig)| {
 
     let mut dest_vec_rs = vec![0u8; data.len()];
     let (output_rs, error) =
-        zlib::inflate::uncompress_slice(&mut dest_vec_rs, &deflated_rs, config);
+        zlib_rs::inflate::uncompress_slice(&mut dest_vec_rs, &deflated_rs, config);
 
     if error != ReturnCode::Ok || output_rs != data.as_bytes() {
         let path = std::env::temp_dir().join("deflate.txt");
@@ -94,8 +94,8 @@ fn compress_slice_ng<'a>(
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: ::zlib::allocate::zcalloc,
-        zfree: ::zlib::allocate::zcfree,
+        zalloc: ::zlib_rs::allocate::zcalloc,
+        zfree: ::zlib_rs::allocate::zcfree,
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,
@@ -120,7 +120,7 @@ fn compress_slice_ng<'a>(
         }
     };
 
-    let error = unsafe { libz_ng_sys::deflate(&mut stream, zlib::Flush::Finish as _) };
+    let error = unsafe { libz_ng_sys::deflate(&mut stream, Flush::Finish as _) };
 
     let error: ReturnCode = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::StreamEnd, error);
@@ -148,8 +148,8 @@ fn uncompress_slice_ng<'a>(
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: ::zlib::allocate::zcalloc,
-        zfree: ::zlib::allocate::zcfree,
+        zalloc: ::zlib_rs::allocate::zcalloc,
+        zfree: ::zlib_rs::allocate::zcfree,
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,

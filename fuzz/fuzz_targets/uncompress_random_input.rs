@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use zlib::ReturnCode;
+use zlib_rs::ReturnCode;
 
 fuzz_target!(|source: Vec<u8>| {
     let mut dest_ng = vec![0u8; 1 << 16];
@@ -19,7 +19,7 @@ fuzz_target!(|source: Vec<u8>| {
     };
 
     let err_rs = unsafe {
-        ::zlib::uncompress(
+        ::libz_rs_sys::uncompress(
             dest_rs.as_mut_ptr(),
             &mut dest_len_rs,
             source.as_ptr(),
