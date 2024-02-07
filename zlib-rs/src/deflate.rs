@@ -1064,12 +1064,14 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
+        window.initialize_at_least(offset + len);
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
         let data = &stream.state.window.filled()[offset..][..len];
         stream.adler = adler32(stream.adler as u32, data) as _;
     } else {
         let window = &mut stream.state.window;
+        window.initialize_at_least(offset + len);
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
 
@@ -2576,6 +2578,24 @@ mod test {
                 0x0, 0x8e, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x6a,
                 0xf5, 0x63, 0x60, 0x60, 0x3, 0x0, 0xee, 0x8a, 0x88, 0x67,
             ],
+        )
+    }
+
+    #[test]
+    fn read_buf_window_uninitialized() {
+        // copies more in `read_buf_window` than is initialized at that point
+        const INPUT: &str = include_str!("deflate/tests/read_buf_window_uninitialized.txt");
+
+        fuzz_based_test(
+            INPUT.as_bytes(),
+            DeflateConfig {
+                level: 0,
+                method: Method::Deflated,
+                window_bits: 10,
+                mem_level: 6,
+                strategy: Strategy::Default,
+            },
+            &[],
         )
     }
 }
