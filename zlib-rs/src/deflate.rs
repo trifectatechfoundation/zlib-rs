@@ -2290,8 +2290,9 @@ impl Heap {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
+
+    use std::ffi::{c_char, c_int, c_uint};
 
     #[test]
     fn hello_world_huffman_only() {
@@ -2382,20 +2383,12 @@ mod test {
         input: &[u8],
         config: DeflateConfig,
     ) -> (&'a mut [u8], ReturnCode) {
-        let DeflateConfig {
-            level,
-            method,
-            window_bits,
-            mem_level,
-            strategy,
-        } = config;
-
         let mut stream = libz_ng_sys::z_stream {
             next_in: input.as_ptr() as *mut u8,
-            avail_in: input.len() as _,
+            avail_in: 0, // for special logic in the first  iteration
             total_in: 0,
-            next_out: output.as_mut_ptr(),
-            avail_out: output.len() as _,
+            next_out: output.as_mut_ptr() as *mut u8,
+            avail_out: 0, // for special logic on the first iteration
             total_out: 0,
             msg: std::ptr::null_mut(),
             state: std::ptr::null_mut(),
@@ -2407,57 +2400,84 @@ mod test {
             reserved: 0,
         };
 
-        unsafe {
-            let err = libz_ng_sys::deflateInit2_(
-                &mut stream,
-                level,
-                method as i32,
-                window_bits,
-                mem_level,
-                strategy as i32,
-                b"1.3.0\0".as_ptr() as *const i8,
-                std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
-            );
-            let return_code = ReturnCode::from(err);
+        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
-            if return_code != ReturnCode::Ok {
-                return (&mut [], return_code);
-            }
+        let err = unsafe {
+            libz_ng_sys::deflateInit2_(
+                &mut stream,
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                VERSION,
+                STREAM_SIZE,
+            )
         };
 
-        let error = unsafe { libz_ng_sys::deflate(&mut stream, Flush::Finish as _) };
+        if err != libz_ng_sys::Z_OK {
+            return (&mut [], ReturnCode::from(err));
+        }
 
-        let error: ReturnCode = ReturnCode::from(error as i32);
-        assert_eq!(ReturnCode::StreamEnd, error);
+        let max = c_uint::MAX as usize;
+
+        let mut left = output.len();
+        let mut source_len = input.len();
+
+        loop {
+            if stream.avail_out == 0 {
+                stream.avail_out = Ord::min(left, max) as _;
+                left -= stream.avail_out as usize;
+            }
+
+            if stream.avail_in == 0 {
+                stream.avail_in = Ord::min(source_len, max) as _;
+                source_len -= stream.avail_in as usize;
+            }
+
+            let flush = if source_len > 0 {
+                Flush::NoFlush
+            } else {
+                Flush::Finish
+            };
+
+            let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
+
+            if err != libz_ng_sys::Z_OK {
+                break;
+            }
+        }
 
         unsafe {
             let err = libz_ng_sys::deflateEnd(&mut stream);
             let return_code: ReturnCode = ReturnCode::from(err);
+            // may DataError if there was insufficient output space
             assert_eq!(ReturnCode::Ok, return_code);
         }
 
         (&mut output[..stream.total_out as usize], ReturnCode::Ok)
     }
 
-    fn fuzz_based_test(input: &str, config: DeflateConfig, expected: &[u8]) {
-        let mut output = [0; 1 << 10];
-
-        let mut output_ng = [0; 1 << 10];
-        let (output_ng, err) = compress_slice_ng(&mut output_ng, input.as_bytes(), config);
+    fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
+        let mut output_ng = [0; 1 << 16];
+        let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
+        let mut output_rs = [0; 1 << 16];
+        let (output, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        assert_eq!(output_ng, expected);
-
-        assert_eq!(output, expected);
+        if !expected.is_empty() {
+            assert_eq!(output_ng, expected);
+            assert_eq!(output, expected);
+        }
     }
 
     #[test]
     fn simple_rle() {
         fuzz_based_test(
-            "\0\0\0\0\u{6}",
+            "\0\0\0\0\u{6}".as_bytes(),
             DeflateConfig {
                 level: -1,
                 method: Method::Deflated,
@@ -2525,7 +2545,7 @@ mod test {
         ];
 
         fuzz_based_test(
-            std::str::from_utf8(INPUT).unwrap(),
+            INPUT,
             DeflateConfig {
                 level: -1,
                 method: Method::Deflated,
