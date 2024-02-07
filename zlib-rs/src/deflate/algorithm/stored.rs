@@ -152,9 +152,25 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         return BlockState::BlockDone;
     }
 
-    let have = stream.state.window_size - stream.state.strstart;
+    // Fill the window with any remaining input
+    let mut have = stream.state.window_size - stream.state.strstart;
     if stream.avail_in as usize > have && stream.state.block_start >= stream.state.w_size as isize {
-        todo!("fill window");
+        // slide the window down
+        let state = &mut stream.state;
+        state.block_start -= state.w_size as isize;
+        state.strstart -= state.w_size;
+        state
+            .window
+            .filled_mut()
+            .copy_within(state.w_size..state.w_size + state.strstart, 0);
+
+        if state.matches < 2 {
+            // add a pending slide_hash
+            state.matches += 1;
+        }
+
+        have += state.w_size; // more space now
+        state.insert = Ord::min(state.insert, state.strstart);
     }
 
     let have = Ord::min(have, stream.avail_in as usize);
