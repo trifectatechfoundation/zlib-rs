@@ -1,6 +1,7 @@
 mod adler32;
 pub mod allocate;
 pub mod c_api;
+mod crc32;
 pub mod deflate;
 pub mod inflate;
 
