@@ -48,9 +48,6 @@ impl<'a> GzipHeader {
             return None;
         }
 
-        // safety: ptr points to a valid value of type z_stream (if non-null)
-        let header = unsafe { &mut *head };
-
         // safety: GzipHeader has the same layout as gz_header
         let header = unsafe { &mut *(head as *mut GzipHeader) };
 
@@ -243,6 +240,14 @@ pub(crate) unsafe fn uncompress(
 #[derive(Debug, Clone, Copy)]
 pub enum Mode {
     Head,
+    Flags,
+    Time,
+    Os,
+    ExLen,
+    Extra,
+    Name,
+    Comment,
+    HCrc,
     Sync,
     Mem,
     Length,
@@ -295,7 +300,7 @@ pub(crate) struct State<'a> {
     ///
     /// - bit 0 true if zlib
     /// - bit 1 true if gzip
-    /// - bit 2 true to vlaidate check value
+    /// - bit 2 true to validate check value
     wrap: usize,
 
     /// table for length/literal codes
@@ -474,10 +479,42 @@ const fn zswap32(q: u32) -> u32 {
 const INFLATE_FAST_MIN_HAVE: usize = 15;
 const INFLATE_FAST_MIN_LEFT: usize = 260;
 
+/*
+    State transitions between above modes -
+
+    (most modes can go to BAD or MEM on error -- not shown for clarity)
+
+    Process header:
+        HEAD -> (gzip) or (zlib) or (raw)
+        (gzip) -> FLAGS -> TIME -> OS -> EXLEN -> EXTRA -> NAME -> COMMENT ->
+                  HCRC -> TYPE
+        (zlib) -> DICTID or TYPE
+        DICTID -> DICT -> TYPE
+        (raw) -> TYPEDO
+    Read deflate blocks:
+            TYPE -> TYPEDO -> STORED or TABLE or LEN_ or CHECK
+            STORED -> COPY_ -> COPY -> TYPE
+            TABLE -> LENLENS -> CODELENS -> LEN_
+            LEN_ -> LEN
+    Read deflate codes in fixed or dynamic block:
+                LEN -> LENEXT or LIT or TYPE
+                LENEXT -> DIST -> DISTEXT -> MATCH -> LEN
+                LIT -> LEN
+    Process trailer:
+        CHECK -> LENGTH -> DONE
+ */
 impl<'a> State<'a> {
     fn dispatch(&mut self) -> ReturnCode {
         match self.mode {
             Mode::Head => self.head(),
+            Mode::Flags => self.flags(),
+            Mode::Time => self.time(),
+            Mode::Os => self.os(),
+            Mode::ExLen => self.ex_len(),
+            Mode::Extra => self.extra(),
+            Mode::Name => self.name(),
+            Mode::Comment => self.comment(),
+            Mode::HCrc => self.hcrc(),
             Mode::Sync => self.sync(),
             Mode::Type => self.type_(),
             Mode::TypeDo => self.type_do(),
@@ -511,9 +548,13 @@ impl<'a> State<'a> {
             return self.type_do();
         }
 
-        need_bits!(self, 16);
+        // Gzip
+        if self.wrap == 1 {
+            self.mode = Mode::Flags;
+            return self.flags();
+        }
 
-        // TODO gzip
+        need_bits!(self, 16);
 
         if ((self.bit_reader.bits(8) << 8) + (self.bit_reader.hold() >> 8)) % 31 != 0 {
             self.mode = Mode::Bad;
@@ -555,6 +596,54 @@ impl<'a> State<'a> {
             self.mode = Mode::Type;
             self.type_()
         }
+    }
+
+    fn flags(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Time;
+        self.time()
+    }
+
+    fn time(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Os;
+        self.os()
+    }
+
+    fn os(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::ExLen;
+        self.ex_len()
+    }
+
+    fn ex_len(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Extra;
+        self.extra()
+    }
+
+    fn extra(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Name;
+        self.name()
+    }
+
+    fn name(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Comment;
+        self.comment()
+    }
+
+    fn comment(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::HCrc;
+        self.hcrc()
+    }
+
+    fn hcrc(&mut self) -> ReturnCode {
+        // TODO
+        self.mode = Mode::Type;
+        self.type_()
     }
 
     fn sync(&mut self) -> ReturnCode {
@@ -1866,7 +1955,11 @@ fn init_window<'a>(
     Ok(window)
 }
 
-pub fn get_header(stream: &mut InflateStream, head: &mut GzipHeader) -> ReturnCode {
-    unimplemented!("TODO: implement");
+pub(crate) fn get_header(stream: &mut InflateStream, head: &mut GzipHeader) -> ReturnCode {
+    //unimplemented!("TODO: implement");
+
+    stream.state.head = Some(*head);
+    head.done = 0;
+
     ReturnCode::Ok
 }
