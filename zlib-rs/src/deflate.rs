@@ -2402,6 +2402,27 @@ mod test {
     }
 
     #[test]
+    fn end_data_error() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+
+        // next deflate into too little space
+        let input = b"motregen";
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+        let output = &mut [0, 0, 0];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        // the deflate is fine
+        assert_eq!(deflate(stream, Flush::NoFlush), ReturnCode::Ok);
+
+        // but end is not
+        assert_eq!(end(stream), ReturnCode::DataError);
+    }
+
+    #[test]
     fn hello_world_huffman_only() {
         const EXPECTED: &[u8] = &[
             0x78, 0x01, 0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x08, 0xcf, 0x2f, 0xca, 0x49, 0x51,
