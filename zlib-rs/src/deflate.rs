@@ -200,14 +200,24 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let head_ptr = unsafe { stream.alloc_layout(head_layout.unwrap()) } as *mut [u16; HASH_SIZE];
 
     let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
-    let pending_buf_layout = std::alloc::Layout::array::<u32>(lit_bufsize);
+    let pending_buf_layout = std::alloc::Layout::array::<u8>(4 * lit_bufsize);
     let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
 
-    if window_ptr.is_null() || prev_ptr.is_null() || head_ptr.is_null() || pending_buf.is_null() {
+    // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
+    let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * lit_bufsize);
+    let sym_buf = unsafe { stream.alloc_layout(sym_buf_layout.unwrap()) } as *mut u8;
+
+    if window_ptr.is_null()
+        || prev_ptr.is_null()
+        || head_ptr.is_null()
+        || pending_buf.is_null()
+        || sym_buf.is_null()
+    {
         let opaque = stream.opaque;
         let free = stream.zfree.unwrap();
 
         unsafe {
+            free(opaque, sym_buf.cast());
             free(opaque, pending_buf.cast());
             free(opaque, head_ptr.cast());
             free(opaque, prev_ptr.cast());
@@ -227,11 +237,10 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
     let head = unsafe { &mut *head_ptr };
 
-    let pending = unsafe { Pending::from_raw_parts(pending_buf, lit_bufsize) };
+    let pending = unsafe { Pending::from_raw_parts(pending_buf, 4 * lit_bufsize) };
 
-    let pending_end = pending_buf.wrapping_add(lit_bufsize);
-    unsafe { std::ptr::write_bytes(pending_end, 0, 3 * lit_bufsize) }; // initialize!
-    let sym_buf = unsafe { std::slice::from_raw_parts_mut(pending_end, 3 * lit_bufsize) };
+    unsafe { std::ptr::write_bytes(sym_buf, 0, 3 * lit_bufsize) }; // initialize!
+    let sym_buf = unsafe { std::slice::from_raw_parts_mut(sym_buf, 3 * lit_bufsize) };
 
     let state = State {
         status: Status::Init,
@@ -318,6 +327,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     let status = stream.state.status;
 
+    let sym_buf = stream.state.sym_buf.as_mut_ptr();
     let pending = stream.state.pending.as_mut_ptr();
     let head = stream.state.head.as_mut_ptr();
     let prev = stream.state.prev.as_mut_ptr();
@@ -333,6 +343,7 @@ pub fn end(stream: &mut DeflateStream) -> ReturnCode {
 
     // deallocate in reverse order of allocations
     unsafe {
+        free(opaque, sym_buf.cast());
         free(opaque, pending.cast());
         free(opaque, head.cast());
         free(opaque, prev.cast());
