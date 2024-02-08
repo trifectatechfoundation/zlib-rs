@@ -1,9 +1,8 @@
 use std::mem::MaybeUninit;
 
 use crate::{
-    adler32::adler32,
-    c_api::{z_stream, Z_UNKNOWN},
-    trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
+    adler32::adler32, c_api::z_stream, trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS,
+    MIN_WBITS,
 };
 
 use self::{
@@ -655,7 +654,7 @@ impl TryFrom<i32> for Strategy {
     }
 }
 
-#[allow(unused)]
+#[derive(Debug, PartialEq, Eq)]
 enum DataType {
     Binary = 0,
     Text = 1,
@@ -727,15 +726,15 @@ impl<'a> State<'a> {
         self.sym_next == self.sym_end
     }
 
-    fn detect_data_type(&mut self) -> DataType {
+    fn detect_data_type(dyn_tree: &[Value]) -> DataType {
         // set bits 0..6, 14..25, and 28..31
         // 0xf3ffc07f = binary 11110011111111111100000001111111
         const NON_TEXT: u64 = 0xf3ffc07f;
         let mut mask = NON_TEXT;
 
         /* Check for non-textual bytes. */
-        for n in 0..32 {
-            if (mask & 1) != 0 && self.l_desc.dyn_tree[n].freq() != 0 {
+        for value in &dyn_tree[0..32] {
+            if (mask & 1) != 0 && value.freq() != 0 {
                 return DataType::Binary;
             }
 
@@ -743,17 +742,12 @@ impl<'a> State<'a> {
         }
 
         /* Check for textual bytes. */
-        if self.l_desc.dyn_tree[9].freq() != 0
-            || self.l_desc.dyn_tree[10].freq() != 0
-            || self.l_desc.dyn_tree[13].freq() != 0
-        {
+        if dyn_tree[9].freq() != 0 || dyn_tree[10].freq() != 0 || dyn_tree[13].freq() != 0 {
             return DataType::Text;
         }
 
-        for n in 32..LITERALS {
-            if self.l_desc.dyn_tree[n].freq() != 0 {
-                return DataType::Text;
-            }
+        if dyn_tree[32..LITERALS].iter().any(|v| v.freq() != 0) {
+            return DataType::Text;
         }
 
         // there are no explicit text or non-text bytes. The stream is either empty or has only
@@ -1762,8 +1756,8 @@ fn zng_tr_flush_block(
         static_lenb = 0;
         state.static_len = 7;
     } else if state.level > 0 {
-        if stream.data_type == Z_UNKNOWN {
-            stream.data_type = state.detect_data_type() as _;
+        if stream.data_type == DataType::Unknown as i32 {
+            stream.data_type = State::detect_data_type(&state.l_desc.dyn_tree) as i32;
         }
 
         {
@@ -2295,6 +2289,29 @@ mod test {
     use super::*;
 
     use std::ffi::{c_char, c_int, c_uint};
+
+    #[test]
+    fn detect_data_type() {
+        let empty = || [Value::new(0, 0); LITERALS];
+
+        assert_eq!(State::detect_data_type(&empty()), DataType::Binary);
+
+        let mut binary = empty();
+        binary[0] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&binary), DataType::Binary);
+
+        let mut text = empty();
+        text[b'\r' as usize] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&text), DataType::Text);
+
+        let mut text = empty();
+        text[b'a' as usize] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&text), DataType::Text);
+
+        let mut non_text = empty();
+        non_text[7] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
+    }
 
     #[test]
     fn hello_world_huffman_only() {
