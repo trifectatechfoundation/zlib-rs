@@ -2314,6 +2314,25 @@ mod test {
     }
 
     #[test]
+    fn from_stream_mut() {
+        unsafe {
+            assert!(DeflateStream::from_stream_mut(std::ptr::null_mut()).is_none());
+
+            let mut stream = z_stream::default();
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
+
+            stream.zalloc = Some(crate::allocate::zcalloc);
+            stream.zfree = Some(crate::allocate::zcfree);
+
+            // state is still NULL
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
+
+            init(&mut stream, DeflateConfig::default());
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_some());
+        }
+    }
+
+    #[test]
     fn hello_world_huffman_only() {
         const EXPECTED: &[u8] = &[
             0x78, 0x01, 0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x08, 0xcf, 0x2f, 0xca, 0x49, 0x51,
