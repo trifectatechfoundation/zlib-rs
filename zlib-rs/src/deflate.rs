@@ -365,10 +365,8 @@ fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
 
     state.pending.reset_keep();
 
-    if state.wrap < 0 {
-        // was made negative by deflate(..., Z_FINISH);
-        state.wrap = -state.wrap;
-    }
+    // can be made negative by deflate(..., Z_FINISH);
+    state.wrap = state.wrap.abs();
 
     // TODO gzip
     state.status = Status::Init;
@@ -2408,7 +2406,7 @@ mod test {
         let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
 
         // next deflate into too little space
-        let input = b"motregen";
+        let input = b"Hello World\n";
         stream.next_in = input.as_ptr() as *mut u8;
         stream.avail_in = input.len() as _;
         let output = &mut [0, 0, 0];
@@ -2420,6 +2418,30 @@ mod test {
 
         // but end is not
         assert_eq!(end(stream), ReturnCode::DataError);
+    }
+
+    #[test]
+    fn test_reset_keep() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+
+        // next deflate into too little space
+        let input = b"Hello World\n";
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+
+        let output = &mut [0; 1024];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+
+        assert_eq!(reset_keep(stream), ReturnCode::Ok);
+
+        let output = &mut [0; 1024];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
     }
 
     #[test]
