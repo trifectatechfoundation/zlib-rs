@@ -306,7 +306,9 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     stream.state = state_ptr.cast();
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
-        debug_assert_ne!(1, 2, "unreachable in practice");
+        if cfg!(debug_assertions) {
+            unreachable!("we should have initialized the stream properly");
+        }
         return ReturnCode::StreamError;
     };
 
