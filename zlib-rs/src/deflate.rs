@@ -140,7 +140,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
     /* Todo: ignore strm->next_in if we use it as window */
     let window_padding = 0;
-    let mut wrap = 1;
 
     stream.msg = std::ptr::null_mut();
 
@@ -157,16 +156,19 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         level = 6;
     }
 
-    if window_bits < 0 {
-        wrap = 0;
+    let wrap = if window_bits < 0 {
         if window_bits < -MAX_WBITS {
             return ReturnCode::StreamError;
         }
         window_bits = -window_bits;
+
+        0
     } else if window_bits > MAX_WBITS {
-        wrap = 2;
         window_bits -= 16;
-    }
+        2
+    } else {
+        1
+    };
 
     if (!(1..=MAX_MEM_LEVEL).contains(&mem_level))
         || !(MIN_WBITS..=MAX_WBITS).contains(&window_bits)
@@ -304,18 +306,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     stream.state = state_ptr.cast();
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
-        let opaque = stream.opaque;
-        let free = stream.zfree.unwrap();
-
-        unsafe {
-            free(opaque, pending_buf.cast());
-            free(opaque, head_ptr.cast());
-            free(opaque, prev_ptr.cast());
-            free(opaque, window_ptr.cast());
-
-            free(opaque, state_ptr.cast());
-        }
-
+        debug_assert_ne!(1, 2, "unreachable in practice");
         return ReturnCode::StreamError;
     };
 
@@ -2330,6 +2321,84 @@ mod test {
             init(&mut stream, DeflateConfig::default());
             assert!(DeflateStream::from_stream_mut(&mut stream).is_some());
         }
+    }
+
+    #[test]
+    fn init_invalid_allocator() {
+        use crate::c_api::{uInt, voidpf};
+
+        unsafe extern "C" fn failing_allocator(_: voidpf, _: uInt, _: uInt) -> voidpf {
+            std::ptr::null_mut()
+        }
+
+        let mut stream = z_stream::default();
+        stream.zalloc = Some(failing_allocator);
+        assert_eq!(
+            init(&mut stream, DeflateConfig::default()),
+            ReturnCode::MemError
+        );
+
+        unsafe extern "C" fn unreliable_allocator(
+            opaque: voidpf,
+            items: uInt,
+            size: uInt,
+        ) -> voidpf {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            static X: AtomicUsize = AtomicUsize::new(0);
+
+            if X.fetch_add(1, Ordering::Relaxed) < 4 {
+                crate::allocate::zcalloc(opaque, items, size)
+            } else {
+                std::ptr::null_mut()
+            }
+        }
+
+        let mut stream = z_stream::default();
+        stream.zalloc = Some(unreliable_allocator);
+        assert_eq!(
+            init(&mut stream, DeflateConfig::default()),
+            ReturnCode::MemError
+        );
+    }
+
+    #[test]
+    fn invalid_deflate_config() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+        assert!(stream.zalloc.is_some());
+        assert!(stream.zfree.is_some());
+
+        // this should be the default level
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+        assert_eq!(stream.state.level, 6);
+
+        // window_bits of 8 gets turned into 9 internally
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: 8,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+        assert_eq!(stream.state.w_bits, 9);
+
+        // window bits too low
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: -16,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+
+        // window bits too high
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: 42,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
     }
 
     #[test]
