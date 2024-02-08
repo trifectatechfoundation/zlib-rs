@@ -2389,7 +2389,7 @@ mod test {
             next_in: input.as_ptr() as *mut u8,
             avail_in: 0, // for special logic in the first  iteration
             total_in: 0,
-            next_out: output.as_mut_ptr() as *mut u8,
+            next_out: output.as_mut_ptr(),
             avail_out: 0, // for special logic on the first iteration
             total_out: 0,
             msg: std::ptr::null_mut(),
