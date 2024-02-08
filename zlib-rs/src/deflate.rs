@@ -2329,8 +2329,10 @@ mod test {
             std::ptr::null_mut()
         }
 
-        let mut stream = z_stream::default();
-        stream.zalloc = Some(failing_allocator);
+        let mut stream = z_stream {
+            zalloc: Some(failing_allocator),
+            ..z_stream::default()
+        };
         assert_eq!(
             init(&mut stream, DeflateConfig::default()),
             ReturnCode::MemError
@@ -2352,8 +2354,10 @@ mod test {
             }
         }
 
-        let mut stream = z_stream::default();
-        stream.zalloc = Some(unreliable_allocator);
+        let mut stream = z_stream {
+            zalloc: Some(unreliable_allocator),
+            ..z_stream::default()
+        };
         assert_eq!(
             init(&mut stream, DeflateConfig::default()),
             ReturnCode::MemError
