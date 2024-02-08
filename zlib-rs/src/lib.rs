@@ -3,6 +3,7 @@ pub mod allocate;
 pub mod c_api;
 pub mod deflate;
 pub mod inflate;
+mod read_buf;
 
 #[macro_export]
 macro_rules! trace {
