@@ -7,18 +7,16 @@ use std::{alloc::Layout, mem::MaybeUninit};
 mod bitreader;
 mod inffixed_tbl;
 mod inftrees;
-mod read_buf;
 mod window;
 
 use crate::{
-    adler32::adler32, allocate, c_api::z_stream, Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS,
-    MIN_WBITS,
+    adler32::adler32, allocate, c_api::z_stream, read_buf::ReadBuf, Code, Flush, ReturnCode,
+    DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
 use self::{
     bitreader::BitReader,
     inftrees::{inflate_table, CodeType, InflateTable},
-    read_buf::ReadBuf,
     window::Window,
 };
 
