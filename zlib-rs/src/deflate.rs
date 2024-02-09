@@ -260,7 +260,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         //
         sym_buf,
-        sym_end: (lit_bufsize - 1) * 3,
 
         //
         level: level as i8, // set to zero again for testing?
@@ -574,7 +573,6 @@ pub(crate) struct State<'a> {
     pub(crate) window: Window<'a>,
 
     pub(crate) sym_buf: ReadBuf<'a>,
-    pub(crate) sym_end: usize,
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -691,7 +689,8 @@ impl<'a> State<'a> {
             "zng_tr_tally: bad literal"
         );
 
-        self.sym_buf.len() == self.sym_end
+        // signal that the current block should be flushed
+        self.sym_buf.len() == self.sym_buf.capacity() - 3
     }
 
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
@@ -712,7 +711,8 @@ impl<'a> State<'a> {
 
         *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
 
-        self.sym_buf.len() == self.sym_end
+        // signal that the current block should be flushed
+        self.sym_buf.len() == self.sym_buf.capacity() - 3
     }
 
     fn detect_data_type(dyn_tree: &[Value]) -> DataType {
