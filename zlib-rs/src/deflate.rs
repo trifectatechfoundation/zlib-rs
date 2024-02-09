@@ -2278,8 +2278,12 @@ mod test {
 
     use std::ffi::{c_char, c_int, c_uint};
 
+    const PAPER_100K: &[u8] = include_bytes!("deflate/tests/paper-100k.pdf");
+    const FIREWORKS: &[u8] = include_bytes!("deflate/tests/fireworks.jpg");
+    const LCET10: &str = &include_str!("deflate/tests/lcet10.txt");
+
     #[test]
-    fn detect_data_type() {
+    fn detect_data_type_basic() {
         let empty = || [Value::new(0, 0); LITERALS];
 
         assert_eq!(State::detect_data_type(&empty()), DataType::Binary);
@@ -2299,6 +2303,31 @@ mod test {
         let mut non_text = empty();
         non_text[7] = Value::new(1, 0);
         assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
+    }
+
+    #[test]
+    fn compress_lcet10() {
+        fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
+    }
+
+    #[test]
+    fn compress_paper_100k() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(PAPER_100K, config, &[])
+        }
+    }
+
+    #[test]
+    fn compress_fireworks() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(FIREWORKS, config, &[])
+        }
     }
 
     #[test]
@@ -2613,11 +2642,11 @@ mod test {
     }
 
     fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
-        let mut output_ng = [0; 1 << 16];
+        let mut output_ng = [0; 1 << 17];
         let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        let mut output_rs = [0; 1 << 16];
+        let mut output_rs = [0; 1 << 17];
         let (output, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
