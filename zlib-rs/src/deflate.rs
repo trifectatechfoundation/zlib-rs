@@ -906,6 +906,7 @@ impl<'a> State<'a> {
             self.bi_buf |= val << self.bi_valid;
             self.bi_valid = total_bits;
         } else if self.bi_valid == Self::BIT_BUF_SIZE {
+            // with how send_bits is called, this is unreachable in practice
             self.pending.extend(&self.bi_buf.to_le_bytes());
             self.bi_buf = val;
             self.bi_valid = len;
