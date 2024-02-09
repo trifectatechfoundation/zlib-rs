@@ -1441,6 +1441,12 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     }
 }
 
+/// Checks that symbol is a printing character (excluding space)
+#[allow(unused)]
+fn isgraph(c: u8) -> bool {
+    (c > 0x20) && (c <= 0x7E)
+}
+
 fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
     /* tree: the tree to decorate */
     /* max_code: largest code with non zero frequency */
@@ -1481,14 +1487,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
             trace!(
                 "\nn {:>3} {} l {:>2} c {:>4x} ({:x}) ",
                 n,
-                //                match char::from_u32(n as u32) {
-                //                    None => ' ',
-                //                    Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                //                        true => c,
-                //                        false => ' ',
-                //                    },
-                //                },
-                if unsafe { libc::isgraph(n as i32) } > 0 {
+                if isgraph(n u8) {
                     char::from_u32(n as u32).unwrap()
                 } else {
                     ' '
@@ -1498,9 +1497,6 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
                 next_code[len as usize] - 1
             );
         }
-
-        //        Tracecv(tree != static_ltree, (stderr, "\nn %3d %c l %2d c %4x (%x) ",
-        //             n, (isgraph(n & 0xff) ? n : ' '), len, tree[n].Code, next_code[len]-1));
     }
 }
 
