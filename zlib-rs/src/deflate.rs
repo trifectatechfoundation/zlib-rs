@@ -2276,9 +2276,9 @@ mod test {
 
     use std::ffi::{c_char, c_int, c_uint};
 
-    const PAPER_100K: &[u8] = include_bytes!("deflate/tests/paper-100k.pdf");
-    const FIREWORKS: &[u8] = include_bytes!("deflate/tests/fireworks.jpg");
-    const LCET10: &str = &include_str!("deflate/tests/lcet10.txt");
+    const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
+    const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
+    const LCET10: &str = &include_str!("deflate/test-data/lcet10.txt");
 
     #[test]
     fn detect_data_type_basic() {
@@ -2762,7 +2762,7 @@ mod test {
     #[test]
     fn read_buf_window_uninitialized() {
         // copies more in `read_buf_window` than is initialized at that point
-        const INPUT: &str = include_str!("deflate/tests/read_buf_window_uninitialized.txt");
+        const INPUT: &str = include_str!("deflate/test-data/read_buf_window_uninitialized.txt");
 
         fuzz_based_test(
             INPUT.as_bytes(),
