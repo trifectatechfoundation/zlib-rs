@@ -101,7 +101,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         return BlockState::FinishDone;
     }
 
-    if stream.state.sym_next != 0 {
+    if !stream.state.sym_buf.is_empty() {
         flush_block!(stream, false);
     }
 
