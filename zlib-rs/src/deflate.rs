@@ -691,7 +691,7 @@ impl<'a> State<'a> {
             "zng_tr_tally: bad literal"
         );
 
-        self.sym_buf.filled().len() == self.sym_end
+        self.sym_buf.len() == self.sym_end
     }
 
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
@@ -712,7 +712,7 @@ impl<'a> State<'a> {
 
         *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
 
-        self.sym_buf.filled().len() == self.sym_end
+        self.sym_buf.len() == self.sym_end
     }
 
     fn detect_data_type(dyn_tree: &[Value]) -> DataType {
@@ -790,7 +790,7 @@ impl<'a> State<'a> {
                     "pending_buf overflow"
                 );
 
-                if sx >= self.sym_buf.filled().len() {
+                if sx >= self.sym_buf.len() {
                     break;
                 }
             }
