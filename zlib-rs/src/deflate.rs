@@ -2678,18 +2678,25 @@ mod test {
         cve_test(FIXED.as_bytes())
     }
 
+    #[test]
+    fn zlib_ng_gh_382() {
+        const DEFNEG: &[u8] = include_bytes!("deflate/test-data/zlib-ng/GH-382/defneg3.dat");
+        cve_test(DEFNEG)
+    }
+
     fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
         let mut output_ng = [0; 1 << 17];
         let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
         let mut output_rs = [0; 1 << 17];
-        let (output, err) = compress_slice(&mut output_rs, input, config);
+        let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
+        assert_eq!(output_ng, output_rs);
+
         if !expected.is_empty() {
-            assert_eq!(output_ng, expected);
-            assert_eq!(output, expected);
+            assert_eq!(output_rs, expected);
         }
     }
 
