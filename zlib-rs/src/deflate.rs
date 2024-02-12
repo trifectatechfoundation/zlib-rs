@@ -2278,7 +2278,7 @@ mod test {
 
     const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
     const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
-    const LCET10: &str = &include_str!("deflate/test-data/lcet10.txt");
+    const LCET10: &str = include_str!("deflate/test-data/lcet10.txt");
 
     #[test]
     fn detect_data_type_basic() {
@@ -2637,6 +2637,43 @@ mod test {
         }
 
         (&mut output[..stream.total_out as usize], ReturnCode::Ok)
+    }
+
+    fn cve_test(input: &[u8]) {
+        let mut output_ng = [0; 1 << 17];
+        // flush type 4 = Finish is the default
+        let config = DeflateConfig {
+            window_bits: 15,
+            mem_level: 1,
+            ..DeflateConfig::default()
+        };
+        let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        let mut output_rs = [0; 1 << 17];
+        let (output_rs, err) = compress_slice(&mut output_rs, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(output_ng, output_rs);
+
+        let mut output = vec![0; input.len()];
+        let config = crate::inflate::InflateConfig { window_bits: 15 };
+        let (output, err) = crate::inflate::uncompress_slice(&mut output, output_rs, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn zlib_ng_cve_2018_25032_default() {
+        const DEFAULT: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
+        cve_test(DEFAULT.as_bytes())
+    }
+
+    #[test]
+    fn zlib_ng_cve_2018_25032_fixed() {
+        const FIXED: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/fixed.txt");
+        cve_test(FIXED.as_bytes())
     }
 
     fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
