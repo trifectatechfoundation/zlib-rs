@@ -479,39 +479,18 @@ const fn zswap32(q: u32) -> u32 {
 const INFLATE_FAST_MIN_HAVE: usize = 15;
 const INFLATE_FAST_MIN_LEFT: usize = 260;
 
-/*
-    State transitions between above modes -
+// only supported compression method
+const Z_DEFLATED: u64 = 8;
 
-    (most modes can go to BAD or MEM on error -- not shown for clarity)
-
-    Process header:
-        HEAD -> (gzip) or (zlib) or (raw)
-        (gzip) -> FLAGS -> TIME -> OS -> EXLEN -> EXTRA -> NAME -> COMMENT ->
-                  HCRC -> TYPE
-        (zlib) -> DICTID or TYPE
-        DICTID -> DICT -> TYPE
-        (raw) -> TYPEDO
-    Read deflate blocks:
-            TYPE -> TYPEDO -> STORED or TABLE or LEN_ or CHECK
-            STORED -> COPY_ -> COPY -> TYPE
-            TABLE -> LENLENS -> CODELENS -> LEN_
-            LEN_ -> LEN
-    Read deflate codes in fixed or dynamic block:
-                LEN -> LENEXT or LIT or TYPE
-                LENEXT -> DIST -> DISTEXT -> MATCH -> LEN
-                LIT -> LEN
-    Process trailer:
-        CHECK -> LENGTH -> DONE
- */
 impl<'a> State<'a> {
-    fn dispatch(&mut self) -> ReturnCode {
+    fn dispatch(&mut self, mut next_in: *mut u8) -> ReturnCode {
         match self.mode {
-            Mode::Head => self.head(),
-            Mode::Flags => self.flags(),
-            Mode::Time => self.time(),
-            Mode::Os => self.os(),
-            Mode::ExLen => self.ex_len(),
-            Mode::Extra => self.extra(),
+            Mode::Head => self.head(next_in),
+            Mode::Flags => self.flags(next_in),
+            Mode::Time => self.time(next_in),
+            Mode::Os => self.os(next_in),
+            Mode::ExLen => self.ex_len(next_in),
+            Mode::Extra => self.extra(next_in),
             Mode::Name => self.name(),
             Mode::Comment => self.comment(),
             Mode::HCrc => self.hcrc(),
@@ -542,27 +521,31 @@ impl<'a> State<'a> {
 
     /// Initial state
     #[inline(never)]
-    fn head(&mut self) -> ReturnCode {
+    fn head(&mut self, next_in: *mut u8) -> ReturnCode {
         if self.wrap == 0 {
             self.mode = Mode::TypeDo;
             return self.type_do();
         }
 
-        // Gzip
-        if self.wrap == 1 {
-            self.mode = Mode::Flags;
-            return self.flags();
-        }
-
         need_bits!(self, 16);
+
+        // Gzip
+        if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
+            if self.wbits == 0{
+                self.wbits = 15;
+            }
+
+            // TODO: CRC
+            self.bit_reader.init_bits();
+
+            self.mode = Mode::Flags;
+            return self.flags(next_in);
+        }
 
         if ((self.bit_reader.bits(8) << 8) + (self.bit_reader.hold() >> 8)) % 31 != 0 {
             self.mode = Mode::Bad;
             return self.bad("incorrect header check\0");
         }
-
-        // only supported compression method
-        const Z_DEFLATED: u64 = 8;
 
         if self.bit_reader.bits(4) != Z_DEFLATED {
             self.mode = Mode::Bad;
@@ -598,50 +581,167 @@ impl<'a> State<'a> {
         }
     }
 
-    fn flags(&mut self) -> ReturnCode {
-        // TODO
+    fn flags(&mut self, mut next_in: *mut u8) -> ReturnCode {
+        need_bits!(self, 16);
+        self.flags = self.bit_reader.hold() as i32; // UNSAFE
+
+        // Z_DEFLATED = 8 is the only supported method
+        if self.flags & 0xff != Z_DEFLATED as i32 {
+            self.mode = Mode::Bad;
+            return self.bad("unknown compression method\0");
+        }
+
+        if self.flags & 0xe000 != 0 {
+            self.mode = Mode::Bad;
+            return self.bad("unknown header flags set\0");
+        }
+
+        if !self.head.is_none() {
+            // TODO: What is a nice way to do this?
+            self.head.unwrap().text = ((self.bit_reader.hold() >> 8) & 1) as i32;
+        }
+
+        // TODO: CRC header check
+
+        self.bit_reader.init_bits();
         self.mode = Mode::Time;
-        self.time()
+        self.time(next_in)
     }
 
-    fn time(&mut self) -> ReturnCode {
-        // TODO
+    fn time(&mut self, mut next_in: *mut u8) -> ReturnCode {
+        need_bits!(self, 32);
+
+        if !self.head.is_none() {
+            // TODO: What is a nice way to do this?
+            self.head.unwrap().time = self.bit_reader.hold();
+        }
+
+        // TODO: Header CRC
+
+        self.bit_reader.init_bits();
         self.mode = Mode::Os;
-        self.os()
+        self.os(next_in)
     }
 
-    fn os(&mut self) -> ReturnCode {
-        // TODO
+    fn os(&mut self, mut next_in: *mut u8) -> ReturnCode {
+        need_bits!(self, 16);
+
+        if !self.head.is_none() {
+            // TODO: What is a nice way to do this?
+            self.head.unwrap().xflags = (self.bit_reader.hold() & 0xff) as i32; // UNSAFE
+            self.head.unwrap().os = (self.bit_reader.hold() >> 8) as i32; // UNSAFE
+        }
+
+        // TODO: crc check
+
+        self.bit_reader.init_bits();
         self.mode = Mode::ExLen;
-        self.ex_len()
+        self.ex_len(next_in)
     }
 
-    fn ex_len(&mut self) -> ReturnCode {
-        // TODO
+    fn ex_len(&mut self, mut next_in: *mut u8) -> ReturnCode {
+
+        if (self.flags & 0x0400) != 0 {
+            need_bits!(self, 16);
+
+            self.length = self.bit_reader.hold() as usize; // UNSAFE
+            if !self.head.is_none() {
+                self.head.unwrap().extra_len = self.bit_reader.hold() as u32; // UNSAFE
+            }
+
+            // TODO: CRC header check
+            self.bit_reader.init_bits();
+
+        } else if !self.head.is_none() {
+            self.head.unwrap().extra = std::ptr::null_mut();
+        }
+
         self.mode = Mode::Extra;
-        self.extra()
+        self.extra( next_in)
     }
 
-    fn extra(&mut self) -> ReturnCode {
-        // TODO
+    fn extra(&mut self, mut next_in: *mut u8) -> ReturnCode {
+
+        if (self.flags & 0x0400) != 0 {
+
+            let mut copy = self.length;
+            if copy > self.have {
+                copy = self.have;
+            }
+
+            unsafe {
+                if copy != 0 {
+                    if !self.head.is_none() {
+                        if !self.head.unwrap().extra.is_null() {
+                            if self.head.unwrap().extra_len != 0 && self.head.unwrap().extra_max != 0 {
+
+                                let len = self.head.unwrap().extra_len - self.length as u32; // UNSAFE
+                                if len < self.head.unwrap().extra_max {
+
+                                    let copy_length = self.head.unwrap().extra.add(len as usize); // UNSAFE
+
+                                    let dest = if len + (copy as u32) > self.head.unwrap().extra_max { // UNSAGE
+                                        self.head.unwrap().extra_max - len
+                                    } else {
+                                        copy as u32 // UNSAGE
+                                    };
+
+                                    std::ptr::copy_nonoverlapping(next_in, copy_length, dest as usize) // UNSAFE
+                                }
+                            }
+                        }
+                    }
+
+                    // TODO: Crc header check
+                    self.have -= copy;
+                    next_in = next_in.add(copy);
+                    self.length -= copy;
+                }
+            }
+
+            if self.length == 0 {
+                return self.inflate_leave(ReturnCode::StreamEnd);
+            }
+        }
+
+        self.length = 0;
         self.mode = Mode::Name;
         self.name()
     }
 
     fn name(&mut self) -> ReturnCode {
+
         // TODO
+
         self.mode = Mode::Comment;
         self.comment()
     }
 
     fn comment(&mut self) -> ReturnCode {
+
         // TODO
+
         self.mode = Mode::HCrc;
         self.hcrc()
     }
 
     fn hcrc(&mut self) -> ReturnCode {
-        // TODO
+
+        /*
+        if (self.flags & 0x0200) != 0 {
+            need_bits!(self, 16);
+
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.check() & 0xffff) {
+                self.mode = Mode::Bad;
+                return self.bad("header crc mismatch\0");
+            }
+
+            self.bit_reader.init_bits();
+        }
+        */
+
+        // TODO: Finish CRC header check
+
         self.mode = Mode::Type;
         self.type_()
     }
@@ -1590,7 +1690,7 @@ pub(crate) unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> Return
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
 
-    let mut err = state.dispatch();
+    let mut err = state.dispatch(stream.next_in);
 
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
