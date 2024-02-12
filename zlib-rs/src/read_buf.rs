@@ -333,15 +333,46 @@ impl<'a> ReadBuf<'a> {
 
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("avx2") {
+            return self.copy_match_avx2(offset_from_end, length);
+        }
+
+        return self.copy_match_generic(offset_from_end, length);
+    }
+
+    fn copy_match_generic(&mut self, offset_from_end: usize, length: usize) {
         let current = self.filled;
 
         let start = current.checked_sub(offset_from_end).expect("in bounds");
         let end = start.checked_add(length).expect("in bounds");
 
-        // Note also that the referenced string may overlap the current
-        // position; for example, if the last 2 bytes decoded have values
-        // X and Y, a string reference with <length = 5, distance = 2>
-        // adds X,Y,X,Y,X to the output stream.
+        if end > current {
+            if offset_from_end == 1 {
+                // this will just repeat this value many times
+                let element = self.buf[current - 1];
+                self.buf[current..][..length].fill(element);
+            } else {
+                for i in 0..length {
+                    self.buf[current + i] = self.buf[start + i];
+                }
+            }
+        } else {
+            self.buf.copy_within(start..end, current);
+        }
+
+        // safety: we just copied length initialized bytes right beyond self.filled
+        unsafe { self.assume_init(length) };
+
+        self.advance(length);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn copy_match_avx2(&mut self, offset_from_end: usize, length: usize) {
+        let current = self.filled;
+
+        let start = current.checked_sub(offset_from_end).expect("in bounds");
+        let end = start.checked_add(length).expect("in bounds");
 
         if end > self.filled {
             if offset_from_end == 1 {
@@ -355,11 +386,9 @@ impl<'a> ReadBuf<'a> {
             }
         } else {
             let (before, after) = self.buf.split_at_mut(current);
-            let (d, _) = slice_as_chunks_mut::<_, 32>(after);
-            let chunk_count = (end - start).div_ceil(32);
 
-            if d.len() >= chunk_count {
-                for (s, d) in before[start..end].chunks(32).zip(d) {
+            if after.len() / 32 >= (end - start).div_ceil(32) {
+                for (s, d) in before[start..end].chunks(32).zip(after.chunks_mut(32)) {
                     use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
 
                     unsafe {
@@ -368,6 +397,7 @@ impl<'a> ReadBuf<'a> {
                     }
                 }
             } else {
+                // a full simd copy does not fit in the output buffer
                 self.buf.copy_within(start..end, current);
             }
         }
