@@ -1,0 +1,20 @@
+[package]
+name = "zlib-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+__internal-fuzz = ["libz-ng-sys", "arbitrary"]
+
+
+[dependencies]
+arbitrary = { workspace = true, optional = true, features = ["derive"] }
+libz-ng-sys = { workspace = true, optional = true } 
+libc.workspace = true
+
+[dev-dependencies]
+libloading = "0.8.1"
+libz-ng-sys = "1.1.12"

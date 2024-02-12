@@ -344,17 +344,20 @@ impl<'a> ReadBuf<'a> {
         } else {
             let (before, after) = self.buf.split_at_mut(current);
             let (d, _) = slice_as_chunks_mut::<_, 32>(after);
+            let chunk_count = (end - start).div_ceil(32);
 
-            for (s, d) in before[start..end].chunks(32).zip(d.iter_mut()) {
-                use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
+            if d.len() >= chunk_count {
+                for (s, d) in before[start..end].chunks(32).zip(d) {
+                    use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
 
-                unsafe {
-                    let chunk = _mm256_loadu_si256(s.as_ptr().cast());
-                    _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
+                    unsafe {
+                        let chunk = _mm256_loadu_si256(s.as_ptr().cast());
+                        _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
+                    }
                 }
+            } else {
+                self.buf.copy_within(start..end, current);
             }
-
-            // self.buf.copy_within(start..end, current);
         }
 
         // safety: we just copied length initialized bytes right beyond self.filled

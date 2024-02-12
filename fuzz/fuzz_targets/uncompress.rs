@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use zlib::ReturnCode;
+use zlib_rs::ReturnCode;
 
 fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let mut dest_vec = vec![0u8; 1 << 16];
@@ -12,10 +12,10 @@ fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let source = input.as_ptr();
     let source_len = input.len() as _;
 
-    let err = unsafe { ::zlib::uncompress(dest, &mut dest_len, source, source_len) };
+    let err = unsafe { ::libz_rs_sys::uncompress(dest, &mut dest_len, source, source_len) };
 
     if err != 0 {
-        panic!("error {:?}", zlib::ReturnCode::from(err));
+        panic!("error {:?}", ReturnCode::from(err));
     }
 
     dest_vec.truncate(dest_len as usize);
@@ -37,7 +37,7 @@ fuzz_target!(|data: String| {
         )
     };
 
-    let error = zlib::ReturnCode::from(error as i32);
+    let error = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::Ok, error);
 
     deflated.truncate(length as _);

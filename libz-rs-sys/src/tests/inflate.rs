@@ -1,15 +1,18 @@
 use std::mem::ManuallyDrop;
 
-use libc::{c_char, c_int, c_void};
+use crate as libz_rs_sys;
 
-use zlib::*;
+use std::ffi::{c_char, c_int, c_void};
+
+use libz_rs_sys::*;
+use zlib_rs::{Flush, MAX_WBITS};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
-const STREAM_SIZE: c_int = std::mem::size_of::<zlib::z_stream>() as c_int;
+const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 #[derive(Clone, Copy)]
 struct MemItem {
-    ptr: *mut libc::c_void,
+    ptr: *mut c_void,
     size: usize,
 }
 
@@ -123,7 +126,7 @@ fn mem_setup() -> z_stream {
         state: std::ptr::null_mut(),
         zalloc: Some(mem_alloc),
         zfree: Some(mem_free),
-        opaque: Box::leak(zone) as *mut _ as *mut libc::c_void,
+        opaque: Box::leak(zone) as *mut _ as *mut c_void,
         data_type: 0,
         adler: 0,
         reserved: 0,
@@ -317,7 +320,7 @@ fn cover_wrap() {
 
     // ------------------------------
 
-    let size = 2 * zlib::INFLATE_STATE_SIZE + 256;
+    let size = 2 * zlib_rs::inflate::INFLATE_STATE_SIZE + 256;
     mem_limit(&mut strm, size);
 
     ret = unsafe { inflatePrime(&mut strm, 16, 0) };
@@ -831,7 +834,7 @@ fn cover_cve_2022_37434() {
 fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let mut dest_vec = vec![0u8; 1 << 16];
 
-    let mut dest_len = dest_vec.len() as libc::c_ulong;
+    let mut dest_len = dest_vec.len() as c_ulong;
     let dest = dest_vec.as_mut_ptr();
 
     let source = input.as_ptr();
@@ -840,7 +843,7 @@ fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let err = unsafe { uncompress(dest, &mut dest_len, source, source_len) };
 
     if err != 0 {
-        panic!("error {:?}", zlib::ReturnCode::from(err));
+        panic!("error {:?}", libz_rs_sys::ReturnCode::from(err));
     }
 
     dest_vec.truncate(dest_len as usize);
@@ -917,8 +920,8 @@ fn small_window_ours() {
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
-        zalloc: crate::allocate::zcalloc,
-        zfree: crate::allocate::zcfree,
+        zalloc: zlib_rs::allocate::zcalloc,
+        zfree: zlib_rs::allocate::zcfree,
         opaque: std::ptr::null_mut(),
         data_type: 0,
         adler: 0,

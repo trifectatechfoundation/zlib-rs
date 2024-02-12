@@ -1,5 +1,5 @@
 [package]
-name = "zlib-fuzz"
+name = "zlib-rs-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
@@ -7,6 +7,9 @@ edition = "2018"
 
 [package.metadata]
 cargo-fuzz = true
+
+[profile.release]
+debug = true
 
 [dependencies.libfuzzer-sys]
 version = "0.4"
@@ -17,9 +20,12 @@ libc = "0.2.151"
 libz-ng-sys = "1.1.12"
 libloading = "0.8.1"
 
-[dependencies.zlib]
-path = ".."
+[dependencies.zlib-rs]
+path = "../zlib-rs"
 features =  ["__internal-fuzz"]
+
+[dependencies.libz-rs-sys]
+path = "../libz-rs-sys"
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -50,49 +56,7 @@ test = false
 doc = false
 
 [[bin]]
-name = "deflate_stored"
-path = "fuzz_targets/deflate_stored.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_huff"
-path = "fuzz_targets/deflate_huff.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_rle"
-path = "fuzz_targets/deflate_rle.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_quick"
-path = "fuzz_targets/deflate_quick.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_fast"
-path = "fuzz_targets/deflate_fast.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_medium"
-path = "fuzz_targets/deflate_medium.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "deflate_slow"
-path = "fuzz_targets/deflate_slow.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "prefix"
-path = "fuzz_targets/prefix.rs"
+name = "end_to_end"
+path = "fuzz_targets/end_to_end.rs"
 test = false
 doc = false

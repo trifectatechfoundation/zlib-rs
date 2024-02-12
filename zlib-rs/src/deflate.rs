@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 
 use crate::{
-    adler32::adler32, deflateEnd, trace, z_stream, Flush, ReturnCode, ADLER32_INITIAL_VALUE,
-    MAX_WBITS, MIN_WBITS, Z_DEFLATED, Z_UNKNOWN,
+    adler32::adler32, c_api::z_stream, trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS,
+    MIN_WBITS,
 };
 
 use self::{
@@ -22,21 +22,21 @@ mod trees_tbl;
 mod window;
 
 #[repr(C)]
-pub(crate) struct DeflateStream<'a> {
-    pub next_in: *mut crate::c_api::Bytef,
-    pub avail_in: crate::c_api::uInt,
-    pub total_in: crate::c_api::z_size,
-    pub next_out: *mut crate::c_api::Bytef,
-    pub avail_out: crate::c_api::uInt,
-    pub total_out: crate::c_api::z_size,
-    pub msg: *const libc::c_char,
-    pub state: &'a mut State<'a>,
-    pub zalloc: crate::c_api::alloc_func,
-    pub zfree: crate::c_api::free_func,
-    pub opaque: crate::c_api::voidpf,
-    pub data_type: libc::c_int,
-    pub adler: crate::c_api::z_checksum,
-    pub reserved: crate::c_api::uLong,
+pub struct DeflateStream<'a> {
+    pub(crate) next_in: *mut crate::c_api::Bytef,
+    pub(crate) avail_in: crate::c_api::uInt,
+    pub(crate) total_in: crate::c_api::z_size,
+    pub(crate) next_out: *mut crate::c_api::Bytef,
+    pub(crate) avail_out: crate::c_api::uInt,
+    pub(crate) total_out: crate::c_api::z_size,
+    pub(crate) msg: *const libc::c_char,
+    pub(crate) state: &'a mut State<'a>,
+    pub(crate) zalloc: crate::c_api::alloc_func,
+    pub(crate) zfree: crate::c_api::free_func,
+    pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) data_type: libc::c_int,
+    pub(crate) adler: crate::c_api::z_checksum,
+    pub(crate) reserved: crate::c_api::uLong,
 }
 
 impl<'a> DeflateStream<'a> {
@@ -49,7 +49,7 @@ impl<'a> DeflateStream<'a> {
     /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
     /// also that it has been initialized by that `deflateInit_` or `deflateInit2_`.
     #[inline(always)]
-    pub(crate) unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
+    pub unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
         if strm.is_null() {
             return None;
         }
@@ -79,34 +79,67 @@ pub(crate) const HASH_SIZE: usize = 65536;
 const MAX_MEM_LEVEL: i32 = 9;
 const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
 
-pub fn init(strm: *mut z_stream, level: i32) -> ReturnCode {
-    init2(
-        strm,
-        level,
-        crate::c_api::Z_DEFLATED,
-        crate::MAX_WBITS,
-        DEF_MEM_LEVEL,
-        crate::c_api::Z_DEFAULT_STRATEGY,
-    )
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
+pub enum Method {
+    #[default]
+    Deflated = 8,
 }
 
-pub fn init2(
-    strm: *mut z_stream,
-    mut level: i32,
-    method: i32,
-    mut window_bits: i32,
-    mem_level: i32,
-    strategy: i32,
-) -> ReturnCode {
+impl TryFrom<i32> for Method {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            8 => Ok(Self::Deflated),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
+pub struct DeflateConfig {
+    pub level: i32,
+    pub method: Method,
+    pub window_bits: i32,
+    pub mem_level: i32,
+    pub strategy: Strategy,
+}
+
+impl DeflateConfig {
+    pub fn new(level: i32) -> Self {
+        Self {
+            level,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for DeflateConfig {
+    fn default() -> Self {
+        Self {
+            level: crate::c_api::Z_DEFAULT_COMPRESSION,
+            method: Method::Deflated,
+            window_bits: MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        }
+    }
+}
+
+pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
+    let DeflateConfig {
+        mut level,
+        method: _,
+        mut window_bits,
+        mem_level,
+        strategy,
+    } = config;
+
     /* Todo: ignore strm->next_in if we use it as window */
     let window_padding = 0;
-    let mut wrap = 1;
-
-    if strm.is_null() {
-        return ReturnCode::StreamError;
-    }
-
-    let stream = unsafe { &mut *strm };
 
     stream.msg = std::ptr::null_mut();
 
@@ -123,23 +156,21 @@ pub fn init2(
         level = 6;
     }
 
-    if window_bits < 0 {
-        wrap = 0;
+    let wrap = if window_bits < 0 {
         if window_bits < -MAX_WBITS {
             return ReturnCode::StreamError;
         }
         window_bits = -window_bits;
-    } else if window_bits > MAX_WBITS {
-        wrap = 2;
-        window_bits -= 16;
-    }
 
-    let Ok(strategy) = Strategy::try_from(strategy) else {
-        return ReturnCode::StreamError;
+        0
+    } else if window_bits > MAX_WBITS {
+        window_bits -= 16;
+        2
+    } else {
+        1
     };
 
     if (!(1..=MAX_MEM_LEVEL).contains(&mem_level))
-        || method != Z_DEFLATED
         || !(MIN_WBITS..=MAX_WBITS).contains(&window_bits)
         || !(0..=9).contains(&level)
         || (window_bits == 8 && wrap != 1)
@@ -173,8 +204,19 @@ pub fn init2(
     let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
 
     if window_ptr.is_null() || prev_ptr.is_null() || head_ptr.is_null() || pending_buf.is_null() {
-        todo!("mem error");
-        // return ReturnCode::MemError;
+        let opaque = stream.opaque;
+        let free = stream.zfree.unwrap();
+
+        unsafe {
+            free(opaque, pending_buf.cast());
+            free(opaque, head_ptr.cast());
+            free(opaque, prev_ptr.cast());
+            free(opaque, window_ptr.cast());
+
+            free(opaque, state_ptr.cast());
+        }
+
+        return ReturnCode::MemError;
     }
 
     let window =
@@ -263,18 +305,17 @@ pub fn init2(
     unsafe { *(state_ptr as *mut State) = state };
     stream.state = state_ptr.cast();
 
-    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
+        if cfg!(debug_assertions) {
+            unreachable!("we should have initialized the stream properly");
+        }
         return ReturnCode::StreamError;
     };
 
     reset(stream)
 }
 
-pub unsafe fn end(strm: *mut z_stream) -> i32 {
-    let Some(stream) = DeflateStream::from_stream_mut(strm) else {
-        return ReturnCode::StreamError as _;
-    };
-
+pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     let status = stream.state.status;
 
     let pending = stream.state.pending.as_mut_ptr();
@@ -287,20 +328,22 @@ pub unsafe fn end(strm: *mut z_stream) -> i32 {
     let free = stream.zfree;
 
     // safety: a valid &mut DeflateStream is also a valid &mut z_stream
-    let stream = unsafe { &mut *strm };
+    let stream = unsafe { &mut *(stream as *mut DeflateStream as *mut z_stream) };
     stream.state = std::ptr::null_mut();
 
     // deallocate in reverse order of allocations
-    unsafe { free(opaque, pending.cast()) };
-    unsafe { free(opaque, head.cast()) };
-    unsafe { free(opaque, prev.cast()) };
-    unsafe { free(opaque, window.cast()) };
+    unsafe {
+        free(opaque, pending.cast());
+        free(opaque, head.cast());
+        free(opaque, prev.cast());
+        free(opaque, window.cast());
 
-    unsafe { free(opaque, state.cast()) };
+        free(opaque, state.cast());
+    }
 
     match status {
-        Status::Busy => ReturnCode::DataError as i32,
-        _ => ReturnCode::Ok as i32,
+        Status::Busy => ReturnCode::DataError,
+        _ => ReturnCode::Ok,
     }
 }
 
@@ -324,10 +367,8 @@ fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
 
     state.pending.reset_keep();
 
-    if state.wrap < 0 {
-        // was made negative by deflate(..., Z_FINISH);
-        state.wrap = -state.wrap;
-    }
+    // can be made negative by deflate(..., Z_FINISH);
+    state.wrap = state.wrap.abs();
 
     // TODO gzip
     state.status = Status::Init;
@@ -578,8 +619,10 @@ pub(crate) struct State<'a> {
     pub(crate) quick_insert_string: fn(state: &mut State, string: usize) -> u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Strategy {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
+pub enum Strategy {
+    #[default]
     Default = 0,
     Filtered = 1,
     HuffmanOnly = 2,
@@ -602,7 +645,7 @@ impl TryFrom<i32> for Strategy {
     }
 }
 
-#[allow(unused)]
+#[derive(Debug, PartialEq, Eq)]
 enum DataType {
     Binary = 0,
     Text = 1,
@@ -674,15 +717,15 @@ impl<'a> State<'a> {
         self.sym_next == self.sym_end
     }
 
-    fn detect_data_type(&mut self) -> DataType {
+    fn detect_data_type(dyn_tree: &[Value]) -> DataType {
         // set bits 0..6, 14..25, and 28..31
         // 0xf3ffc07f = binary 11110011111111111100000001111111
         const NON_TEXT: u64 = 0xf3ffc07f;
         let mut mask = NON_TEXT;
 
         /* Check for non-textual bytes. */
-        for n in 0..32 {
-            if (mask & 1) != 0 && self.l_desc.dyn_tree[n].freq() != 0 {
+        for value in &dyn_tree[0..32] {
+            if (mask & 1) != 0 && value.freq() != 0 {
                 return DataType::Binary;
             }
 
@@ -690,17 +733,12 @@ impl<'a> State<'a> {
         }
 
         /* Check for textual bytes. */
-        if self.l_desc.dyn_tree[9].freq() != 0
-            || self.l_desc.dyn_tree[10].freq() != 0
-            || self.l_desc.dyn_tree[13].freq() != 0
-        {
+        if dyn_tree[9].freq() != 0 || dyn_tree[10].freq() != 0 || dyn_tree[13].freq() != 0 {
             return DataType::Text;
         }
 
-        for n in 32..LITERALS {
-            if self.l_desc.dyn_tree[n].freq() != 0 {
-                return DataType::Text;
-            }
+        if dyn_tree[32..LITERALS].iter().any(|v| v.freq() != 0) {
+            return DataType::Text;
         }
 
         // there are no explicit text or non-text bytes. The stream is either empty or has only
@@ -1011,12 +1049,14 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
+        window.initialize_at_least(offset + len);
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
         let data = &stream.state.window.filled()[offset..][..len];
         stream.adler = adler32(stream.adler as u32, data) as _;
     } else {
         let window = &mut stream.state.window;
+        window.initialize_at_least(offset + len);
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
 
@@ -1082,6 +1122,11 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If the window is almost full and there is insufficient lookahead,
         // move the upper half to the lower one to make room in the upper half.
         if state.strstart >= wsize + state.max_dist() {
+            // in some cases zlib-ng copies uninitialized bytes here. We cannot have that, so
+            // explicitly initialize them with zeros.
+            //
+            // see also the "fill_window_out_of_bounds" test.
+            state.window.initialize_at_least(2 * wsize);
             state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
 
             if state.match_start >= wsize {
@@ -1702,8 +1747,8 @@ fn zng_tr_flush_block(
         static_lenb = 0;
         state.static_len = 7;
     } else if state.level > 0 {
-        if stream.data_type == Z_UNKNOWN {
-            stream.data_type = state.detect_data_type() as _;
+        if stream.data_type == DataType::Unknown as i32 {
+            stream.data_type = State::detect_data_type(&state.l_desc.dyn_tree) as i32;
         }
 
         {
@@ -1816,7 +1861,7 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
-pub(crate) fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
+pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.next_out.is_null()
         || (stream.avail_in != 0 && stream.next_in.is_null())
         || (stream.state.status == Status::Finish && flush != Flush::Finish)
@@ -2006,50 +2051,28 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     state.pending.advance(len);
 }
 
-pub(crate) fn compress<'a>(output: &'a mut [u8], input: &[u8]) -> (&'a mut [u8], ReturnCode) {
-    // TODO this is normally CompressionLevel::DefaultCompression but that does not work yet
-    compress2(output, input, CompressionLevel::NoCompression as i32)
-}
-
-#[repr(i32)]
-#[allow(unused)]
-enum CompressionLevel {
-    NoCompression = 0,
-    BestSpeed = 1,
-    BestCompression = 9,
-    DefaultCompression = -1,
-}
-
-pub(crate) fn compress2<'a>(
+pub fn compress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
-    level: i32,
+    config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
-    compress3(
-        output,
-        input,
-        level,
-        crate::c_api::Z_DEFLATED,
-        crate::MAX_WBITS,
-        DEF_MEM_LEVEL,
-        crate::c_api::Z_DEFAULT_STRATEGY,
-    )
+    let output_uninit = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+    };
+
+    compress(output_uninit, input, config)
 }
 
-pub(crate) fn compress3<'a>(
-    output: &'a mut [u8],
+pub fn compress<'a>(
+    output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
-    level: i32,
-    method: i32,
-    window_bits: i32,
-    mem_level: i32,
-    strategy: i32,
+    config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
         avail_in: 0, // for special logic in the first  iteration
         total_in: 0,
-        next_out: output.as_mut_ptr(),
+        next_out: output.as_mut_ptr() as *mut u8,
         avail_out: 0, // for special logic on the first iteration
         total_out: 0,
         msg: std::ptr::null_mut(),
@@ -2062,13 +2085,9 @@ pub(crate) fn compress3<'a>(
         reserved: 0,
     };
 
-    let err = {
-        let strm: *mut z_stream = &mut stream;
-        init2(strm, level, method, window_bits, mem_level, strategy)
-    };
-
-    if err != ReturnCode::Ok as _ {
-        return (output, err);
+    let err = init(&mut stream, config);
+    if err != ReturnCode::Ok {
+        return (&mut [], err);
     }
 
     let max = libc::c_uint::MAX as usize;
@@ -2104,11 +2123,16 @@ pub(crate) fn compress3<'a>(
         }
     }
 
-    let output = &mut output[..stream.total_out as usize];
+    // SAFETY: we have now initialized these bytes
+    let output_slice = unsafe {
+        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
+    };
 
-    unsafe { deflateEnd(&mut stream) };
+    if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
+        end(stream);
+    }
 
-    (output, ReturnCode::Ok)
+    (output_slice, ReturnCode::Ok)
 }
 
 ///  heap used to build the Huffman trees
@@ -2253,90 +2277,177 @@ impl Heap {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
 
-    fn run_test_rs(data: &str) -> Vec<u8> {
-        let length = 8 * 1024;
-        let mut deflated = vec![0; length as usize];
-        let mut length = length as u64;
+    use std::ffi::{c_char, c_int, c_uint};
 
-        let error = unsafe {
-            crate::c_api::compress(
-                deflated.as_mut_ptr().cast(),
-                &mut length,
-                data.as_ptr().cast(),
-                data.len() as _,
-            )
-        };
+    #[test]
+    fn detect_data_type() {
+        let empty = || [Value::new(0, 0); LITERALS];
 
-        assert_eq!(error, 0);
+        assert_eq!(State::detect_data_type(&empty()), DataType::Binary);
 
-        deflated.truncate(length as usize);
+        let mut binary = empty();
+        binary[0] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&binary), DataType::Binary);
 
-        deflated
-    }
+        let mut text = empty();
+        text[b'\r' as usize] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&text), DataType::Text);
 
-    fn run_test_ng(data: &str) -> Vec<u8> {
-        //        pub unsafe fn dynamic_compress(
-        //            dest: *mut u8,
-        //            dest_len: *mut libc::c_ulong,
-        //            source: *const u8,
-        //            source_len: libc::c_ulong,
-        //        ) -> std::ffi::c_int {
-        //            const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
-        //
-        //            let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
-        //
-        //            type Func = unsafe extern "C" fn(
-        //                dest: *mut u8,
-        //                destLen: *mut libc::c_ulong,
-        //                source: *const u8,
-        //                sourceLen: libc::c_ulong,
-        //            ) -> std::ffi::c_int;
-        //
-        //            let f: libloading::Symbol<Func> = lib.get(b"zng_compress").unwrap();
-        //
-        //            f(dest, dest_len, source, source_len)
-        //        }
+        let mut text = empty();
+        text[b'a' as usize] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&text), DataType::Text);
 
-        let length = 8 * 1024;
-        let mut deflated = vec![0; length];
-        let mut length = length;
-
-        let error = unsafe {
-            libz_ng_sys::compress(
-                deflated.as_mut_ptr().cast(),
-                &mut length,
-                data.as_ptr().cast(),
-                data.len() as _,
-            )
-        };
-
-        assert_eq!(error, 0);
-
-        deflated.truncate(length);
-
-        deflated
+        let mut non_text = empty();
+        non_text[7] = Value::new(1, 0);
+        assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
     }
 
     #[test]
-    #[ignore = "only for local testing (requires source changes to zlib"]
-    fn compress_hello_world() {
-        const EXPECTED: &[u8] = &[
-            0x78, 0x01, 0x01, 0x0d, 0x00, 0xf2, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57,
-            0x6f, 0x72, 0x6c, 0x64, 0x21, 0x0a, 0x20, 0x91, 0x04, 0x48,
-        ];
+    fn from_stream_mut() {
+        unsafe {
+            assert!(DeflateStream::from_stream_mut(std::ptr::null_mut()).is_none());
 
-        assert_eq!(run_test_ng("Hello World!\n"), EXPECTED);
-        assert_eq!(run_test_rs("Hello World!\n"), EXPECTED);
+            let mut stream = z_stream::default();
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
+
+            stream.zalloc = Some(crate::allocate::zcalloc);
+            stream.zfree = Some(crate::allocate::zcfree);
+
+            // state is still NULL
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
+
+            init(&mut stream, DeflateConfig::default());
+            assert!(DeflateStream::from_stream_mut(&mut stream).is_some());
+        }
     }
 
     #[test]
-    #[ignore = "only for local testing (requires source changes to zlib"]
-    fn compress_1025_character_string() {
-        let input: String = "abcd".repeat(256) + "x";
-        assert_eq!(run_test_ng(&input), run_test_rs(&input));
+    fn init_invalid_allocator() {
+        use crate::c_api::{uInt, voidpf};
+
+        unsafe extern "C" fn failing_allocator(_: voidpf, _: uInt, _: uInt) -> voidpf {
+            std::ptr::null_mut()
+        }
+
+        let mut stream = z_stream {
+            zalloc: Some(failing_allocator),
+            ..z_stream::default()
+        };
+        assert_eq!(
+            init(&mut stream, DeflateConfig::default()),
+            ReturnCode::MemError
+        );
+
+        unsafe extern "C" fn unreliable_allocator(
+            opaque: voidpf,
+            items: uInt,
+            size: uInt,
+        ) -> voidpf {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            static X: AtomicUsize = AtomicUsize::new(0);
+
+            if X.fetch_add(1, Ordering::Relaxed) < 4 {
+                crate::allocate::zcalloc(opaque, items, size)
+            } else {
+                std::ptr::null_mut()
+            }
+        }
+
+        let mut stream = z_stream {
+            zalloc: Some(unreliable_allocator),
+            ..z_stream::default()
+        };
+        assert_eq!(
+            init(&mut stream, DeflateConfig::default()),
+            ReturnCode::MemError
+        );
+    }
+
+    #[test]
+    fn invalid_deflate_config() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+        assert!(stream.zalloc.is_some());
+        assert!(stream.zfree.is_some());
+
+        // this should be the default level
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+        assert_eq!(stream.state.level, 6);
+
+        // window_bits of 8 gets turned into 9 internally
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: 8,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+        assert_eq!(stream.state.w_bits, 9);
+
+        // window bits too low
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: -16,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+
+        // window bits too high
+        let mut stream = z_stream::default();
+        let config = DeflateConfig {
+            window_bits: 42,
+            ..Default::default()
+        };
+        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+    }
+
+    #[test]
+    fn end_data_error() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+
+        // next deflate into too little space
+        let input = b"Hello World\n";
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+        let output = &mut [0, 0, 0];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        // the deflate is fine
+        assert_eq!(deflate(stream, Flush::NoFlush), ReturnCode::Ok);
+
+        // but end is not
+        assert_eq!(end(stream), ReturnCode::DataError);
+    }
+
+    #[test]
+    fn test_reset_keep() {
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+
+        // next deflate into too little space
+        let input = b"Hello World\n";
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+
+        let output = &mut [0; 1024];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+
+        assert_eq!(reset_keep(stream), ReturnCode::Ok);
+
+        let output = &mut [0; 1024];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
     }
 
     #[test]
@@ -2350,15 +2461,15 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            6,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_HUFFMAN_ONLY,
-        );
+        let config = DeflateConfig {
+            level: 6,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::HuffmanOnly,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
@@ -2378,15 +2489,15 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            1,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_DEFAULT_STRATEGY,
-        );
+        let config = DeflateConfig {
+            level: 1,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
@@ -2406,20 +2517,239 @@ mod test {
 
         let mut output = vec![0; 128];
 
-        let (output, err) = compress3(
-            &mut output,
-            input.as_bytes(),
-            1,
-            Z_DEFLATED,
-            crate::MAX_WBITS,
-            DEF_MEM_LEVEL,
-            crate::c_api::Z_DEFAULT_STRATEGY,
-        );
+        let config = DeflateConfig {
+            level: 1,
+            method: Method::Deflated,
+            window_bits: crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let (output, err) = compress_slice(&mut output, input.as_bytes(), config);
 
         assert_eq!(err, ReturnCode::Ok);
 
         assert_eq!(output.len(), EXPECTED.len());
 
         assert_eq!(EXPECTED, output);
+    }
+
+    fn compress_slice_ng<'a>(
+        output: &'a mut [u8],
+        input: &[u8],
+        config: DeflateConfig,
+    ) -> (&'a mut [u8], ReturnCode) {
+        let mut stream = libz_ng_sys::z_stream {
+            next_in: input.as_ptr() as *mut u8,
+            avail_in: 0, // for special logic in the first  iteration
+            total_in: 0,
+            next_out: output.as_mut_ptr(),
+            avail_out: 0, // for special logic on the first iteration
+            total_out: 0,
+            msg: std::ptr::null_mut(),
+            state: std::ptr::null_mut(),
+            zalloc: crate::allocate::zcalloc,
+            zfree: crate::allocate::zcfree,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+
+        let err = unsafe {
+            libz_ng_sys::deflateInit2_(
+                &mut stream,
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+
+        if err != libz_ng_sys::Z_OK {
+            return (&mut [], ReturnCode::from(err));
+        }
+
+        let max = c_uint::MAX as usize;
+
+        let mut left = output.len();
+        let mut source_len = input.len();
+
+        loop {
+            if stream.avail_out == 0 {
+                stream.avail_out = Ord::min(left, max) as _;
+                left -= stream.avail_out as usize;
+            }
+
+            if stream.avail_in == 0 {
+                stream.avail_in = Ord::min(source_len, max) as _;
+                source_len -= stream.avail_in as usize;
+            }
+
+            let flush = if source_len > 0 {
+                Flush::NoFlush
+            } else {
+                Flush::Finish
+            };
+
+            let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
+
+            if err != libz_ng_sys::Z_OK {
+                break;
+            }
+        }
+
+        unsafe {
+            let err = libz_ng_sys::deflateEnd(&mut stream);
+            let return_code: ReturnCode = ReturnCode::from(err);
+            // may DataError if there was insufficient output space
+            assert_eq!(ReturnCode::Ok, return_code);
+        }
+
+        (&mut output[..stream.total_out as usize], ReturnCode::Ok)
+    }
+
+    fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
+        let mut output_ng = [0; 1 << 16];
+        let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        let mut output_rs = [0; 1 << 16];
+        let (output, err) = compress_slice(&mut output_rs, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        if !expected.is_empty() {
+            assert_eq!(output_ng, expected);
+            assert_eq!(output, expected);
+        }
+    }
+
+    #[test]
+    fn simple_rle() {
+        fuzz_based_test(
+            "\0\0\0\0\u{6}".as_bytes(),
+            DeflateConfig {
+                level: -1,
+                method: Method::Deflated,
+                window_bits: 11,
+                mem_level: 4,
+                strategy: Strategy::Rle,
+            },
+            &[56, 17, 99, 0, 2, 54, 0, 0, 11, 0, 7],
+        )
+    }
+
+    #[test]
+    fn fill_window_out_of_bounds() {
+        const INPUT: &[u8] = &[
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x6a, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1d, 0x1d, 0x1d, 0x1d, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d,
+            0x1d, 0x27, 0x0, 0x0, 0x0, 0x1d, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71,
+            0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x31, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x1d, 0x1d, 0x0, 0x0, 0x0, 0x0, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50,
+            0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x48, 0x50,
+            0x50, 0x50, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2c, 0x0, 0x0, 0x0, 0x0, 0x4a,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x70, 0x71, 0x71, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71, 0x6a, 0x0, 0x0, 0x0, 0x0,
+            0x71, 0x0, 0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x31, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x0, 0x4a, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x70, 0x71, 0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71,
+            0x6a, 0x0, 0x0, 0x0, 0x0, 0x71, 0x0, 0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x31, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1d, 0x1d, 0x0, 0x0, 0x0, 0x0,
+            0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50,
+            0x50, 0x50, 0x50, 0x50, 0x48, 0x50, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71, 0x3b, 0x3f, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x50, 0x50, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x2c, 0x0, 0x0, 0x0, 0x0, 0x4a, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x70, 0x71, 0x71, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x70, 0x71, 0x71, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x71, 0x71, 0x71, 0x71, 0x3b, 0x3f, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x3b, 0x3f, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x20, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x71, 0x75, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x10, 0x0, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x3b, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x76, 0x71, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x71, 0x71, 0x10, 0x0, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71,
+            0x71, 0x3b, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x76, 0x71, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x0, 0x0, 0x0, 0x0, 0x0, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34, 0x34,
+            0x34, 0x34, 0x30, 0x34, 0x34, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x71, 0x0, 0x0, 0x0, 0x0, 0x6,
+        ];
+
+        fuzz_based_test(
+            INPUT,
+            DeflateConfig {
+                level: -1,
+                method: Method::Deflated,
+                window_bits: 9,
+                mem_level: 1,
+                strategy: Strategy::HuffmanOnly,
+            },
+            &[
+                0x18, 0x19, 0x4, 0xc1, 0x21, 0x1, 0xc4, 0x0, 0x10, 0x3, 0xb0, 0x18, 0x29, 0x1e,
+                0x7e, 0x17, 0x83, 0xf5, 0x70, 0x6c, 0xac, 0xfe, 0xc9, 0x27, 0xdb, 0xb6, 0x6f, 0xdb,
+                0xb6, 0x6d, 0xdb, 0x80, 0x24, 0xb9, 0xbb, 0xbb, 0x24, 0x49, 0x92, 0x24, 0xf, 0x2,
+                0xd8, 0x36, 0x0, 0xf0, 0x3, 0x0, 0x0, 0x24, 0xd0, 0xb6, 0x6d, 0xdb, 0xb6, 0x6d,
+                0xdb, 0xbe, 0x6d, 0xf9, 0x13, 0x4, 0xc7, 0x4, 0x0, 0x80, 0x30, 0x0, 0xc3, 0x22,
+                0x68, 0xf, 0x36, 0x90, 0xc2, 0xb5, 0xfa, 0x7f, 0x48, 0x80, 0x81, 0xb, 0x40, 0x55,
+                0x55, 0x55, 0xd5, 0x16, 0x80, 0xaa, 0x7, 0x9, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0xe, 0x7c, 0x82, 0xe0, 0x98, 0x0, 0x0, 0x0, 0x4, 0x60, 0x10, 0xf9, 0x8c, 0xe2,
+                0xe5, 0xfa, 0x3f, 0x2, 0x54, 0x55, 0x55, 0x65, 0x0, 0xa8, 0xaa, 0xaa, 0xaa, 0xba,
+                0x2, 0x50, 0xb5, 0x90, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x78, 0x82, 0xe0, 0xd0,
+                0x8a, 0x41, 0x0, 0x0, 0xa2, 0x58, 0x54, 0xb7, 0x60, 0x83, 0x9a, 0x6a, 0x4, 0x96,
+                0x87, 0xba, 0x51, 0xf8, 0xfb, 0x9b, 0x26, 0xfc, 0x0, 0x1c, 0x7, 0x6c, 0xdb, 0xb6,
+                0x6d, 0xdb, 0xb6, 0x6d, 0xf7, 0xa8, 0x3a, 0xaf, 0xaa, 0x6a, 0x3, 0xf8, 0xc2, 0x3,
+                0x40, 0x55, 0x55, 0x55, 0xd5, 0x5b, 0xf8, 0x80, 0xaa, 0x7a, 0xb, 0x0, 0x7f, 0x82,
+                0xe0, 0x98, 0x0, 0x40, 0x18, 0x0, 0x82, 0xd8, 0x49, 0x40, 0x2, 0x22, 0x7e, 0xeb,
+                0x80, 0xa6, 0xc, 0xa0, 0x9f, 0xa4, 0x2a, 0x38, 0xf, 0x0, 0x0, 0xe7, 0x1, 0xdc,
+                0x55, 0x95, 0x17, 0x0, 0x0, 0xae, 0x0, 0x38, 0xc0, 0x67, 0xdb, 0x36, 0x80, 0x2b,
+                0x0, 0xe, 0xf0, 0xd9, 0xf6, 0x13, 0x4, 0xc7, 0x4, 0x0, 0x0, 0x30, 0xc, 0x83, 0x22,
+                0x69, 0x7, 0xc6, 0xea, 0xff, 0x19, 0x0, 0x0, 0x80, 0xaa, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x8e, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x6a,
+                0xf5, 0x63, 0x60, 0x60, 0x3, 0x0, 0xee, 0x8a, 0x88, 0x67,
+            ],
+        )
+    }
+
+    #[test]
+    fn read_buf_window_uninitialized() {
+        // copies more in `read_buf_window` than is initialized at that point
+        const INPUT: &str = include_str!("deflate/tests/read_buf_window_uninitialized.txt");
+
+        fuzz_based_test(
+            INPUT.as_bytes(),
+            DeflateConfig {
+                level: 0,
+                method: Method::Deflated,
+                window_bits: 10,
+                mem_level: 6,
+                strategy: Strategy::Default,
+            },
+            &[],
+        )
     }
 }
