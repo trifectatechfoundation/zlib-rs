@@ -331,6 +331,11 @@ impl<'a> ReadBuf<'a> {
         let start = current.checked_sub(offset_from_end).expect("in bounds");
         let end = start.checked_add(length).expect("in bounds");
 
+        // Note also that the referenced string may overlap the current
+        // position; for example, if the last 2 bytes decoded have values
+        // X and Y, a string reference with <length = 5, distance = 2>
+        // adds X,Y,X,Y,X to the output stream.
+
         if end > current {
             if offset_from_end == 1 {
                 // this will just repeat this value many times
