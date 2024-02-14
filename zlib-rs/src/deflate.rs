@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 
 use crate::{
-    adler32::adler32, c_api::z_stream, trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, MAX_WBITS,
-    MIN_WBITS,
+    adler32::adler32, c_api::z_stream, read_buf::ReadBuf, trace, Flush, ReturnCode,
+    ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
 };
 
 use self::{
@@ -200,14 +200,24 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let head_ptr = unsafe { stream.alloc_layout(head_layout.unwrap()) } as *mut [u16; HASH_SIZE];
 
     let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
-    let pending_buf_layout = std::alloc::Layout::array::<u32>(lit_bufsize);
+    let pending_buf_layout = std::alloc::Layout::array::<u8>(4 * lit_bufsize);
     let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
 
-    if window_ptr.is_null() || prev_ptr.is_null() || head_ptr.is_null() || pending_buf.is_null() {
+    // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
+    let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * lit_bufsize);
+    let sym_buf = unsafe { stream.alloc_layout(sym_buf_layout.unwrap()) } as *mut u8;
+
+    if window_ptr.is_null()
+        || prev_ptr.is_null()
+        || head_ptr.is_null()
+        || pending_buf.is_null()
+        || sym_buf.is_null()
+    {
         let opaque = stream.opaque;
         let free = stream.zfree.unwrap();
 
         unsafe {
+            free(opaque, sym_buf.cast());
             free(opaque, pending_buf.cast());
             free(opaque, head_ptr.cast());
             free(opaque, prev_ptr.cast());
@@ -227,11 +237,9 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
     let head = unsafe { &mut *head_ptr };
 
-    let pending = unsafe { Pending::from_raw_parts(pending_buf, lit_bufsize) };
+    let pending = unsafe { Pending::from_raw_parts(pending_buf, 4 * lit_bufsize) };
 
-    let pending_end = pending_buf.wrapping_add(lit_bufsize);
-    unsafe { std::ptr::write_bytes(pending_end, 0, 3 * lit_bufsize) }; // initialize!
-    let sym_buf = unsafe { std::slice::from_raw_parts_mut(pending_end, 3 * lit_bufsize) };
+    let sym_buf = unsafe { ReadBuf::from_raw_parts(sym_buf, 3 * lit_bufsize) };
 
     let state = State {
         status: Status::Init,
@@ -252,7 +260,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         //
         sym_buf,
-        sym_end: (lit_bufsize - 1) * 3,
 
         //
         level: level as i8, // set to zero again for testing?
@@ -272,7 +279,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         opt_len: 0,
         static_len: 0,
         lookahead: 0,
-        sym_next: 0,
         ins_h: 0,
         max_chain_length: 0,
         max_lazy_match: 0,
@@ -318,6 +324,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     let status = stream.state.status;
 
+    let sym_buf = stream.state.sym_buf.as_mut_ptr();
     let pending = stream.state.pending.as_mut_ptr();
     let head = stream.state.head.as_mut_ptr();
     let prev = stream.state.prev.as_mut_ptr();
@@ -333,6 +340,7 @@ pub fn end(stream: &mut DeflateStream) -> ReturnCode {
 
     // deallocate in reverse order of allocations
     unsafe {
+        free(opaque, sym_buf.cast());
         free(opaque, pending.cast());
         free(opaque, head.cast());
         free(opaque, prev.cast());
@@ -564,9 +572,7 @@ pub(crate) struct State<'a> {
 
     pub(crate) window: Window<'a>,
 
-    pub(crate) sym_buf: &'a mut [u8],
-    pub(crate) sym_end: usize,
-    pub(crate) sym_next: usize,
+    pub(crate) sym_buf: ReadBuf<'a>,
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -672,14 +678,9 @@ impl<'a> State<'a> {
     }
 
     pub(crate) fn tally_lit(&mut self, unmatched: u8) -> bool {
-        self.sym_buf[self.sym_next] = 0;
-        self.sym_next += 1;
-
-        self.sym_buf[self.sym_next] = 0;
-        self.sym_next += 1;
-
-        self.sym_buf[self.sym_next] = unmatched;
-        self.sym_next += 1;
+        self.sym_buf.push(0);
+        self.sym_buf.push(0);
+        self.sym_buf.push(unmatched);
 
         *self.l_desc.dyn_tree[unmatched as usize].freq_mut() += 1;
 
@@ -688,18 +689,14 @@ impl<'a> State<'a> {
             "zng_tr_tally: bad literal"
         );
 
-        self.sym_next == self.sym_end
+        // signal that the current block should be flushed
+        self.sym_buf.len() == self.sym_buf.capacity() - 3
     }
 
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
-        self.sym_buf[self.sym_next] = dist as u8;
-        self.sym_next += 1;
-
-        self.sym_buf[self.sym_next] = (dist >> 8) as u8;
-        self.sym_next += 1;
-
-        self.sym_buf[self.sym_next] = len as u8;
-        self.sym_next += 1;
+        self.sym_buf.push(dist as u8);
+        self.sym_buf.push((dist >> 8) as u8);
+        self.sym_buf.push(len as u8);
 
         self.matches += 1;
         dist -= 1;
@@ -714,7 +711,8 @@ impl<'a> State<'a> {
 
         *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
 
-        self.sym_next == self.sym_end
+        // signal that the current block should be flushed
+        self.sym_buf.len() == self.sym_buf.capacity() - 3
     }
 
     fn detect_data_type(dyn_tree: &[Value]) -> DataType {
@@ -771,13 +769,13 @@ impl<'a> State<'a> {
     fn compress_block(&mut self, ltree: &[Value], dtree: &[Value]) {
         let mut sx = 0;
 
-        if self.sym_next != 0 {
+        if !self.sym_buf.is_empty() {
             loop {
-                let mut dist = self.sym_buf[sx] as usize;
+                let mut dist = self.sym_buf.filled()[sx] as usize;
                 sx += 1;
-                dist += (self.sym_buf[sx] as usize) << 8;
+                dist += (self.sym_buf.filled()[sx] as usize) << 8;
                 sx += 1;
-                let lc = self.sym_buf[sx];
+                let lc = self.sym_buf.filled()[sx];
                 sx += 1;
 
                 if dist == 0 {
@@ -792,7 +790,7 @@ impl<'a> State<'a> {
                     "pending_buf overflow"
                 );
 
-                if sx >= self.sym_next {
+                if sx >= self.sym_buf.len() {
                     break;
                 }
             }
@@ -984,7 +982,7 @@ impl<'a> State<'a> {
         *self.l_desc.dyn_tree[END_BLOCK].freq_mut() = 1;
         self.opt_len = 0;
         self.static_len = 0;
-        self.sym_next = 0;
+        self.sym_buf.clear();
         self.matches = 0;
     }
 }
@@ -1742,7 +1740,7 @@ fn zng_tr_flush_block(
 
     let state = &mut stream.state;
 
-    if state.sym_next == 0 {
+    if state.sym_buf.is_empty() {
         opt_lenb = 0;
         static_lenb = 0;
         state.static_len = 7;

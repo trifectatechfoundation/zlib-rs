@@ -75,6 +75,18 @@ impl<'a> ReadBuf<'a> {
         self.buf.len()
     }
 
+    /// Returns the length of the filled part of the buffer
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.filled
+    }
+
+    /// Returns true if there are no bytes in this ReadBuf
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.filled == 0
+    }
+
     /// Returns a shared reference to the filled portion of the buffer.
     #[inline]
     pub fn filled(&self) -> &[u8] {
@@ -126,7 +138,7 @@ impl<'a> ReadBuf<'a> {
     /// Returns a mutable reference to the entire buffer, without ensuring that it has been fully
     /// initialized.
     ///
-    /// The elements between 0 and `self.filled().len()` are filled, and those between 0 and
+    /// The elements between 0 and `self.len()` are filled, and those between 0 and
     /// `self.initialized().len()` are initialized (and so can be converted to a `&mut [u8]`).
     ///
     /// The caller of this method must ensure that these invariants are upheld. For example, if the
