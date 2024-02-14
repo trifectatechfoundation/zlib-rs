@@ -24,7 +24,7 @@ use self::{
 
 /// TODO: Move to separate file?
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct GzipHeader {
     pub text: libc::c_int,
     pub time: crate::c_api::z_size,
@@ -208,6 +208,47 @@ pub fn uncompress<'a>(
         return (&mut [], err);
     }
 
+    // Set header
+    let mut header = GzipHeader {
+        text: 0,
+        time: 0,
+        xflags: 0,
+        os: 0,
+        extra: std::ptr::null_mut(),
+        extra_len: 0,
+        extra_max: 0,
+        name: std::ptr::null_mut(),
+        name_max: 0,
+        comment: std::ptr::null_mut(),
+        comment_max: 0,
+        hcrc: 0,
+        done: 0,
+    };
+
+    /*
+    pub text: libc::c_int,
+    pub time: crate::c_api::z_size,
+    pub xflags: libc::c_int,
+    pub os: libc::c_int,
+    pub extra: *mut crate::c_api::Bytef,
+    pub extra_len: crate::c_api::uInt,
+    pub extra_max: crate::c_api::uInt,
+    pub name: *mut crate::c_api::Bytef,
+    pub name_max: crate::c_api::uInt,
+    pub comment: *mut crate::c_api::Bytef,
+    pub comment_max: crate::c_api::uInt,
+    pub hcrc: libc::c_int,
+    pub done: libc::c_int,
+    */
+
+    let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
+        unsafe { get_header(stream, &mut header) }
+    } else {
+        ReturnCode::StreamError
+    };
+
+    println!("{:?}", err);
+
     stream.next_out = dest;
     stream.avail_out = 0;
 
@@ -232,6 +273,8 @@ pub fn uncompress<'a>(
             break err;
         }
     };
+
+    println!("{:?}", header);
 
     if dest_len != 0 {
         dest_len_ptr = stream.total_out;
@@ -550,9 +593,6 @@ impl<'a> State<'a> {
 
         // Gzip
         //if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
-
-        println!("{:?}", self.bit_reader.hold());
-
         // Force gzip header
         if self.bit_reader.hold() == 0x8b1f {
             if self.wbits == 0 {
@@ -606,8 +646,10 @@ impl<'a> State<'a> {
     }
 
     fn flags(&mut self) -> ReturnCode {
+        println!("FLAGS");
         need_bits!(self, 16);
-        self.flags = self.bit_reader.hold() as i32; // UNSAFE
+        self.flags = self.bit_reader.hold() as i32;
+
 
         // Z_DEFLATED = 8 is the only supported method
         if self.flags & 0xff != Z_DEFLATED as i32 {
@@ -632,6 +674,7 @@ impl<'a> State<'a> {
     }
 
     fn time(&mut self) -> ReturnCode {
+        println!("TIME");
         need_bits!(self, 32);
 
         if let Some(head) = self.head.as_mut()  {
@@ -646,11 +689,12 @@ impl<'a> State<'a> {
     }
 
     fn os(&mut self) -> ReturnCode {
+        println!("OS");
         need_bits!(self, 16);
 
         if let Some(head) = self.head.as_mut()  {
-            head.xflags = (self.bit_reader.hold() & 0xff) as i32; // UNSAFE
-            head.os = (self.bit_reader.hold() >> 8) as i32; // UNSAFE
+            head.xflags = (self.bit_reader.hold() & 0xff) as i32;
+            head.os = (self.bit_reader.hold() >> 8) as i32;
         }
 
         // TODO: crc check
@@ -661,14 +705,15 @@ impl<'a> State<'a> {
     }
 
     fn ex_len(&mut self) -> ReturnCode {
+        println!("EXLEN");
 
         if (self.flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
-            self.length = self.bit_reader.hold() as usize; // UNSAFE
+            self.length = self.bit_reader.hold() as usize;
 
             if let Some(head) = self.head.as_mut()  {
-                head.extra_len = self.bit_reader.hold() as u32; // UNSAFE
+                head.extra_len = self.bit_reader.hold() as u32;
             }
 
             // TODO: CRC header check
@@ -683,6 +728,9 @@ impl<'a> State<'a> {
     }
 
     fn extra(&mut self) -> ReturnCode {
+        println!("EXTRA");
+
+        println!("flagcheck {:?}", self.flags & 0x0400);
 
         /*
         if (self.flags & 0x0400) != 0 {
@@ -734,14 +782,58 @@ impl<'a> State<'a> {
     }
 
     fn name(&mut self) -> ReturnCode {
+        println!("Name");
 
-        // TODO
+        let mut copy = 0;
+        if (self.flags & 0x0800) != 0 {
 
+            println!("have {:?}", self.in_available);
+            if self.in_available == 0 {
+                return self.inflate_leave(ReturnCode::StreamEnd);
+            }
+
+            loop {
+
+                let next_byte = self.bit_reader.pull_byte();
+                let len = next_byte.unwrap();
+                println!("len: {:?}", len);
+
+                copy += 1;
+
+                   /*
+                    if (state->head != Z_NULL &&
+                            state->head->name != Z_NULL &&
+                            state->length < state->head->name_max)
+                    */
+
+                if len == 1 && copy < self.in_available {
+                    break;
+                }
+
+                // todo: remove this break
+                //break;
+            }
+
+            // TODO: Crc header check
+            self.in_available -= copy;
+            //self.next += copy;
+
+            if self.in_available == 0 {
+                return self.inflate_leave(ReturnCode::StreamEnd);
+            }
+
+        } else if let Some(head) = self.head.as_mut() {
+            head.name = std::ptr::null_mut();
+        }
+
+        self.length = 0;
         self.mode = Mode::Comment;
         self.comment()
     }
 
+    // https://github.com/madler/zlib/blob/develop/inflate.c#L1330
     fn comment(&mut self) -> ReturnCode {
+        println!("Comment");
 
         // TODO
 
@@ -750,6 +842,7 @@ impl<'a> State<'a> {
     }
 
     fn hcrc(&mut self) -> ReturnCode {
+        println!("hcrc");
 
         /*
         if (self.flags & 0x0200) != 0 {
@@ -764,7 +857,14 @@ impl<'a> State<'a> {
         }
         */
 
+        if let Some(head) = self.head.as_mut() {
+            head.hcrc = (self.flags >> 9) & 1;
+            head.done = 1;
+        }
+
         // TODO: Finish CRC header check
+
+        println!("{:?}", self.head);
 
         self.mode = Mode::Type;
         self.type_()
@@ -783,7 +883,6 @@ impl<'a> State<'a> {
             }
 
             // TODO gzip
-
             if self.wrap & 4 != 0 && zswap32(self.bit_reader.hold() as u32) != self.checksum {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
@@ -2088,9 +2187,14 @@ fn init_window<'a>(
 pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeader) -> ReturnCode {
 
     // state check
-    if (stream.state.wrap & 2) == 0 {
-        return ReturnCode::StreamError;
-    }
+    println!("headercheck: {:?}", stream.state.wrap);
+
+    // Ignore for now
+    //if (stream.state.wrap & 2) == 0 {
+    //    return ReturnCode::StreamError;
+    //}
+
+    // TODO more checks
 
     head.done = 0;
     stream.state.head = Some(head);
