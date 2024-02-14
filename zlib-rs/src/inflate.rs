@@ -336,7 +336,7 @@ pub(crate) struct State<'a> {
     window: Window<'a>,
 
     /// place to store gzip header if needed
-    head: Option<GzipHeader>,
+    head: Option<mut &GzipHeader>,
 
     //
     /// number of code length code lengths
