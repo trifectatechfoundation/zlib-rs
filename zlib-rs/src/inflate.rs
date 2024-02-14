@@ -334,7 +334,7 @@ pub(crate) struct State<'a> {
     window: Window<'a>,
 
     /// place to store gzip header if needed
-    head: Option<mut &GzipHeader>,
+    head: Option<&'a mut GzipHeader>,
 
     //
     /// number of code length code lengths
@@ -502,14 +502,14 @@ const INFLATE_FAST_MIN_LEFT: usize = 260;
 const Z_DEFLATED: u64 = 8;
 
 impl<'a> State<'a> {
-    fn dispatch(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn dispatch(&mut self) -> ReturnCode {
         match self.mode {
-            Mode::Head => self.head(next_in),
-            Mode::Flags => self.flags(next_in),
-            Mode::Time => self.time(next_in),
-            Mode::Os => self.os(next_in),
-            Mode::ExLen => self.ex_len(next_in),
-            Mode::Extra => self.extra(next_in),
+            Mode::Head => self.head(),
+            Mode::Flags => self.flags(),
+            Mode::Time => self.time(),
+            Mode::Os => self.os(),
+            Mode::ExLen => self.ex_len(),
+            Mode::Extra => self.extra(),
             Mode::Name => self.name(),
             Mode::Comment => self.comment(),
             Mode::HCrc => self.hcrc(),
@@ -540,7 +540,7 @@ impl<'a> State<'a> {
 
     /// Initial state
     #[inline(never)]
-    fn head(&mut self, next_in: *mut u8) -> ReturnCode {
+    fn head(&mut self) -> ReturnCode {
         if self.wrap == 0 {
             self.mode = Mode::TypeDo;
             return self.type_do();
@@ -549,8 +549,13 @@ impl<'a> State<'a> {
         need_bits!(self, 16);
 
         // Gzip
-        if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
-            if self.wbits == 0{
+        //if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
+
+        println!("{:?}", self.bit_reader.hold());
+
+        // Force gzip header
+        if self.bit_reader.hold() == 0x8b1f {
+            if self.wbits == 0 {
                 self.wbits = 15;
             }
 
@@ -558,7 +563,7 @@ impl<'a> State<'a> {
             self.bit_reader.init_bits();
 
             self.mode = Mode::Flags;
-            return self.flags(next_in);
+            return self.flags();
         }
 
         if ((self.bit_reader.bits(8) << 8) + (self.bit_reader.hold() >> 8)) % 31 != 0 {
@@ -600,7 +605,7 @@ impl<'a> State<'a> {
         }
     }
 
-    fn flags(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn flags(&mut self) -> ReturnCode {
         need_bits!(self, 16);
         self.flags = self.bit_reader.hold() as i32; // UNSAFE
 
@@ -615,72 +620,71 @@ impl<'a> State<'a> {
             return self.bad("unknown header flags set\0");
         }
 
-        if !self.head.is_none() {
-            // TODO: What is a nice way to do this?
-            self.head.unwrap().text = ((self.bit_reader.hold() >> 8) & 1) as i32;
+        if let Some(head) = self.head.as_mut()  {
+            head.text = ((self.bit_reader.hold() >> 8) & 1) as i32;
         }
 
         // TODO: CRC header check
 
         self.bit_reader.init_bits();
         self.mode = Mode::Time;
-        self.time(next_in)
+        self.time()
     }
 
-    fn time(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn time(&mut self) -> ReturnCode {
         need_bits!(self, 32);
 
-        if !self.head.is_none() {
-            // TODO: What is a nice way to do this?
-            self.head.unwrap().time = self.bit_reader.hold();
+        if let Some(head) = self.head.as_mut()  {
+            head.time = self.bit_reader.hold();
         }
 
         // TODO: Header CRC
 
         self.bit_reader.init_bits();
         self.mode = Mode::Os;
-        self.os(next_in)
+        self.os()
     }
 
-    fn os(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn os(&mut self) -> ReturnCode {
         need_bits!(self, 16);
 
-        if !self.head.is_none() {
-            // TODO: What is a nice way to do this?
-            self.head.unwrap().xflags = (self.bit_reader.hold() & 0xff) as i32; // UNSAFE
-            self.head.unwrap().os = (self.bit_reader.hold() >> 8) as i32; // UNSAFE
+        if let Some(head) = self.head.as_mut()  {
+            head.xflags = (self.bit_reader.hold() & 0xff) as i32; // UNSAFE
+            head.os = (self.bit_reader.hold() >> 8) as i32; // UNSAFE
         }
 
         // TODO: crc check
 
         self.bit_reader.init_bits();
         self.mode = Mode::ExLen;
-        self.ex_len(next_in)
+        self.ex_len()
     }
 
-    fn ex_len(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn ex_len(&mut self) -> ReturnCode {
 
         if (self.flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
             self.length = self.bit_reader.hold() as usize; // UNSAFE
-            if !self.head.is_none() {
-                self.head.unwrap().extra_len = self.bit_reader.hold() as u32; // UNSAFE
+
+            if let Some(head) = self.head.as_mut()  {
+                head.extra_len = self.bit_reader.hold() as u32; // UNSAFE
             }
 
             // TODO: CRC header check
             self.bit_reader.init_bits();
 
-        } else if !self.head.is_none() {
-            self.head.unwrap().extra = std::ptr::null_mut();
+        } else if let Some(head) = self.head.as_mut() {
+            head.extra = std::ptr::null_mut();
         }
 
         self.mode = Mode::Extra;
-        self.extra( next_in)
+        self.extra()
     }
 
-    fn extra(&mut self, mut next_in: *mut u8) -> ReturnCode {
+    fn extra(&mut self) -> ReturnCode {
 
+        /*
         if (self.flags & 0x0400) != 0 {
 
             let mut copy = self.length;
@@ -722,6 +726,7 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::StreamEnd);
             }
         }
+        */
 
         self.length = 0;
         self.mode = Mode::Name;
@@ -1704,7 +1709,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
 
-    let mut err = state.dispatch(stream.next_in);
+    let mut err = state.dispatch();
 
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
@@ -1867,6 +1872,17 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
     let writer: MaybeUninit<ReadBuf> =
         unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
 
+    // Deep copy the Gzip header.
+    // TODO: is that what we want here?
+    let mut head_copy;
+    let head_opt = match &state.head {
+      Some(head) => {
+        head_copy = (*head).clone();
+        Some(&mut head_copy)
+      },
+      None => None,
+    };
+
     let mut copy = State {
         mode: state.mode,
         last: state.last,
@@ -1875,7 +1891,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         dist_table: state.dist_table,
         wbits: state.wbits,
         window: Window::empty(),
-        head: state.head,
+        head: head_opt,
         ncode: state.ncode,
         nlen: state.nlen,
         ndist: state.ndist,
@@ -2069,11 +2085,15 @@ fn init_window<'a>(
     Ok(window)
 }
 
-pub fn get_header(stream: &mut InflateStream, head: &mut GzipHeader) -> ReturnCode {
-    //unimplemented!("TODO: implement");
+pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeader) -> ReturnCode {
 
-    stream.state.head = Some(*head);
+    // state check
+    if (stream.state.wrap & 2) == 0 {
+        return ReturnCode::StreamError;
+    }
+
     head.done = 0;
+    stream.state.head = Some(head);
 
     ReturnCode::Ok
 }
