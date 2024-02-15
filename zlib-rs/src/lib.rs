@@ -2,9 +2,13 @@ mod adler32;
 pub mod allocate;
 pub mod c_api;
 mod crc32;
+mod crc32_pclmulqdq;
 pub mod deflate;
 pub mod inflate;
 mod read_buf;
+
+pub use crc32::crc32_braid as crc32_generic;
+pub use crc32_pclmulqdq::crc32 as crc32_pclmulqdq;
 
 #[macro_export]
 macro_rules! trace {
