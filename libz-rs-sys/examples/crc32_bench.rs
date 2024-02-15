@@ -28,6 +28,33 @@ fn main() {
             h.update(&input[..]);
             println!("{:#x}", h.finalize());
         }
+
+        "sse-chunked" => {
+            let path = it.next().unwrap();
+            let input = std::fs::read(path).unwrap();
+
+            let mut state = zlib_rs::crc32_pclmulqdq::Crc32Fold::new();
+
+            for c in input.chunks(32) {
+                zlib_rs::crc32_pclmulqdq::crc32_fold(&mut state, c, 0);
+            }
+            println!("{:#x}", unsafe {
+                zlib_rs::crc32_pclmulqdq::crc32_fold_final(state)
+            });
+        }
+
+        "crc32fast-chunked" => {
+            let path = it.next().unwrap();
+            let input = std::fs::read(path).unwrap();
+
+            let mut h = crc32fast::Hasher::new_with_initial(0);
+
+            for c in input.chunks(32) {
+                h.update(c);
+            }
+            println!("{:#x}", h.finalize());
+        }
+
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
 }

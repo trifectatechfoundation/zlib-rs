@@ -14,46 +14,74 @@ struct Align16<T>(T);
 #[repr(C, align(32))]
 struct Align32<T>(T);
 
-// 4 folds
-const CRC32_FOLD_BUFFER_SIZE: usize = core::mem::size_of::<u128>() * 4;
-
 #[derive(Debug)]
-struct Crc32Fold {
-    fold: [u8; CRC32_FOLD_BUFFER_SIZE],
+pub struct Crc32Fold {
+    #[cfg(target_arch = "x86_64")]
+    fold: [__m128i; 4],
     value: u32,
 }
 
-impl Align16<Crc32Fold> {
+impl Crc32Fold {
+    pub fn new() -> Self {
+        let mut this = Self {
+            #[cfg(target_arch = "x86_64")]
+            fold: [unsafe { _mm_setzero_si128() }; 4],
+            value: Default::default(),
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        this.reset();
+
+        this
+    }
+
     fn load(&self) -> [__m128i; 4] {
-        let fold = (&self.0.fold) as *const _ as *const __m128i;
-
-        unsafe {
-            [
-                _mm_load_si128(fold.add(0)),
-                _mm_load_si128(fold.add(1)),
-                _mm_load_si128(fold.add(2)),
-                _mm_load_si128(fold.add(3)),
-            ]
-        }
+        self.fold
     }
 
-    fn store(&mut self, [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3]: [__m128i; 4]) {
-        let fold = self.0.fold.as_mut_ptr() as *mut __m128i;
-
-        unsafe {
-            _mm_storeu_si128(fold.add(0), xmm_crc0);
-            _mm_storeu_si128(fold.add(1), xmm_crc1);
-            _mm_storeu_si128(fold.add(2), xmm_crc2);
-            _mm_storeu_si128(fold.add(3), xmm_crc3);
-        }
+    fn store(&mut self, fold: [__m128i; 4]) {
+        self.fold = fold;
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn reset(&mut self) {
         unsafe {
             let xmm_crc0 = _mm_cvtsi32_si128(0x9db42487u32 as i32);
             let xmm_zero = _mm_setzero_si128();
 
             self.store([xmm_crc0, xmm_zero, xmm_zero, xmm_zero])
+        }
+    }
+
+    fn is_pclmulqdq() -> bool {
+        is_x86_feature_detected!("pclmulqdq")
+            && is_x86_feature_detected!("sse2")
+            && is_x86_feature_detected!("sse4.1")
+    }
+
+    fn fold(&mut self, src: &[u8], start: u32) {
+        if Self::is_pclmulqdq() {
+            unsafe { crc32_fold_help::<false>(self, &mut [], src, start) }
+        } else {
+            // in this case the start value is ignored
+            self.value = crc32_braid(src, self.value);
+        }
+    }
+
+    fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
+        if Self::is_pclmulqdq() {
+            unsafe { crc32_fold_help::<true>(self, dst, src, 0) }
+        } else {
+            self.value = crc32_braid(src, self.value);
+            dst[..src.len()].copy_from_slice(src);
+        }
+    }
+
+    fn finish(self) -> u32 {
+        if Self::is_pclmulqdq() {
+            unsafe { crc32_fold_final(self) }
+        } else {
+            self.value
         }
     }
 }
@@ -65,13 +93,9 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
         return crc32_braid(buf, start);
     }
 
-    let mut crc_state = Align16(Crc32Fold {
-        fold: [0; CRC32_FOLD_BUFFER_SIZE],
-        value: 0,
-    });
+    let mut crc_state = Crc32Fold::new();
 
     unsafe {
-        crc_state.reset();
         crc32_fold(&mut crc_state, buf, start);
         return crc32_fold_final(crc_state);
     }
@@ -81,11 +105,12 @@ fn crc32_braid(buf: &[u8], start: u32) -> u32 {
     crate::crc32::crc32_braid::<5>(buf, start)
 }
 
-fn crc32_fold(crc: &mut Align16<Crc32Fold>, src: &[u8], start: u32) {
+pub fn crc32_fold(crc: &mut Crc32Fold, src: &[u8], start: u32) {
     unsafe { crc32_fold_help::<false>(crc, &mut [], src, start) }
 }
 
-unsafe fn crc32_fold_final(mut crc: Align16<Crc32Fold>) -> u32 {
+#[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
+pub unsafe fn crc32_fold_final(mut crc: Crc32Fold) -> u32 {
     const CRC_MASK: __m128i = unsafe {
         core::mem::transmute([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32])
     };
@@ -164,13 +189,14 @@ unsafe fn crc32_fold_final(mut crc: Align16<Crc32Fold>) -> u32 {
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc1);
 
-    crc.0.value = !(_mm_extract_epi32(xmm_crc3, 2) as u32);
+    crc.value = !(_mm_extract_epi32(xmm_crc3, 2) as u32);
 
-    return crc.0.value;
+    return crc.value;
 }
 
+#[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
 unsafe fn crc32_fold_help<const COPY: bool>(
-    crc: &mut Align16<Crc32Fold>,
+    crc: &mut Crc32Fold,
     mut dst: &mut [u8],
     mut src: &[u8],
     init_crc: u32,
@@ -230,7 +256,9 @@ unsafe fn crc32_fold_help<const COPY: bool>(
                 if align_diff < 4 && init_crc != 0 {
                     let xmm_t0 = xmm_crc_part;
                     xmm_crc_part = _mm_loadu_si128((src.as_ptr() as *const __m128i).add(1));
-                    fold_1(&mut xmm_crc0, &mut xmm_crc1, &mut xmm_crc2, &mut xmm_crc3);
+
+                    [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] =
+                        fold::<1>([xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3]);
 
                     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t0);
                     src = &src[16..];
@@ -267,88 +295,44 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         // #endif
 
         while len >= 64 {
-            len -= 64;
-
-            let src_ptr = src.as_ptr() as *const __m128i;
-            let mut xmm_t0 = _mm_load_si128(src_ptr.add(0));
-            let xmm_t1 = _mm_load_si128(src_ptr.add(1));
-            let xmm_t2 = _mm_load_si128(src_ptr.add(2));
-            let xmm_t3 = _mm_load_si128(src_ptr.add(3));
-            src = &src[64..];
-
-            fold_4(&mut xmm_crc0, &mut xmm_crc1, &mut xmm_crc2, &mut xmm_crc3);
-            if COPY {
-                let dst_ptr = dst.as_mut_ptr() as *mut __m128i;
-                _mm_storeu_si128(dst_ptr.add(0), xmm_t0);
-                _mm_storeu_si128(dst_ptr.add(1), xmm_t1);
-                _mm_storeu_si128(dst_ptr.add(2), xmm_t2);
-                _mm_storeu_si128(dst_ptr.add(3), xmm_t3);
-                dst = &mut dst[64..];
-            } else {
-                xor_initial128!(xmm_t0);
-            }
-
-            xmm_crc0 = _mm_xor_si128(xmm_crc0, xmm_t0);
-            xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t1);
-            xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t2);
-            // dbg!(xmm_crc3, xmm_t3);
-            xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t3);
-            // dbg!(xmm_crc3);
+            [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<1, COPY>(
+                &mut &mut dst[..],
+                &mut src,
+                &mut len,
+                [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
+                &mut first,
+                xmm_initial,
+            );
         }
 
         // len = num bytes left - 64
-        let src_ptr = src.as_ptr() as *const __m128i;
-        let dst_ptr = dst.as_mut_ptr() as *mut __m128i;
-        if len >= 48 {
-            len -= 48;
-
-            let mut xmm_t0 = _mm_load_si128(src_ptr.add(0));
-            let xmm_t1 = _mm_load_si128(src_ptr.add(1));
-            let xmm_t2 = _mm_load_si128(src_ptr.add(2));
-            src = &src[48..];
-            if COPY {
-                _mm_storeu_si128(dst_ptr.add(0), xmm_t0);
-                _mm_storeu_si128(dst_ptr.add(1), xmm_t1);
-                _mm_storeu_si128(dst_ptr.add(2), xmm_t2);
-                dst = &mut dst[48..];
-            } else {
-                xor_initial128!(xmm_t0);
-            }
-            fold_3(&mut xmm_crc0, &mut xmm_crc1, &mut xmm_crc2, &mut xmm_crc3);
-
-            xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t0);
-            xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t1);
-            xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t2);
-        } else if len >= 32 {
-            len -= 32;
-
-            let mut xmm_t0 = _mm_load_si128(src_ptr.add(0));
-            let xmm_t1 = _mm_load_si128(src_ptr.add(1));
-            src = &src[32..];
-            if COPY {
-                _mm_storeu_si128(dst_ptr.add(0), xmm_t0);
-                _mm_storeu_si128(dst_ptr.add(1), xmm_t1);
-                dst = &mut dst[32..];
-            } else {
-                xor_initial128!(xmm_t0);
-            }
-            fold_2(&mut xmm_crc0, &mut xmm_crc1, &mut xmm_crc2, &mut xmm_crc3);
-
-            xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t0);
-            xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t1);
-        } else if len >= 16 {
-            len -= 16;
-            let mut xmm_t0 = _mm_load_si128(src_ptr.add(0));
-            src = &src[16..];
-            if COPY {
-                _mm_storeu_si128(dst_ptr.add(0), xmm_t0);
-                dst = &mut dst[16..];
-            } else {
-                xor_initial128!(xmm_t0);
-            }
-            fold_1(&mut xmm_crc0, &mut xmm_crc1, &mut xmm_crc2, &mut xmm_crc3);
-
-            xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t0);
+        if len >= 3 * 16 {
+            [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<3, COPY>(
+                &mut &mut dst[..],
+                &mut src,
+                &mut len,
+                [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
+                &mut first,
+                xmm_initial,
+            );
+        } else if len >= 2 * 32 {
+            [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<2, COPY>(
+                &mut &mut dst[..],
+                &mut src,
+                &mut len,
+                [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
+                &mut first,
+                xmm_initial,
+            );
+        } else if len >= 1 * 16 {
+            [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<1, COPY>(
+                &mut &mut dst[..],
+                &mut src,
+                &mut len,
+                [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
+                &mut first,
+                xmm_initial,
+            );
         }
     }
 
@@ -372,11 +356,7 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         );
     }
 
-    let dst_ptr = crc.0.fold.as_ptr() as *mut __m128i;
-    _mm_storeu_si128(dst_ptr.add(0), xmm_crc0);
-    _mm_storeu_si128(dst_ptr.add(1), xmm_crc1);
-    _mm_storeu_si128(dst_ptr.add(2), xmm_crc2);
-    _mm_storeu_si128(dst_ptr.add(3), xmm_crc3);
+    crc.store([xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3])
 }
 
 const XMM_FOLD4: __m128i = {
@@ -386,130 +366,71 @@ const XMM_FOLD4: __m128i = {
     unsafe { core::mem::transmute(bytes) }
 };
 
-unsafe fn fold_1(
-    xmm_crc0: &mut __m128i,
-    xmm_crc1: &mut __m128i,
-    xmm_crc2: &mut __m128i,
-    xmm_crc3: &mut __m128i,
-) {
-    let x_tmp3 = *xmm_crc3;
-
-    *xmm_crc3 = *xmm_crc0;
-    *xmm_crc0 = _mm_clmulepi64_si128(*xmm_crc0, XMM_FOLD4, 0x01);
-    *xmm_crc3 = _mm_clmulepi64_si128(*xmm_crc3, XMM_FOLD4, 0x10);
-    let ps_crc0 = _mm_castsi128_ps(*xmm_crc0);
-    let ps_crc3 = _mm_castsi128_ps(*xmm_crc3);
+#[inline(always)]
+unsafe fn step(input: __m128i) -> __m128i {
+    let tmp1 = _mm_clmulepi64_si128(input, XMM_FOLD4, 0x01);
+    let tmp2 = _mm_clmulepi64_si128(input, XMM_FOLD4, 0x10);
+    let ps_crc0 = _mm_castsi128_ps(tmp1);
+    let ps_crc3 = _mm_castsi128_ps(tmp2);
     let ps_res = _mm_xor_ps(ps_crc0, ps_crc3);
 
-    *xmm_crc0 = *xmm_crc1;
-    *xmm_crc1 = *xmm_crc2;
-    *xmm_crc2 = x_tmp3;
-    *xmm_crc3 = _mm_castps_si128(ps_res);
+    _mm_castps_si128(ps_res)
 }
 
-unsafe fn fold_2(
-    xmm_crc0: &mut __m128i,
-    xmm_crc1: &mut __m128i,
-    xmm_crc2: &mut __m128i,
-    xmm_crc3: &mut __m128i,
-) {
-    let x_tmp3 = *xmm_crc3;
-    let x_tmp2 = *xmm_crc2;
-
-    *xmm_crc3 = *xmm_crc1;
-    *xmm_crc1 = _mm_clmulepi64_si128(*xmm_crc1, XMM_FOLD4, 0x01);
-    *xmm_crc3 = _mm_clmulepi64_si128(*xmm_crc3, XMM_FOLD4, 0x10);
-    let ps_crc3 = _mm_castsi128_ps(*xmm_crc3);
-    let ps_crc1 = _mm_castsi128_ps(*xmm_crc1);
-    let ps_res31 = _mm_xor_ps(ps_crc3, ps_crc1);
-
-    *xmm_crc2 = *xmm_crc0;
-    *xmm_crc0 = _mm_clmulepi64_si128(*xmm_crc0, XMM_FOLD4, 0x01);
-    *xmm_crc2 = _mm_clmulepi64_si128(*xmm_crc2, XMM_FOLD4, 0x10);
-    let ps_crc0 = _mm_castsi128_ps(*xmm_crc0);
-    let ps_crc2 = _mm_castsi128_ps(*xmm_crc2);
-    let ps_res20 = _mm_xor_ps(ps_crc0, ps_crc2);
-
-    *xmm_crc0 = x_tmp2;
-    *xmm_crc1 = x_tmp3;
-    *xmm_crc2 = _mm_castps_si128(ps_res20);
-    *xmm_crc3 = _mm_castps_si128(ps_res31);
+fn fold<const N: usize>(input: [__m128i; 4]) -> [__m128i; 4] {
+    std::array::from_fn(|i| match input.get(i + N) {
+        Some(v) => *v,
+        None => unsafe { step(input[(i + N) - 4]) },
+    })
 }
 
-unsafe fn fold_3(
-    xmm_crc0: &mut __m128i,
-    xmm_crc1: &mut __m128i,
-    xmm_crc2: &mut __m128i,
-    xmm_crc3: &mut __m128i,
-) {
-    let x_tmp3 = *xmm_crc3;
-
-    *xmm_crc3 = *xmm_crc2;
-    *xmm_crc2 = _mm_clmulepi64_si128(*xmm_crc2, XMM_FOLD4, 0x01);
-    *xmm_crc3 = _mm_clmulepi64_si128(*xmm_crc3, XMM_FOLD4, 0x10);
-    let ps_crc2 = _mm_castsi128_ps(*xmm_crc2);
-    let ps_crc3 = _mm_castsi128_ps(*xmm_crc3);
-    let ps_res32 = _mm_xor_ps(ps_crc2, ps_crc3);
-
-    *xmm_crc2 = *xmm_crc1;
-    *xmm_crc1 = _mm_clmulepi64_si128(*xmm_crc1, XMM_FOLD4, 0x01);
-    *xmm_crc2 = _mm_clmulepi64_si128(*xmm_crc2, XMM_FOLD4, 0x10);
-    let ps_crc1 = _mm_castsi128_ps(*xmm_crc1);
-    let ps_crc2 = _mm_castsi128_ps(*xmm_crc2);
-    let ps_res21 = _mm_xor_ps(ps_crc1, ps_crc2);
-
-    *xmm_crc1 = *xmm_crc0;
-    *xmm_crc0 = _mm_clmulepi64_si128(*xmm_crc0, XMM_FOLD4, 0x01);
-    *xmm_crc1 = _mm_clmulepi64_si128(*xmm_crc1, XMM_FOLD4, 0x10);
-    let ps_crc0 = _mm_castsi128_ps(*xmm_crc0);
-    let ps_crc1 = _mm_castsi128_ps(*xmm_crc1);
-    let ps_res10 = _mm_xor_ps(ps_crc0, ps_crc1);
-
-    *xmm_crc0 = x_tmp3;
-    *xmm_crc1 = _mm_castps_si128(ps_res10);
-    *xmm_crc2 = _mm_castps_si128(ps_res21);
-    *xmm_crc3 = _mm_castps_si128(ps_res32);
+fn bar<'a>(dst: &'a mut [u8]) {
+    foo(&mut &mut dst[..]);
 }
 
-unsafe fn fold_4(
-    xmm_crc0: &mut __m128i,
-    xmm_crc1: &mut __m128i,
-    xmm_crc2: &mut __m128i,
-    xmm_crc3: &mut __m128i,
-) {
-    let mut x_tmp0 = *xmm_crc0;
-    let mut x_tmp1 = *xmm_crc1;
-    let mut x_tmp2 = *xmm_crc2;
-    let mut x_tmp3 = *xmm_crc3;
+fn foo<'inner, 'outer: 'inner>(dst: &'outer mut &'inner mut [u8]) {
+    *dst = dst.get_mut(16..).unwrap()
+}
 
-    *xmm_crc0 = _mm_clmulepi64_si128(*xmm_crc0, XMM_FOLD4, 0x01);
-    x_tmp0 = _mm_clmulepi64_si128(x_tmp0, XMM_FOLD4, 0x10);
-    let ps_crc0 = _mm_castsi128_ps(*xmm_crc0);
-    let ps_t0 = _mm_castsi128_ps(x_tmp0);
-    let ps_res0 = _mm_xor_ps(ps_crc0, ps_t0);
+fn progress<'inner, 'outer: 'inner, const N: usize, const COPY: bool>(
+    dst: &'outer mut &'inner mut [u8],
+    src: &'_ mut &[u8],
+    len: &'_ mut usize,
+    state: [__m128i; 4],
+    first: &mut bool,
+    xmm_initial: __m128i,
+) -> [__m128i; 4] {
+    *len -= N * 16;
 
-    *xmm_crc1 = _mm_clmulepi64_si128(*xmm_crc1, XMM_FOLD4, 0x01);
-    x_tmp1 = _mm_clmulepi64_si128(x_tmp1, XMM_FOLD4, 0x10);
-    let ps_crc1 = _mm_castsi128_ps(*xmm_crc1);
-    let ps_t1 = _mm_castsi128_ps(x_tmp1);
-    let ps_res1 = _mm_xor_ps(ps_crc1, ps_t1);
+    let mut input = [unsafe { _mm_setzero_si128() }; 4];
 
-    *xmm_crc2 = _mm_clmulepi64_si128(*xmm_crc2, XMM_FOLD4, 0x01);
-    x_tmp2 = _mm_clmulepi64_si128(x_tmp2, XMM_FOLD4, 0x10);
-    let ps_crc2 = _mm_castsi128_ps(*xmm_crc2);
-    let ps_t2 = _mm_castsi128_ps(x_tmp2);
-    let ps_res2 = _mm_xor_ps(ps_crc2, ps_t2);
+    let src_ptr = src.as_ptr() as *const __m128i;
+    for i in 0..N {
+        input[i] = unsafe { _mm_load_si128(src_ptr.add(i)) };
+    }
 
-    *xmm_crc3 = _mm_clmulepi64_si128(*xmm_crc3, XMM_FOLD4, 0x01);
-    x_tmp3 = _mm_clmulepi64_si128(x_tmp3, XMM_FOLD4, 0x10);
-    let ps_crc3 = _mm_castsi128_ps(*xmm_crc3);
-    let ps_t3 = _mm_castsi128_ps(x_tmp3);
-    let ps_res3 = _mm_xor_ps(ps_crc3, ps_t3);
+    *src = &src[N * 16..];
 
-    *xmm_crc0 = _mm_castps_si128(ps_res0);
-    *xmm_crc1 = _mm_castps_si128(ps_res1);
-    *xmm_crc2 = _mm_castps_si128(ps_res2);
-    *xmm_crc3 = _mm_castps_si128(ps_res3);
+    if COPY {
+        let dst_ptr = dst.as_mut_ptr() as *mut __m128i;
+        for i in 0..N {
+            unsafe { _mm_storeu_si128(dst_ptr.add(0), input[i]) };
+        }
+        *dst = &mut (*dst)[N * 16..];
+    } else {
+        if *first {
+            *first = false;
+            input[0] = unsafe { _mm_xor_si128(input[0], xmm_initial) };
+        }
+    }
+
+    let mut state = fold::<N>(state);
+
+    for i in 0..N {
+        state[i + (4 - N)] = unsafe { _mm_xor_si128(state[i + (4 - N)], input[i]) };
+    }
+
+    state
 }
 
 static PSHUFB_SHF_TABLE: Align32<[u32; 60]> = Align32([

@@ -2003,11 +2003,19 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
 
     // TODO gzip
 
-    {
-        if stream.state.wrap == 1 {
-            let adler = stream.adler as u32;
-            stream.state.pending.extend(&adler.to_be_bytes());
-        }
+    if stream.state.wrap == 2 {
+        todo!()
+    //        let crc_fold = std::mem::take(&mut stream.state.crc_fold);
+    //        stream.adler = crc32_fold_final(crc_fold);
+    //
+    //        let adler = stream.adler as u32;
+    //        stream.state.pending.extend(&adler.to_le_bytes());
+    //
+    //        let total_in = stream.total_in as u32;
+    //        stream.state.pending.extend(&total_in.to_le_bytes());
+    } else if stream.state.wrap == 1 {
+        let adler = stream.adler as u32;
+        stream.state.pending.extend(&adler.to_be_bytes());
     }
 
     flush_pending(stream);
