@@ -203,8 +203,6 @@ unsafe fn crc32_fold_help<const COPY: bool>(
 ) {
     let mut xmm_crc_part = _mm_setzero_si128();
 
-    let mut len = src.len();
-
     let mut partial_buf = Align16([0u8; 16]);
     let xmm_initial = _mm_cvtsi32_si128(init_crc as i32);
     let mut first = init_crc != 0;
@@ -229,19 +227,19 @@ unsafe fn crc32_fold_help<const COPY: bool>(
     // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
     // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
     // by definition can be up to 15 bytes + one full vector load. */
-    assert!(len >= 31 || !first);
+    assert!(src.len() >= 31 || !first);
 
     let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.load();
 
-    if len < 16 {
+    if src.len() < 16 {
         if COPY {
-            if len == 0 {
+            if src.len() == 0 {
                 return;
             }
 
-            partial_buf.0[..len].copy_from_slice(src);
+            partial_buf.0[..src.len()].copy_from_slice(src);
             xmm_crc_part = _mm_load_si128(partial_buf.0.as_mut_ptr() as *mut __m128i);
-            dst[..len].copy_from_slice(&partial_buf.0[..len]);
+            dst[..src.len()].copy_from_slice(&partial_buf.0[..src.len()]);
         }
     } else {
         let align_diff = (16 - (src.as_ptr() as usize & 0xF)) & 0xF;
@@ -262,7 +260,6 @@ unsafe fn crc32_fold_help<const COPY: bool>(
 
                     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t0);
                     src = &src[16..];
-                    len -= 16;
                 }
             }
 
@@ -276,7 +273,6 @@ unsafe fn crc32_fold_help<const COPY: bool>(
             );
 
             src = &src[align_diff..];
-            len -= align_diff;
         }
 
         // #ifdef X86_VPCLMULQDQ
@@ -294,11 +290,10 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         //     }
         // #endif
 
-        while len >= 64 {
+        while src.len() >= 64 {
             [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<1, COPY>(
                 &mut &mut dst[..],
                 &mut src,
-                &mut len,
                 [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
                 &mut first,
                 xmm_initial,
@@ -306,29 +301,26 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         }
 
         // len = num bytes left - 64
-        if len >= 3 * 16 {
+        if src.len() >= 3 * 16 {
             [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<3, COPY>(
                 &mut &mut dst[..],
                 &mut src,
-                &mut len,
                 [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
                 &mut first,
                 xmm_initial,
             );
-        } else if len >= 2 * 32 {
+        } else if src.len() >= 2 * 32 {
             [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<2, COPY>(
                 &mut &mut dst[..],
                 &mut src,
-                &mut len,
                 [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
                 &mut first,
                 xmm_initial,
             );
-        } else if len >= 1 * 16 {
+        } else if src.len() >= 1 * 16 {
             [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3] = progress::<1, COPY>(
                 &mut &mut dst[..],
                 &mut src,
-                &mut len,
                 [xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3],
                 &mut first,
                 xmm_initial,
@@ -340,14 +332,18 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         libc::memcpy(
             &mut xmm_crc_part as *mut _ as *mut _,
             src.as_ptr().cast(),
-            len,
+            src.len(),
         );
         if COPY {
             _mm_storeu_si128(partial_buf.0.as_mut_ptr() as *mut __m128i, xmm_crc_part);
-            libc::memcpy(dst.as_mut_ptr().cast(), partial_buf.0.as_ptr().cast(), len);
+            libc::memcpy(
+                dst.as_mut_ptr().cast(),
+                partial_buf.0.as_ptr().cast(),
+                src.len(),
+            );
         }
         partial_fold(
-            len,
+            src.len(),
             &mut xmm_crc0,
             &mut xmm_crc1,
             &mut xmm_crc2,
@@ -395,13 +391,10 @@ fn foo<'inner, 'outer: 'inner>(dst: &'outer mut &'inner mut [u8]) {
 fn progress<'inner, 'outer: 'inner, const N: usize, const COPY: bool>(
     dst: &'outer mut &'inner mut [u8],
     src: &'_ mut &[u8],
-    len: &'_ mut usize,
     state: [__m128i; 4],
     first: &mut bool,
     xmm_initial: __m128i,
 ) -> [__m128i; 4] {
-    *len -= N * 16;
-
     let mut input = [unsafe { _mm_setzero_si128() }; 4];
 
     let src_ptr = src.as_ptr() as *const __m128i;
