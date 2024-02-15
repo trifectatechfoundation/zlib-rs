@@ -17,7 +17,9 @@ fn main() {
             let path = it.next().unwrap();
             let input = std::fs::read(path).unwrap();
 
-            println!("{:#x}", zlib_rs::crc32_pclmulqdq(&input, 0));
+            let mut state = zlib_rs::crc32_pclmulqdq::Crc32Fold::new();
+            state.fold(&input, 0);
+            println!("{:#x}", state.finish());
         }
 
         "crc32fast" => {
@@ -36,11 +38,9 @@ fn main() {
             let mut state = zlib_rs::crc32_pclmulqdq::Crc32Fold::new();
 
             for c in input.chunks(32) {
-                zlib_rs::crc32_pclmulqdq::crc32_fold(&mut state, c, 0);
+                state.fold(c, 0);
             }
-            println!("{:#x}", unsafe {
-                zlib_rs::crc32_pclmulqdq::crc32_fold_final(state)
-            });
+            println!("{:#x}", state.finish());
         }
 
         "crc32fast-chunked" => {

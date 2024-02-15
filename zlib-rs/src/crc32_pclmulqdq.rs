@@ -81,21 +81,11 @@ impl Accumulator {
     };
 
     pub fn new() -> Self {
-        let mut this = Self {
-            fold: [unsafe { _mm_setzero_si128() }; 4],
-        };
+        let xmm_crc0 = unsafe { _mm_cvtsi32_si128(0x9db42487u32 as i32) };
+        let xmm_zero = unsafe { _mm_setzero_si128() };
 
-        this.reset();
-
-        this
-    }
-
-    fn reset(&mut self) {
-        unsafe {
-            let xmm_crc0 = _mm_cvtsi32_si128(0x9db42487u32 as i32);
-            let xmm_zero = _mm_setzero_si128();
-
-            self.fold = [xmm_crc0, xmm_zero, xmm_zero, xmm_zero]
+        Self {
+            fold: [xmm_crc0, xmm_zero, xmm_zero, xmm_zero],
         }
     }
 
@@ -267,10 +257,11 @@ impl Accumulator {
         self.fold[3] = _mm_castps_si128(ps_res);
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn progress<'inner, 'outer: 'inner, const N: usize, const COPY: bool>(
         &mut self,
         dst: &'outer mut &'inner mut [u8],
-        src: &'_ mut &[u8],
+        src: &mut &[u8],
         first: &mut bool,
         xmm_initial: __m128i,
     ) {
@@ -288,12 +279,10 @@ impl Accumulator {
             for i in 0..N {
                 unsafe { _mm_storeu_si128(dst_ptr.add(0), input[i]) };
             }
-            *dst = &mut (*dst)[N * 16..];
-        } else {
-            if *first {
-                *first = false;
-                input[0] = unsafe { _mm_xor_si128(input[0], xmm_initial) };
-            }
+            *dst = &mut dst[N * 16..];
+        } else if *first {
+            *first = false;
+            input[0] = unsafe { _mm_xor_si128(input[0], xmm_initial) };
         }
 
         self.fold_step::<N>();
@@ -361,30 +350,29 @@ impl Accumulator {
                 src = &src[align_diff..];
             }
 
-            if is_x86_feature_detected!("pclmulqdq") {
-                if src.len() >= 256 {
-                    if COPY {
-                        // size_t n = fold_16_vpclmulqdq_copy(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, dst, src, len);
-                        // dst += n;
-                    } else {
-                        // size_t n = fold_16_vpclmulqdq(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, src, len, xmm_initial, first);
-                        // first = false;
-                    }
-                    // len -= n;
-                    // src += n;
-                }
-            }
+            // if is_x86_feature_detected!("pclmulqdq") {
+            //     if src.len() >= 256 {
+            //         if COPY {
+            //             // size_t n = fold_16_vpclmulqdq_copy(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, dst, src, len);
+            //             // dst += n;
+            //         } else {
+            //             // size_t n = fold_16_vpclmulqdq(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, src, len, xmm_initial, first);
+            //             // first = false;
+            //         }
+            //         // len -= n;
+            //         // src += n;
+            //     }
+            // }
 
             while src.len() >= 64 {
-                self.progress::<1, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
+                self.progress::<4, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
             }
 
-            // len = num bytes left - 64
-            if src.len() >= 3 * 16 {
-                self.progress::<3, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
-            } else if src.len() >= 2 * 32 {
+            if src.len() >= 48 {
+                self.progress::<3, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial)
+            } else if src.len() >= 32 {
                 self.progress::<2, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
-            } else if src.len() >= 1 * 16 {
+            } else if src.len() >= 16 {
                 self.progress::<1, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
             }
         }
@@ -414,7 +402,7 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
 
     let mut crc_state = Crc32Fold::new();
     crc_state.fold(buf, start);
-    return crc_state.finish();
+    crc_state.finish()
 }
 
 fn crc32_braid(buf: &[u8], start: u32) -> u32 {
