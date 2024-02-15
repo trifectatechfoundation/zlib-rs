@@ -280,7 +280,7 @@ unsafe fn crc32_fold_help<const COPY: bool>(
                 &mut xmm_crc1,
                 &mut xmm_crc2,
                 &mut xmm_crc3,
-                &mut xmm_crc_part,
+                xmm_crc_part,
             );
 
             src = &src[align_diff..];
@@ -355,7 +355,7 @@ unsafe fn crc32_fold_help<const COPY: bool>(
             &mut xmm_crc1,
             &mut xmm_crc2,
             &mut xmm_crc3,
-            &mut xmm_crc_part,
+            xmm_crc_part,
         );
     }
 
@@ -451,7 +451,7 @@ unsafe fn partial_fold(
     xmm_crc2: &mut __m128i,
     xmm_crc3: &mut __m128i,
 
-    xmm_crc_part: &mut __m128i,
+    xmm_crc_part: __m128i,
 ) {
     let xmm_fold4 = _mm_set_epi32(0x00000001, 0x54442bd4, 0x00000001, 0xc6e41596u32 as i32);
     let xmm_mask3 = _mm_set1_epi32(0x80808080u32 as i32);
@@ -475,8 +475,8 @@ unsafe fn partial_fold(
     *xmm_crc2 = _mm_or_si128(*xmm_crc2, xmm_tmp3);
 
     *xmm_crc3 = _mm_shuffle_epi8(*xmm_crc3, xmm_shr);
-    *xmm_crc_part = _mm_shuffle_epi8(*xmm_crc_part, xmm_shl);
-    *xmm_crc3 = _mm_or_si128(*xmm_crc3, *xmm_crc_part);
+    let xmm_crc_part = _mm_shuffle_epi8(xmm_crc_part, xmm_shl);
+    *xmm_crc3 = _mm_or_si128(*xmm_crc3, xmm_crc_part);
 
     let xmm_a0_1 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x10);
     let xmm_a0_0 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x01);
