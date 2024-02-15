@@ -57,7 +57,7 @@ impl Crc32Fold {
 
     fn finish(self) -> u32 {
         if Self::is_pclmulqdq() {
-            unsafe { crc32_fold_final(self) }
+            unsafe { self.fold.finish() }
         } else {
             self.value
         }
@@ -100,6 +100,89 @@ impl Accumulator {
             self.store([xmm_crc0, xmm_zero, xmm_zero, xmm_zero])
         }
     }
+
+    #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
+    pub unsafe fn finish(mut self) -> u32 {
+        const CRC_MASK: __m128i = unsafe {
+            core::mem::transmute([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32])
+        };
+
+        const CRC_MASK2: __m128i = unsafe {
+            core::mem::transmute([0x00000000u32, 0xFFFFFFFFu32, 0xFFFFFFFFu32, 0xFFFFFFFFu32])
+        };
+
+        const CRC_K: [__m128i; 3] = {
+            let bytes: [u32; 12] = [
+                0xccaa009e, 0x00000000, /* rk1 */
+                0x751997d0, 0x00000001, /* rk2 */
+                0xccaa009e, 0x00000000, /* rk5 */
+                0x63cd6124, 0x00000001, /* rk6 */
+                0xf7011640, 0x00000001, /* rk7 */
+                0xdb710640, 0x00000001, /* rk8 */
+            ];
+
+            unsafe { core::mem::transmute(bytes) }
+        };
+
+        let xmm_mask = CRC_MASK;
+        let xmm_mask2 = CRC_MASK2;
+
+        let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = self.fold;
+
+        /*
+         * k1
+         */
+        let mut crc_fold = CRC_K[0];
+
+        let x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
+        xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
+        xmm_crc1 = _mm_xor_si128(xmm_crc1, x_tmp0);
+        xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_crc0);
+
+        let x_tmp1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x10);
+        xmm_crc1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x01);
+        xmm_crc2 = _mm_xor_si128(xmm_crc2, x_tmp1);
+        xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_crc1);
+
+        let x_tmp2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x10);
+        xmm_crc2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x01);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, x_tmp2);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
+
+        /*
+         * k5
+         */
+        crc_fold = CRC_K[1];
+
+        xmm_crc0 = xmm_crc3;
+        xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
+        xmm_crc0 = _mm_srli_si128(xmm_crc0, 8);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
+
+        xmm_crc0 = xmm_crc3;
+        xmm_crc3 = _mm_slli_si128(xmm_crc3, 4);
+        xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
+        xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask2);
+
+        /*
+         * k7
+         */
+        xmm_crc1 = xmm_crc3;
+        xmm_crc2 = xmm_crc3;
+        crc_fold = CRC_K[2];
+
+        xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
+        xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask);
+
+        xmm_crc2 = xmm_crc3;
+        xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc1);
+
+        !(_mm_extract_epi32(xmm_crc3, 2) as u32)
+    }
 }
 
 pub fn crc32(buf: &[u8], start: u32) -> u32 {
@@ -110,11 +193,8 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
     }
 
     let mut crc_state = Crc32Fold::new();
-
-    unsafe {
-        crc32_fold(&mut crc_state, buf, start);
-        return crc32_fold_final(crc_state);
-    }
+    crc_state.fold(buf, start);
+    return crc_state.finish();
 }
 
 fn crc32_braid(buf: &[u8], start: u32) -> u32 {
@@ -123,91 +203,6 @@ fn crc32_braid(buf: &[u8], start: u32) -> u32 {
 
 pub fn crc32_fold(crc: &mut Crc32Fold, src: &[u8], start: u32) {
     unsafe { crc32_fold_help::<false>(crc, &mut [], src, start) }
-}
-
-#[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
-pub unsafe fn crc32_fold_final(mut crc: Crc32Fold) -> u32 {
-    const CRC_MASK: __m128i = unsafe {
-        core::mem::transmute([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32])
-    };
-
-    const CRC_MASK2: __m128i = unsafe {
-        core::mem::transmute([0x00000000u32, 0xFFFFFFFFu32, 0xFFFFFFFFu32, 0xFFFFFFFFu32])
-    };
-
-    const CRC_K: [__m128i; 3] = {
-        let bytes: [u32; 12] = [
-            0xccaa009e, 0x00000000, /* rk1 */
-            0x751997d0, 0x00000001, /* rk2 */
-            0xccaa009e, 0x00000000, /* rk5 */
-            0x63cd6124, 0x00000001, /* rk6 */
-            0xf7011640, 0x00000001, /* rk7 */
-            0xdb710640, 0x00000001, /* rk8 */
-        ];
-
-        unsafe { core::mem::transmute(bytes) }
-    };
-
-    let xmm_mask = CRC_MASK;
-    let xmm_mask2 = CRC_MASK2;
-
-    let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.fold.load();
-
-    /*
-     * k1
-     */
-    let mut crc_fold = CRC_K[0];
-
-    let x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
-    xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
-    xmm_crc1 = _mm_xor_si128(xmm_crc1, x_tmp0);
-    xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_crc0);
-
-    let x_tmp1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x10);
-    xmm_crc1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x01);
-    xmm_crc2 = _mm_xor_si128(xmm_crc2, x_tmp1);
-    xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_crc1);
-
-    let x_tmp2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x10);
-    xmm_crc2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x01);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, x_tmp2);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-
-    /*
-     * k5
-     */
-    crc_fold = CRC_K[1];
-
-    xmm_crc0 = xmm_crc3;
-    xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
-    xmm_crc0 = _mm_srli_si128(xmm_crc0, 8);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
-
-    xmm_crc0 = xmm_crc3;
-    xmm_crc3 = _mm_slli_si128(xmm_crc3, 4);
-    xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
-    xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask2);
-
-    /*
-     * k7
-     */
-    xmm_crc1 = xmm_crc3;
-    xmm_crc2 = xmm_crc3;
-    crc_fold = CRC_K[2];
-
-    xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-    xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask);
-
-    xmm_crc2 = xmm_crc3;
-    xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc1);
-
-    crc.value = !(_mm_extract_epi32(xmm_crc3, 2) as u32);
-
-    return crc.value;
 }
 
 #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
