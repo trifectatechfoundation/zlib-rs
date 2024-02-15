@@ -2,7 +2,7 @@ mod adler32;
 pub mod allocate;
 pub mod c_api;
 mod crc32;
-mod crc32_pclmulqdq;
+pub mod crc32_pclmulqdq;
 pub mod deflate;
 pub mod inflate;
 mod read_buf;
