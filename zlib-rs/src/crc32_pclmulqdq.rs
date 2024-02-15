@@ -329,18 +329,14 @@ unsafe fn crc32_fold_help<const COPY: bool>(
     }
 
     if !src.is_empty() {
-        libc::memcpy(
-            &mut xmm_crc_part as *mut _ as *mut _,
-            src.as_ptr().cast(),
+        std::ptr::copy_nonoverlapping(
+            src.as_ptr(),
+            &mut xmm_crc_part as *mut _ as *mut u8,
             src.len(),
         );
         if COPY {
             _mm_storeu_si128(partial_buf.0.as_mut_ptr() as *mut __m128i, xmm_crc_part);
-            libc::memcpy(
-                dst.as_mut_ptr().cast(),
-                partial_buf.0.as_ptr().cast(),
-                src.len(),
-            );
+            std::ptr::copy_nonoverlapping(partial_buf.0.as_ptr(), dst.as_mut_ptr(), src.len());
         }
         partial_fold(
             src.len(),
