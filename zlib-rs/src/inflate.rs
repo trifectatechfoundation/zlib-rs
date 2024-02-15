@@ -208,46 +208,39 @@ pub fn uncompress<'a>(
         return (&mut [], err);
     }
 
+    // TODO: what to allocate here?
+    let extra: [u8; 1024] = [0; 1024];
+    let name: [u8; 64] = [0; 64];
+    let comment: [u8; 1024] = [0; 1024];
+
     // Set header
+    // See: https://www.zlib.net/manual.html
     let mut header = GzipHeader {
         text: 0,
         time: 0,
         xflags: 0,
         os: 0,
-        extra: std::ptr::null_mut(),
+
+        extra: extra.as_ptr() as *mut u8,
         extra_len: 0,
-        extra_max: 0,
-        name: std::ptr::null_mut(),
-        name_max: 0,
-        comment: std::ptr::null_mut(),
-        comment_max: 0,
+        extra_max: 1024,
+
+        name: name.as_ptr() as *mut u8,
+        name_max: 64, // How / where should this be set?
+
+        comment: comment.as_ptr() as *mut u8,
+        comment_max: 1024,
+
         hcrc: 0,
         done: 0,
     };
 
-    /*
-    pub text: libc::c_int,
-    pub time: crate::c_api::z_size,
-    pub xflags: libc::c_int,
-    pub os: libc::c_int,
-    pub extra: *mut crate::c_api::Bytef,
-    pub extra_len: crate::c_api::uInt,
-    pub extra_max: crate::c_api::uInt,
-    pub name: *mut crate::c_api::Bytef,
-    pub name_max: crate::c_api::uInt,
-    pub comment: *mut crate::c_api::Bytef,
-    pub comment_max: crate::c_api::uInt,
-    pub hcrc: libc::c_int,
-    pub done: libc::c_int,
-    */
-
-    let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-        unsafe { get_header(stream, &mut header) }
+    // TODO: remove this when done with testing
+    let _err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
+        get_header(stream, &mut header)
     } else {
-        ReturnCode::StreamError
+        panic!("Error set/create the Gzip header");
     };
-
-    println!("{:?}", err);
 
     stream.next_out = dest;
     stream.avail_out = 0;
@@ -273,8 +266,6 @@ pub fn uncompress<'a>(
             break err;
         }
     };
-
-    println!("{:?}", header);
 
     if dest_len != 0 {
         dest_len_ptr = stream.total_out;
@@ -593,7 +584,7 @@ impl<'a> State<'a> {
 
         // Gzip
         //if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
-        // Force gzip header
+        // TODO: Force gzip header
         if self.bit_reader.hold() == 0x8b1f {
             if self.wbits == 0 {
                 self.wbits = 15;
@@ -646,10 +637,8 @@ impl<'a> State<'a> {
     }
 
     fn flags(&mut self) -> ReturnCode {
-        println!("FLAGS");
         need_bits!(self, 16);
         self.flags = self.bit_reader.hold() as i32;
-
 
         // Z_DEFLATED = 8 is the only supported method
         if self.flags & 0xff != Z_DEFLATED as i32 {
@@ -674,9 +663,7 @@ impl<'a> State<'a> {
     }
 
     fn time(&mut self) -> ReturnCode {
-        println!("TIME");
         need_bits!(self, 32);
-
         if let Some(head) = self.head.as_mut()  {
             head.time = self.bit_reader.hold();
         }
@@ -689,9 +676,7 @@ impl<'a> State<'a> {
     }
 
     fn os(&mut self) -> ReturnCode {
-        println!("OS");
         need_bits!(self, 16);
-
         if let Some(head) = self.head.as_mut()  {
             head.xflags = (self.bit_reader.hold() & 0xff) as i32;
             head.os = (self.bit_reader.hold() >> 8) as i32;
@@ -705,8 +690,6 @@ impl<'a> State<'a> {
     }
 
     fn ex_len(&mut self) -> ReturnCode {
-        println!("EXLEN");
-
         if (self.flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
@@ -717,6 +700,7 @@ impl<'a> State<'a> {
             }
 
             // TODO: CRC header check
+
             self.bit_reader.init_bits();
 
         } else if let Some(head) = self.head.as_mut() {
@@ -728,53 +712,49 @@ impl<'a> State<'a> {
     }
 
     fn extra(&mut self) -> ReturnCode {
-        println!("EXTRA");
-
-        println!("flagcheck {:?}", self.flags & 0x0400);
-
-        /*
         if (self.flags & 0x0400) != 0 {
 
             let mut copy = self.length;
-            if copy > self.have {
-                copy = self.have;
+            if copy > self.in_available {
+                copy = self.in_available;
             }
 
-            unsafe {
-                if copy != 0 {
-                    if !self.head.is_none() {
-                        if !self.head.unwrap().extra.is_null() {
-                            if self.head.unwrap().extra_len != 0 && self.head.unwrap().extra_max != 0 {
+            if copy != 0 {
+                if let Some(head) = self.head.as_mut() {
 
-                                let len = self.head.unwrap().extra_len - self.length as u32; // UNSAFE
-                                if len < self.head.unwrap().extra_max {
+                    // If extra is not empty, and extra_len and extra_max are set
+                    if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
 
-                                    let copy_length = self.head.unwrap().extra.add(len as usize); // UNSAFE
+                        let len = (head.extra_len - self.length as u32) as u32;
+                        if len < head.extra_max {
 
-                                    let dest = if len + (copy as u32) > self.head.unwrap().extra_max { // UNSAGE
-                                        self.head.unwrap().extra_max - len
-                                    } else {
-                                        copy as u32 // UNSAGE
-                                    };
+                            let copy_length = unsafe { head.extra.add(len as usize) };
 
-                                    std::ptr::copy_nonoverlapping(next_in, copy_length, dest as usize) // UNSAFE
-                                }
+                            let dest = if len + (copy as u32) > head.extra_max {
+                                head.extra_max - len
+                            } else {
+                                copy as u32
+                            };
+
+                            // TODO: Im not convinced of this, needs more testing
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(self.bit_reader.as_ptr(), copy_length, dest as usize);
                             }
                         }
                     }
-
-                    // TODO: Crc header check
-                    self.have -= copy;
-                    next_in = next_in.add(copy);
-                    self.length -= copy;
                 }
+
+                // TODO: Crc header check
+
+                self.in_available -= copy;
+                self.bit_reader.advance(copy);
+                self.length -= copy;
             }
 
             if self.length == 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
             }
         }
-        */
 
         self.length = 0;
         self.mode = Mode::Name;
@@ -782,43 +762,43 @@ impl<'a> State<'a> {
     }
 
     fn name(&mut self) -> ReturnCode {
-        println!("Name");
+        assert!(self.length == 0);
 
-        let mut copy = 0;
         if (self.flags & 0x0800) != 0 {
-
-            println!("have {:?}", self.in_available);
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
             }
 
+            let mut copy = 0;
             loop {
 
-                let next_byte = self.bit_reader.pull_byte();
-                let len = next_byte.unwrap();
-                println!("len: {:?}", len);
+                // Take a byte
+                // TODO: can this be done in a single line?
+                //
+                // This does not go well after a few pulls:
+                // let next_byte = self.bit_reader.pull_byte();
+                //
+                need_bits!(self, 8);
+                let len = self.bit_reader.hold() as u8;
+                self.bit_reader.init_bits();
 
                 copy += 1;
-
-                   /*
-                    if (state->head != Z_NULL &&
-                            state->head->name != Z_NULL &&
-                            state->length < state->head->name_max)
-                    */
-
-                if len == 1 && copy < self.in_available {
-                    break;
+                if let Some(head) = self.head.as_mut() {
+                    if !head.name.is_null() && self.length < (head.name_max as usize) {
+                        unsafe { *head.name = len; }
+                        head.name = unsafe { head.name.add(1) };
+                        self.length += 1;
+                    }
                 }
 
-                // todo: remove this break
-                //break;
+                if len == 0 || copy >= self.bit_reader.bytes_remaining() {
+                    break;
+                }
             }
 
             // TODO: Crc header check
-            self.in_available -= copy;
-            //self.next += copy;
 
-            if self.in_available == 0 {
+            if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
             }
 
@@ -833,9 +813,58 @@ impl<'a> State<'a> {
 
     // https://github.com/madler/zlib/blob/develop/inflate.c#L1330
     fn comment(&mut self) -> ReturnCode {
-        println!("Comment");
+        assert!(self.length == 0);
 
-        // TODO
+        let mut test = Vec::new();
+        if (self.flags & 0x0100) != 0 {
+
+            if self.in_available == 0 {
+                return self.inflate_leave(ReturnCode::StreamEnd);
+            }
+
+            let mut copy = 0;
+            loop {
+
+                // Take a byte
+                need_bits!(self, 8);
+                let len = self.bit_reader.hold() as u8;
+                self.bit_reader.init_bits();
+
+                println!("len: {:?}", len);
+
+                copy += 1;
+
+                if let Some(head) = self.head.as_mut() {
+                    if !head.comment.is_null() && self.length < (head.comment_max as usize) {
+
+                        println!("Write {:?}", len);
+
+                        test.push(len);
+
+                        unsafe { *head.comment = len; }
+                        head.comment = unsafe { head.comment.add(1) };
+
+                        self.length += 1;
+                    }
+                }
+
+                if len == 0 || copy >= self.bit_reader.bytes_remaining() {
+                    break;
+                }
+            }
+
+            // TODO: Crc header check
+
+            if self.bit_reader.bytes_remaining() == 0 {
+                return self.inflate_leave(ReturnCode::StreamEnd);
+            }
+
+        } else if let Some(head) = self.head.as_mut() {
+            head.comment = std::ptr::null_mut();
+        }
+
+        let s = String::from_utf8(test).expect("Found invalid UTF-8");
+        println!("Test: {:?}", s);
 
         self.mode = Mode::HCrc;
         self.hcrc()
@@ -844,18 +873,17 @@ impl<'a> State<'a> {
     fn hcrc(&mut self) -> ReturnCode {
         println!("hcrc");
 
-        /*
         if (self.flags & 0x0200) != 0 {
             need_bits!(self, 16);
 
-            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.check() & 0xffff) {
-                self.mode = Mode::Bad;
-                return self.bad("header crc mismatch\0");
-            }
+            // TODO: CRC check
+            //if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.check() & 0xffff) {
+            //    self.mode = Mode::Bad;
+            //    return self.bad("header crc mismatch\0");
+            //}
 
             self.bit_reader.init_bits();
         }
-        */
 
         if let Some(head) = self.head.as_mut() {
             head.hcrc = (self.flags >> 9) & 1;
@@ -2189,7 +2217,6 @@ pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeade
     // state check
     println!("headercheck: {:?}", stream.state.wrap);
 
-    // Ignore for now
     //if (stream.state.wrap & 2) == 0 {
     //    return ReturnCode::StreamError;
     //}
