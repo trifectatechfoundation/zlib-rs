@@ -16,8 +16,7 @@ struct Align32<T>(T);
 
 #[derive(Debug)]
 pub struct Crc32Fold {
-    #[cfg(target_arch = "x86_64")]
-    fold: [__m128i; 4],
+    fold: Accumulator,
     value: u32,
 }
 
@@ -25,32 +24,11 @@ impl Crc32Fold {
     pub fn new() -> Self {
         let mut this = Self {
             #[cfg(target_arch = "x86_64")]
-            fold: [unsafe { _mm_setzero_si128() }; 4],
+            fold: Accumulator::new(),
             value: Default::default(),
         };
 
-        #[cfg(target_arch = "x86_64")]
-        this.reset();
-
         this
-    }
-
-    fn load(&self) -> [__m128i; 4] {
-        self.fold
-    }
-
-    fn store(&mut self, fold: [__m128i; 4]) {
-        self.fold = fold;
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn reset(&mut self) {
-        unsafe {
-            let xmm_crc0 = _mm_cvtsi32_si128(0x9db42487u32 as i32);
-            let xmm_zero = _mm_setzero_si128();
-
-            self.store([xmm_crc0, xmm_zero, xmm_zero, xmm_zero])
-        }
     }
 
     fn is_pclmulqdq() -> bool {
@@ -82,6 +60,44 @@ impl Crc32Fold {
             unsafe { crc32_fold_final(self) }
         } else {
             self.value
+        }
+    }
+}
+
+#[derive(Debug)]
+#[cfg(target_arch = "x86_64")]
+struct Accumulator {
+    fold: [__m128i; 4],
+}
+
+impl Accumulator {
+    pub fn new() -> Self {
+        let mut this = Self {
+            #[cfg(target_arch = "x86_64")]
+            fold: [unsafe { _mm_setzero_si128() }; 4],
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        this.reset();
+
+        this
+    }
+
+    fn load(&self) -> [__m128i; 4] {
+        self.fold
+    }
+
+    fn store(&mut self, fold: [__m128i; 4]) {
+        self.fold = fold;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn reset(&mut self) {
+        unsafe {
+            let xmm_crc0 = _mm_cvtsi32_si128(0x9db42487u32 as i32);
+            let xmm_zero = _mm_setzero_si128();
+
+            self.store([xmm_crc0, xmm_zero, xmm_zero, xmm_zero])
         }
     }
 }
@@ -135,7 +151,7 @@ pub unsafe fn crc32_fold_final(mut crc: Crc32Fold) -> u32 {
     let xmm_mask = CRC_MASK;
     let xmm_mask2 = CRC_MASK2;
 
-    let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.load();
+    let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.fold.load();
 
     /*
      * k1
@@ -229,7 +245,7 @@ unsafe fn crc32_fold_help<const COPY: bool>(
     // by definition can be up to 15 bytes + one full vector load. */
     assert!(src.len() >= 31 || !first);
 
-    let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.load();
+    let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = crc.fold.load();
 
     if src.len() < 16 {
         if COPY {
@@ -348,7 +364,7 @@ unsafe fn crc32_fold_help<const COPY: bool>(
         );
     }
 
-    crc.store([xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3])
+    crc.fold.store([xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3])
 }
 
 const XMM_FOLD4: __m128i = {
@@ -374,14 +390,6 @@ fn fold<const N: usize>(input: [__m128i; 4]) -> [__m128i; 4] {
         Some(v) => *v,
         None => unsafe { step(input[(i + N) - 4]) },
     })
-}
-
-fn bar<'a>(dst: &'a mut [u8]) {
-    foo(&mut &mut dst[..]);
-}
-
-fn foo<'inner, 'outer: 'inner>(dst: &'outer mut &'inner mut [u8]) {
-    *dst = dst.get_mut(16..).unwrap()
 }
 
 fn progress<'inner, 'outer: 'inner, const N: usize, const COPY: bool>(
