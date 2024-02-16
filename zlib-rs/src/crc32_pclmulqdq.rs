@@ -17,6 +17,7 @@ struct Align32<T>(T);
 
 #[derive(Debug)]
 pub struct Crc32Fold {
+    #[cfg(target_arch = "x86_64")]
     fold: Accumulator,
     value: u32,
 }
@@ -419,46 +420,38 @@ fn crc32_braid(buf: &[u8], start: u32) -> u32 {
 mod test {
     use super::*;
 
-    #[test]
-    fn long_enough() {
-        let v = std::iter::repeat(0..255)
-            .take(4)
-            .flatten()
-            .take(128)
-            .collect::<Vec<_>>();
-        let start = 0;
+    const INPUT: [u8; 1024] = {
+        let mut array = [0; 1024];
+        let mut i = 0;
+        while i < array.len() {
+            array[i] = i as u8;
+            i += 1;
+        }
 
-        let mut h = crc32fast::Hasher::new_with_initial(start);
-        h.update(&v[..]);
-        let a = unsafe { load_dynamic_libz_ng::crc32(0, v.as_ptr(), v.len()) };
-        assert_eq!(crc32(&v[..], start), h.finalize());
-        let b = crc32(&v[..], start);
-        assert_eq!(a, b)
+        array
+    };
+
+    #[test]
+    fn test_crc32_fold() {
+        // input large enought to trigger the SIMD
+        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+        h.update(&INPUT);
+        assert_eq!(crc32(&INPUT, CRC32_INITIAL_VALUE), h.finalize());
     }
 
     #[test]
-    fn long_enough_x() {
-        let v = std::iter::repeat(0..255)
-            .take(4)
-            .flatten()
-            .take(128)
-            .collect::<Vec<_>>();
-        let start = 0;
+    fn test_crc32_fold_copy() {
+        // input large enought to trigger the SIMD
+        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+        h.update(&INPUT);
+        let mut dst = [0; INPUT.len()];
+        assert_eq!(crc32_copy(&mut dst, &INPUT), h.finalize());
 
-        let mut h = crc32fast::Hasher::new_with_initial(start);
-        h.update(&v[..]);
-        let a = h.finalize();
-
-        let mut dst = vec![0; v.len()];
-        let b = crc32_copy(&mut dst, &v);
-
-        assert_eq!(a, b);
-
-        assert_eq!(v, dst);
+        assert_eq!(INPUT, dst);
     }
 
     quickcheck::quickcheck! {
-        fn crc_sse_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
+        fn crc_fold_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v);
 
@@ -468,7 +461,7 @@ mod test {
             a == b
         }
 
-        fn crc_sse_copy_is_crc32fast(v: Vec<u8>) -> bool {
+        fn crc_fold_copy_is_crc32fast(v: Vec<u8>) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
             h.update(&v);
 
