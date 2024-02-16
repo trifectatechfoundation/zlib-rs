@@ -198,7 +198,7 @@ impl Accumulator {
         init_crc: &mut u32,
     ) -> usize {
         let mut it = src.chunks_exact(16);
-        let mut input: [_; 4] = std::array::from_fn(|_| unsafe {
+        let mut input: [_; N] = std::array::from_fn(|_| unsafe {
             _mm_load_si128(it.next().unwrap().as_ptr() as *const __m128i)
         });
 
