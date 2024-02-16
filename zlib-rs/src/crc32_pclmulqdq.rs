@@ -1,10 +1,11 @@
 use core::arch::x86_64::__m128i;
 use std::arch::x86_64::{
-    _mm_and_si128, _mm_castps_si128, _mm_castsi128_ps, _mm_clmulepi64_si128, _mm_cvtsi32_si128,
-    _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128, _mm_or_si128, _mm_set1_epi32,
-    _mm_set_epi32, _mm_setzero_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128,
-    _mm_storeu_si128, _mm_xor_ps, _mm_xor_si128,
+    _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128,
+    _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128, _mm_storeu_si128,
+    _mm_xor_si128,
 };
+
+const CRC32_INITIAL_VALUE: u32 = 0;
 
 #[derive(Debug)]
 #[repr(C, align(16))]
@@ -81,7 +82,7 @@ struct Accumulator {
 impl Accumulator {
     const XMM_FOLD4: __m128i = reg([0xc6e41596u32, 0x00000001u32, 0x54442bd4u32, 0x00000001u32]);
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         let xmm_crc0 = reg([0x9db42487, 0, 0, 0]);
         let xmm_zero = reg([0, 0, 0, 0]);
 
@@ -95,12 +96,13 @@ impl Accumulator {
     }
 
     fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
-        unsafe { self.fold_help::<false>(dst, src, 0) }
+        unsafe { self.fold_help::<true>(dst, src, 0) }
     }
 
     #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
     pub unsafe fn finish(self) -> u32 {
-        const CRC_MASK: __m128i = reg([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32]);
+        const CRC_MASK1: __m128i =
+            reg([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32]);
 
         const CRC_MASK2: __m128i =
             reg([0x00000000u32, 0xFFFFFFFFu32, 0xFFFFFFFFu32, 0xFFFFFFFFu32]);
@@ -119,9 +121,6 @@ impl Accumulator {
             0xf7011640, 0x00000001, /* rk7 */
             0xdb710640, 0x00000001, /* rk8 */
         ]);
-
-        let xmm_mask = CRC_MASK;
-        let xmm_mask2 = CRC_MASK2;
 
         let [mut xmm_crc0, mut xmm_crc1, mut xmm_crc2, mut xmm_crc3] = self.fold;
 
@@ -159,7 +158,7 @@ impl Accumulator {
         xmm_crc3 = _mm_slli_si128(xmm_crc3, 4);
         xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
-        xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask2);
+        xmm_crc3 = _mm_and_si128(xmm_crc3, CRC_MASK2);
 
         /*
          * k7
@@ -170,7 +169,7 @@ impl Accumulator {
 
         xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-        xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask);
+        xmm_crc3 = _mm_and_si128(xmm_crc3, CRC_MASK1);
 
         xmm_crc2 = xmm_crc3;
         xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
@@ -181,22 +180,18 @@ impl Accumulator {
     }
 
     fn fold_step<const N: usize>(&mut self) {
-        let input = self.fold;
-        self.fold = std::array::from_fn(|i| match input.get(i + N) {
+        self.fold = std::array::from_fn(|i| match self.fold.get(i + N) {
             Some(v) => *v,
-            None => unsafe { Self::step(input[(i + N) - 4]) },
+            None => unsafe { Self::step(self.fold[(i + N) - 4]) },
         });
     }
 
     #[inline(always)]
     unsafe fn step(input: __m128i) -> __m128i {
-        let tmp1 = _mm_clmulepi64_si128(input, Self::XMM_FOLD4, 0x01);
-        let tmp2 = _mm_clmulepi64_si128(input, Self::XMM_FOLD4, 0x10);
-        let ps_crc0 = _mm_castsi128_ps(tmp1);
-        let ps_crc3 = _mm_castsi128_ps(tmp2);
-        let ps_res = _mm_xor_ps(ps_crc0, ps_crc3);
-
-        _mm_castps_si128(ps_res)
+        _mm_xor_si128(
+            _mm_clmulepi64_si128(input, Self::XMM_FOLD4, 0x01),
+            _mm_clmulepi64_si128(input, Self::XMM_FOLD4, 0x10),
+        )
     }
 
     unsafe fn partial_fold(&mut self, xmm_crc_part: __m128i, len: usize) {
@@ -218,14 +213,10 @@ impl Accumulator {
             reg([0x0201008f, 0x06050403, 0x0a090807, 0x0e0d0c0b]), /* shl  1 (16 -15)/shr15*/
         ];
 
-        let xmm_fold4 = reg([0xc6e41596, 0x00000001, 0x54442bd4, 0x00000001]);
-        let xmm_mask3 = reg([0x80808080u32; 4]);
-
         let xmm_shl = PSHUFB_SHF_TABLE[len - 1];
-        let mut xmm_shr = xmm_shl;
-        xmm_shr = _mm_xor_si128(xmm_shr, xmm_mask3);
+        let xmm_shr = _mm_xor_si128(xmm_shl, reg([0x80808080u32; 4]));
 
-        let xmm_a0_0 = _mm_shuffle_epi8(self.fold[0], xmm_shl);
+        let xmm_a0 = Self::step(_mm_shuffle_epi8(self.fold[0], xmm_shl));
 
         self.fold[0] = _mm_shuffle_epi8(self.fold[0], xmm_shr);
         let xmm_tmp1 = _mm_shuffle_epi8(self.fold[1], xmm_shl);
@@ -243,51 +234,47 @@ impl Accumulator {
         let xmm_crc_part = _mm_shuffle_epi8(xmm_crc_part, xmm_shl);
         self.fold[3] = _mm_or_si128(self.fold[3], xmm_crc_part);
 
-        let xmm_a0_1 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x10);
-        let xmm_a0_0 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x01);
-
-        let ps_crc3 = _mm_castsi128_ps(self.fold[3]);
-        let psa0_0 = _mm_castsi128_ps(xmm_a0_0);
-        let psa0_1 = _mm_castsi128_ps(xmm_a0_1);
-
-        let ps_res = _mm_xor_ps(ps_crc3, psa0_0);
-        let ps_res = _mm_xor_ps(ps_res, psa0_1);
-
-        self.fold[3] = _mm_castps_si128(ps_res);
+        // zlib-ng uses casts and a floating-point xor instruction here. There is a theory that
+        // this breaks dependency chains on some CPUs and gives better throughput. Other sources
+        // claim that casting between integer and float has a cost and should be avoided. We can't
+        // measure the difference, and choose the shorter code.
+        self.fold[3] = _mm_xor_si128(self.fold[3], xmm_a0)
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn progress<'inner, 'outer: 'inner, const N: usize, const COPY: bool>(
+    fn progress<const N: usize, const COPY: bool>(
         &mut self,
-        dst: &'outer mut &'inner mut [u8],
+        dst: &mut [u8],
         src: &mut &[u8],
-        first: &mut bool,
-        xmm_initial: __m128i,
-    ) {
-        let mut input = [reg([0; 4]); 4];
-
-        let src_ptr = src.as_ptr() as *const __m128i;
-        for i in 0..N {
-            input[i] = unsafe { _mm_load_si128(src_ptr.add(i)) };
-        }
+        init_crc: &mut u32,
+    ) -> usize {
+        let mut it = src.chunks_exact(16);
+        let mut input: [_; 4] = std::array::from_fn(|_| unsafe {
+            _mm_load_si128(it.next().unwrap().as_ptr() as *const __m128i)
+        });
 
         *src = &src[N * 16..];
 
         if COPY {
-            let dst_ptr = dst.as_mut_ptr() as *mut __m128i;
-            for i in 0..N {
-                unsafe { _mm_storeu_si128(dst_ptr.add(0), input[i]) };
+            for (s, d) in input[..N].iter().zip(dst.chunks_exact(16)) {
+                unsafe { _mm_storeu_si128(d.as_ptr() as *mut __m128i, *s) };
             }
-            *dst = &mut dst[N * 16..];
-        } else if *first {
-            *first = false;
+        } else if *init_crc != CRC32_INITIAL_VALUE {
+            let xmm_initial = reg([*init_crc, 0, 0, 0]);
             input[0] = unsafe { _mm_xor_si128(input[0], xmm_initial) };
+            *init_crc = CRC32_INITIAL_VALUE;
         }
 
         self.fold_step::<N>();
 
         for i in 0..N {
             self.fold[i + (4 - N)] = unsafe { _mm_xor_si128(self.fold[i + (4 - N)], input[i]) };
+        }
+
+        if COPY {
+            N * 16
+        } else {
+            0
         }
     }
 
@@ -296,19 +283,21 @@ impl Accumulator {
         &mut self,
         mut dst: &mut [u8],
         mut src: &[u8],
-        init_crc: u32,
+        mut init_crc: u32,
     ) {
         let mut xmm_crc_part = reg([0; 4]);
 
         let mut partial_buf = Align16([0u8; 16]);
-        let xmm_initial = reg([init_crc, 0, 0, 0]);
-        let mut first = init_crc != 0;
 
         // Technically the CRC functions don't even call this for input < 64, but a bare minimum of 31
         // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
         // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
         // by definition can be up to 15 bytes + one full vector load. */
-        assert!(src.len() >= 31 || !first);
+        assert!(src.len() >= 31 || init_crc != CRC32_INITIAL_VALUE);
+
+        if COPY {
+            assert_eq!(dst.len(), src.len(), "dst and src must be the same length")
+        }
 
         if src.len() < 16 {
             if COPY {
@@ -328,12 +317,13 @@ impl Accumulator {
                     _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, xmm_crc_part);
                     dst = &mut dst[align_diff..];
                 } else {
-                    if first {
-                        first = false;
+                    if init_crc != CRC32_INITIAL_VALUE {
+                        let xmm_initial = reg([init_crc, 0, 0, 0]);
                         xmm_crc_part = _mm_xor_si128(xmm_crc_part, xmm_initial);
+                        init_crc = CRC32_INITIAL_VALUE;
                     }
 
-                    if align_diff < 4 && init_crc != 0 {
+                    if align_diff < 4 && init_crc != CRC32_INITIAL_VALUE {
                         let xmm_t0 = xmm_crc_part;
                         xmm_crc_part = _mm_loadu_si128((src.as_ptr() as *const __m128i).add(1));
 
@@ -349,7 +339,7 @@ impl Accumulator {
                 src = &src[align_diff..];
             }
 
-            // if is_x86_feature_detected!("pclmulqdq") {
+            // if is_x86_feature_detected!("vpclmulqdq") {
             //     if src.len() >= 256 {
             //         if COPY {
             //             // size_t n = fold_16_vpclmulqdq_copy(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, dst, src, len);
@@ -364,15 +354,19 @@ impl Accumulator {
             // }
 
             while src.len() >= 64 {
-                self.progress::<4, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
+                let n = self.progress::<4, COPY>(dst, &mut src, &mut init_crc);
+                dst = &mut dst[n..];
             }
 
             if src.len() >= 48 {
-                self.progress::<3, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial)
+                let n = self.progress::<3, COPY>(dst, &mut src, &mut init_crc);
+                dst = &mut dst[n..];
             } else if src.len() >= 32 {
-                self.progress::<2, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
+                let n = self.progress::<2, COPY>(dst, &mut src, &mut init_crc);
+                dst = &mut dst[n..];
             } else if src.len() >= 16 {
-                self.progress::<1, COPY>(&mut &mut dst[..], &mut src, &mut first, xmm_initial);
+                let n = self.progress::<1, COPY>(dst, &mut src, &mut init_crc);
+                dst = &mut dst[n..];
             }
         }
 
@@ -404,6 +398,19 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
     crc_state.finish()
 }
 
+pub fn crc32_copy(dst: &mut [u8], buf: &[u8]) -> u32 {
+    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
+     * these short lengths might also prove to be effective */
+    if buf.len() < 64 {
+        dst.copy_from_slice(buf);
+        return crc32_braid(buf, CRC32_INITIAL_VALUE);
+    }
+
+    let mut crc_state = Crc32Fold::new();
+    crc_state.fold_copy(dst, buf);
+    crc_state.finish()
+}
+
 fn crc32_braid(buf: &[u8], start: u32) -> u32 {
     crate::crc32::crc32_braid::<5>(buf, start)
 }
@@ -429,24 +436,50 @@ mod test {
         assert_eq!(a, b)
     }
 
+    #[test]
+    fn long_enough_x() {
+        let v = std::iter::repeat(0..255)
+            .take(4)
+            .flatten()
+            .take(128)
+            .collect::<Vec<_>>();
+        let start = 0;
+
+        let mut h = crc32fast::Hasher::new_with_initial(start);
+        h.update(&v[..]);
+        let a = h.finalize();
+
+        let mut dst = vec![0; v.len()];
+        let b = crc32_copy(&mut dst, &v);
+
+        assert_eq!(a, b);
+
+        assert_eq!(v, dst);
+    }
+
     quickcheck::quickcheck! {
         fn crc_sse_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
-            let mut v = v.clone();
-            let n = v.len();
-            v.extend([0; 512]);
+            h.update(&v);
 
-            h.update(&v[..n]);
-
-            let a = crc32(&v[..n], start) ;
+            let a = crc32(&v, start) ;
             let b = h.finalize();
-
-            if a != b {
-                dbg!(a,b);
-            }
 
             a == b
         }
 
+        fn crc_sse_copy_is_crc32fast(v: Vec<u8>) -> bool {
+            let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+            h.update(&v);
+
+            let mut dst = vec![0; v.len()];
+
+            let a = crc32_copy(&mut dst, &v) ;
+            let b = h.finalize();
+
+            assert_eq!(a,b);
+
+            v == dst
+        }
     }
 }
