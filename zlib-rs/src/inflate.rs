@@ -209,9 +209,9 @@ pub fn uncompress<'a>(
     }
 
     // TODO: what to allocate here?
-    let extra: [u8; 1024] = [0; 1024];
+    let extra: [u8; 64] = [0; 64];
     let name: [u8; 64] = [0; 64];
-    let comment: [u8; 1024] = [0; 1024];
+    let comment: [u8; 64] = [0; 64];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -220,17 +220,13 @@ pub fn uncompress<'a>(
         time: 0,
         xflags: 0,
         os: 0,
-
         extra: extra.as_ptr() as *mut u8,
         extra_len: 0,
-        extra_max: 1024,
-
+        extra_max: 64,
         name: name.as_ptr() as *mut u8,
         name_max: 64, // How / where should this be set?
-
         comment: comment.as_ptr() as *mut u8,
-        comment_max: 1024,
-
+        comment_max: 64,
         hcrc: 0,
         done: 0,
     };
@@ -694,7 +690,6 @@ impl<'a> State<'a> {
             need_bits!(self, 16);
 
             self.length = self.bit_reader.hold() as usize;
-
             if let Some(head) = self.head.as_mut()  {
                 head.extra_len = self.bit_reader.hold() as u32;
             }
@@ -729,7 +724,6 @@ impl<'a> State<'a> {
                         if len < head.extra_max {
 
                             let copy_length = unsafe { head.extra.add(len as usize) };
-
                             let dest = if len + (copy as u32) > head.extra_max {
                                 head.extra_max - len
                             } else {
@@ -738,7 +732,11 @@ impl<'a> State<'a> {
 
                             // TODO: Im not convinced of this, needs more testing
                             unsafe {
-                                std::ptr::copy_nonoverlapping(self.bit_reader.as_ptr(), copy_length, dest as usize);
+                                std::ptr::copy_nonoverlapping(
+                                    self.bit_reader.as_ptr(),
+                                    copy_length,
+                                    dest as usize
+                                );
                             }
                         }
                     }
@@ -751,7 +749,7 @@ impl<'a> State<'a> {
                 self.length -= copy;
             }
 
-            if self.length == 0 {
+            if self.length != 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
             }
         }
@@ -815,7 +813,6 @@ impl<'a> State<'a> {
     fn comment(&mut self) -> ReturnCode {
         assert!(self.length == 0);
 
-        let mut test = Vec::new();
         if (self.flags & 0x0100) != 0 {
 
             if self.in_available == 0 {
@@ -830,20 +827,11 @@ impl<'a> State<'a> {
                 let len = self.bit_reader.hold() as u8;
                 self.bit_reader.init_bits();
 
-                println!("len: {:?}", len);
-
                 copy += 1;
-
                 if let Some(head) = self.head.as_mut() {
                     if !head.comment.is_null() && self.length < (head.comment_max as usize) {
-
-                        println!("Write {:?}", len);
-
-                        test.push(len);
-
                         unsafe { *head.comment = len; }
                         head.comment = unsafe { head.comment.add(1) };
-
                         self.length += 1;
                     }
                 }
@@ -863,16 +851,11 @@ impl<'a> State<'a> {
             head.comment = std::ptr::null_mut();
         }
 
-        let s = String::from_utf8(test).expect("Found invalid UTF-8");
-        println!("Test: {:?}", s);
-
         self.mode = Mode::HCrc;
         self.hcrc()
     }
 
     fn hcrc(&mut self) -> ReturnCode {
-        println!("hcrc");
-
         if (self.flags & 0x0200) != 0 {
             need_bits!(self, 16);
 
@@ -892,8 +875,6 @@ impl<'a> State<'a> {
 
         // TODO: Finish CRC header check
 
-        println!("{:?}", self.head);
-
         self.mode = Mode::Type;
         self.type_()
     }
@@ -906,15 +887,17 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
+            // TODO gzip
+            /*
             if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
                 self.checksum = adler32(self.checksum, self.writer.filled());
             }
 
-            // TODO gzip
             if self.wrap & 4 != 0 && zswap32(self.bit_reader.hold() as u32) != self.checksum {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
             }
+            */
 
             self.bit_reader.init_bits();
         }
@@ -2214,9 +2197,7 @@ fn init_window<'a>(
 
 pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeader) -> ReturnCode {
 
-    // state check
-    println!("headercheck: {:?}", stream.state.wrap);
-
+    // TODO Why does this always fail?
     //if (stream.state.wrap & 2) == 0 {
     //    return ReturnCode::StreamError;
     //}
