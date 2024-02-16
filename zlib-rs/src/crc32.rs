@@ -115,9 +115,11 @@ mod test {
     fn test_crc32_fold_align() {
         // SIMD algorithm is sensitive to alignment;
         for i in 0..16 {
-            let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-            h.update(&INPUT[i..]);
-            assert_eq!(crc32(&INPUT[i..], CRC32_INITIAL_VALUE), h.finalize());
+            for start in [CRC32_INITIAL_VALUE, 42] {
+                let mut h = crc32fast::Hasher::new_with_initial(start);
+                h.update(&INPUT[i..]);
+                assert_eq!(crc32(&INPUT[i..], start), h.finalize());
+            }
         }
     }
 
