@@ -1,14 +1,12 @@
 mod adler32;
 pub mod allocate;
 pub mod c_api;
-mod crc32;
-pub mod crc32_pclmulqdq;
+pub mod crc32;
 pub mod deflate;
 pub mod inflate;
 mod read_buf;
 
-pub use crc32::crc32_braid as crc32_generic;
-pub use crc32_pclmulqdq::crc32 as crc32_pclmulqdq;
+pub use crc32::crc32;
 
 #[macro_export]
 macro_rules! trace {
@@ -36,8 +34,7 @@ pub(crate) const ENOUGH_DISTS: usize = 592;
 /// initial adler-32 hash value
 pub(crate) const ADLER32_INITIAL_VALUE: usize = 1;
 /// initial crc-32 hash value
-#[allow(unused)]
-pub(crate) const CRC32_INITIAL_VALUE: usize = 0;
+pub(crate) const CRC32_INITIAL_VALUE: u32 = 0;
 
 pub const MIN_WBITS: i32 = 8; // 256b LZ77 window
 pub const MAX_WBITS: i32 = 15; // 32kb LZ77 window
