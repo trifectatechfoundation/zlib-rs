@@ -1,7 +1,5 @@
 //! a binary just so we can look at the optimized assembly
 
-mod crc32_bench;
-
 use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 
 use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};

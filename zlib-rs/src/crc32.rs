@@ -1,170 +1,150 @@
-// Several implementations of CRC-32:
-// * A naive byte-granularity approach
-// * A word-sized approach that processes a usize word at a time
-// * A "braid" implementation that processes a block of N words
-//   at a time, based on the algorithm in section 4.11 from
-//   https://github.com/zlib-ng/zlib-ng/blob/develop/doc/crc-doc.1.0.pdf.
+use crate::CRC32_INITIAL_VALUE;
 
-// The binary encoding of the CRC-32 polynomial.
-// We are assuming little-endianness so we process the input
-// LSB-first. We need to use the "reversed" value from e.g
-// https://en.wikipedia.org/wiki/Cyclic_redundancy_check#Polynomial_representations.
-const CRC32_LSB_POLY: usize = 0xedb8_8320usize;
+mod braid;
+mod pclmulqdq;
 
-const W: usize = core::mem::size_of::<usize>();
-
-// The logic assumes that W >= sizeof(u32).
-// In Rust, this is generally true.
-const _: () = assert!(W >= core::mem::size_of::<u32>());
-
-// Pre-computed tables for the CRC32 algorithm.
-// CRC32_BYTE_TABLE corresponds to MulByXPowD from the paper.
-static CRC32_BYTE_TABLE: [[u32; 256]; 1] = build_crc32_table::<256, 1, 1>();
-// CRC32_WORD_TABLE is MulWordByXpowD.
-static CRC32_WORD_TABLE: [[u32; 256]; W] = build_crc32_table::<256, W, 1>();
-
-// Work-around for not being able to define generic consts or statics
-// Crc32BraidTable::<N>::TABLE is the generic table for any braid size N.
-struct Crc32BraidTable<const N: usize>;
-
-impl<const N: usize> Crc32BraidTable<N> {
-    const TABLE: [[u32; 256]; W] = build_crc32_table::<256, W, N>();
-}
-
-// Build the CRC32 tables using a more efficient and simpler approach
-// than the combination of Multiply and XpowN (which implement polynomial
-// multiplication and exponentiation, respectively) from the paper,
-// but with identical results. This function is const, so it should be
-// fully evaluated at compile time.
-const fn build_crc32_table<const A: usize, const W: usize, const N: usize>() -> [[u32; A]; W] {
-    let mut arr = [[0u32; A]; W];
-    let mut i = 0;
-    while i < W {
-        let mut j = 0;
-        while j < A {
-            let mut c = j;
-            let mut k = 0;
-            while k < 8 * (W * N - i) {
-                if c & 1 != 0 {
-                    c = CRC32_LSB_POLY ^ (c >> 1);
-                } else {
-                    c >>= 1;
-                }
-                k += 1;
-            }
-            arr[i][j] = c as u32;
-            j += 1;
-        }
-        i += 1;
+pub fn crc32(buf: &[u8], start: u32) -> u32 {
+    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
+     * these short lengths might also prove to be effective */
+    if buf.len() < 64 {
+        return braid::crc32_braid::<5>(buf, start);
     }
-    arr
-}
 
-fn crc32_naive_inner(data: &[u8], start: u32) -> u32 {
-    data.iter().fold(start, |crc, val| {
-        let crc32_lsb = crc.to_le_bytes()[0];
-        CRC32_BYTE_TABLE[0][usize::from(crc32_lsb ^ *val)] ^ (crc >> 8)
-    })
-}
-
-fn crc32_words_inner(words: &[usize], start: u32, per_word_crcs: &[u32]) -> u32 {
-    words.iter().enumerate().fold(start, |crc, (i, word)| {
-        let value = *word ^ (crc ^ per_word_crcs.get(i).unwrap_or(&0)) as usize;
-        value
-            .to_le_bytes()
-            .into_iter()
-            .zip(CRC32_WORD_TABLE)
-            .fold(0u32, |crc, (b, tab)| crc ^ tab[usize::from(b)])
-    })
+    let mut crc_state = Crc32Fold::new();
+    crc_state.fold(buf, start);
+    crc_state.finish()
 }
 
 #[allow(unused)]
-pub fn crc32_braid<const N: usize>(data: &[u8], start: u32) -> u32 {
-    // Get a word-aligned sub-slice of the input data
-    let (prefix, words, suffix) = unsafe { data.align_to::<usize>() };
-    let crc = !start;
-    let crc = crc32_naive_inner(prefix, crc);
+pub fn crc32_copy(dst: &mut [u8], buf: &[u8]) -> u32 {
+    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
+     * these short lengths might also prove to be effective */
+    if buf.len() < 64 {
+        dst.copy_from_slice(buf);
+        return braid::crc32_braid::<5>(buf, CRC32_INITIAL_VALUE);
+    }
 
-    let mut crcs = [0u32; N];
-    crcs[0] = crc;
+    let mut crc_state = Crc32Fold::new();
+    crc_state.fold_copy(dst, buf);
+    crc_state.finish()
+}
 
-    // TODO: this would normally use words.chunks_exact(N), but
-    // we need to pass the last full block to crc32_words_inner
-    // because we accumulate partial crcs in the array and we
-    // need to roll those into the final value. The last call to
-    // crc32_words_inner does that for us with its per_word_crcs
-    // argument.
-    let blocks = words.len() / N;
-    let blocks = blocks.saturating_sub(1);
-    for i in 0..blocks {
-        // Load the next N words.
-        let mut buffer: [usize; N] =
-            core::array::from_fn(|j| usize::to_le(words[i * N + j] ^ (crcs[j] as usize)));
+#[derive(Debug)]
+pub struct Crc32Fold {
+    #[cfg(target_arch = "x86_64")]
+    fold: pclmulqdq::Accumulator,
+    value: u32,
+}
 
-        crcs.fill(0);
-        for j in 0..W {
-            for k in 0..N {
-                crcs[k] ^= Crc32BraidTable::<N>::TABLE[j][buffer[k] & 0xff];
-                buffer[k] >>= 8;
-            }
+impl Default for Crc32Fold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Crc32Fold {
+    pub const fn new() -> Self {
+        Self {
+            #[cfg(target_arch = "x86_64")]
+            fold: pclmulqdq::Accumulator::new(),
+            value: 0,
         }
     }
 
-    let crc = core::mem::take(&mut crcs[0]);
-    let crc = crc32_words_inner(&words[blocks * N..], crc, &crcs);
-    let crc = crc32_naive_inner(suffix, crc);
-    !crc
+    #[cfg(target_arch = "x86_64")]
+    fn is_pclmulqdq() -> bool {
+        is_x86_feature_detected!("pclmulqdq")
+            && is_x86_feature_detected!("sse2")
+            && is_x86_feature_detected!("sse4.1")
+    }
+
+    pub fn fold(&mut self, src: &[u8], start: u32) {
+        #[cfg(target_arch = "x86_64")]
+        if Self::is_pclmulqdq() {
+            return self.fold.fold(src, start);
+        }
+
+        // in this case the start value is ignored
+        self.value = braid::crc32_braid::<5>(src, self.value);
+    }
+
+    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
+        #[cfg(target_arch = "x86_64")]
+        if Self::is_pclmulqdq() {
+            return self.fold.fold_copy(dst, src);
+        }
+
+        self.value = braid::crc32_braid::<5>(src, self.value);
+        dst[..src.len()].copy_from_slice(src);
+    }
+
+    pub fn finish(self) -> u32 {
+        #[cfg(target_arch = "x86_64")]
+        if Self::is_pclmulqdq() {
+            return unsafe { self.fold.finish() };
+        }
+
+        self.value
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    fn crc32_naive(data: &[u8], start: u32) -> u32 {
-        let crc = !start;
-        let crc = crc32_naive_inner(data, crc);
-        !crc
+    const INPUT: [u8; 1024] = {
+        let mut array = [0; 1024];
+        let mut i = 0;
+        while i < array.len() {
+            array[i] = i as u8;
+            i += 1;
+        }
+
+        array
+    };
+
+    #[test]
+    fn test_crc32_fold() {
+        // input large enought to trigger the SIMD
+        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+        h.update(&INPUT);
+        assert_eq!(crc32(&INPUT, CRC32_INITIAL_VALUE), h.finalize());
     }
 
-    fn crc32_words(data: &[u8], start: u32) -> u32 {
-        // Get a word-aligned sub-slice of the input data
-        let (prefix, words, suffix) = unsafe { data.align_to::<usize>() };
-        let crc = !start;
-        let crc = crc32_naive_inner(prefix, crc);
-        let crc = crc32_words_inner(words, crc, &[]);
-        let crc = crc32_naive_inner(suffix, crc);
-        !crc
+    #[test]
+    fn test_crc32_fold_copy() {
+        // input large enought to trigger the SIMD
+        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+        h.update(&INPUT);
+        let mut dst = [0; INPUT.len()];
+        assert_eq!(crc32_copy(&mut dst, &INPUT), h.finalize());
+
+        assert_eq!(INPUT, dst);
     }
 
     quickcheck::quickcheck! {
-        fn naive_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
+        fn crc_fold_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v[..]);
-            crc32_naive(&v[..], start) == h.finalize()
+            h.update(&v);
+
+            let a = crc32(&v, start) ;
+            let b = h.finalize();
+
+            a == b
         }
 
-        fn words_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v[..]);
-            crc32_words(&v[..], start) == h.finalize()
-        }
+        fn crc_fold_copy_is_crc32fast(v: Vec<u8>) -> bool {
+            let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
+            h.update(&v);
 
-        fn braid_4_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v[..]);
-            crc32_braid::<4>(&v[..], start) == h.finalize()
-        }
+            let mut dst = vec![0; v.len()];
 
-        fn braid_5_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v[..]);
-            crc32_braid::<5>(&v[..], start) == h.finalize()
-        }
+            let a = crc32_copy(&mut dst, &v) ;
+            let b = h.finalize();
 
-        fn braid_6_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v[..]);
-            crc32_braid::<6>(&v[..], start) == h.finalize()
+            assert_eq!(a,b);
+
+            v == dst
         }
     }
 }

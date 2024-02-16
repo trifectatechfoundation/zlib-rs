@@ -5,7 +5,7 @@ use std::arch::x86_64::{
     _mm_xor_si128,
 };
 
-const CRC32_INITIAL_VALUE: u32 = 0;
+use crate::CRC32_INITIAL_VALUE;
 
 #[derive(Debug)]
 #[repr(C, align(16))]
@@ -15,58 +15,6 @@ struct Align16<T>(T);
 #[repr(C, align(32))]
 struct Align32<T>(T);
 
-#[derive(Debug)]
-pub struct Crc32Fold {
-    #[cfg(target_arch = "x86_64")]
-    fold: Accumulator,
-    value: u32,
-}
-
-impl Crc32Fold {
-    pub fn new() -> Self {
-        Self {
-            #[cfg(target_arch = "x86_64")]
-            fold: Accumulator::new(),
-            value: Default::default(),
-        }
-    }
-
-    fn is_pclmulqdq() -> bool {
-        is_x86_feature_detected!("pclmulqdq")
-            && is_x86_feature_detected!("sse2")
-            && is_x86_feature_detected!("sse4.1")
-    }
-
-    pub fn fold(&mut self, src: &[u8], start: u32) {
-        #[cfg(target_arch = "x86_64")]
-        if Self::is_pclmulqdq() {
-            return self.fold.fold(src, start);
-        }
-
-        // in this case the start value is ignored
-        self.value = crc32_braid(src, self.value);
-    }
-
-    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
-        #[cfg(target_arch = "x86_64")]
-        if Self::is_pclmulqdq() {
-            return self.fold.fold_copy(dst, src);
-        }
-
-        self.value = crc32_braid(src, self.value);
-        dst[..src.len()].copy_from_slice(src);
-    }
-
-    pub fn finish(self) -> u32 {
-        #[cfg(target_arch = "x86_64")]
-        if Self::is_pclmulqdq() {
-            return unsafe { self.fold.finish() };
-        }
-
-        self.value
-    }
-}
-
 #[cfg(target_arch = "x86_64")]
 const fn reg(input: [u32; 4]) -> __m128i {
     // safety: any valid [u32; 4] represents a valid __m128i
@@ -75,7 +23,7 @@ const fn reg(input: [u32; 4]) -> __m128i {
 
 #[derive(Debug)]
 #[cfg(target_arch = "x86_64")]
-struct Accumulator {
+pub(crate) struct Accumulator {
     fold: [__m128i; 4],
 }
 
@@ -92,11 +40,11 @@ impl Accumulator {
         }
     }
 
-    fn fold(&mut self, src: &[u8], start: u32) {
+    pub fn fold(&mut self, src: &[u8], start: u32) {
         unsafe { self.fold_help::<false>(&mut [], src, start) }
     }
 
-    fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
+    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
         unsafe { self.fold_help::<true>(dst, src, 0) }
     }
 
@@ -302,7 +250,7 @@ impl Accumulator {
 
         if src.len() < 16 {
             if COPY {
-                if src.len() == 0 {
+                if src.is_empty() {
                     return;
                 }
 
@@ -383,96 +331,6 @@ impl Accumulator {
             }
 
             self.partial_fold(xmm_crc_part, src.len());
-        }
-    }
-}
-
-pub fn crc32(buf: &[u8], start: u32) -> u32 {
-    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
-     * these short lengths might also prove to be effective */
-    if buf.len() < 64 {
-        return crc32_braid(buf, start);
-    }
-
-    let mut crc_state = Crc32Fold::new();
-    crc_state.fold(buf, start);
-    crc_state.finish()
-}
-
-pub fn crc32_copy(dst: &mut [u8], buf: &[u8]) -> u32 {
-    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
-     * these short lengths might also prove to be effective */
-    if buf.len() < 64 {
-        dst.copy_from_slice(buf);
-        return crc32_braid(buf, CRC32_INITIAL_VALUE);
-    }
-
-    let mut crc_state = Crc32Fold::new();
-    crc_state.fold_copy(dst, buf);
-    crc_state.finish()
-}
-
-fn crc32_braid(buf: &[u8], start: u32) -> u32 {
-    crate::crc32::crc32_braid::<5>(buf, start)
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    const INPUT: [u8; 1024] = {
-        let mut array = [0; 1024];
-        let mut i = 0;
-        while i < array.len() {
-            array[i] = i as u8;
-            i += 1;
-        }
-
-        array
-    };
-
-    #[test]
-    fn test_crc32_fold() {
-        // input large enought to trigger the SIMD
-        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-        h.update(&INPUT);
-        assert_eq!(crc32(&INPUT, CRC32_INITIAL_VALUE), h.finalize());
-    }
-
-    #[test]
-    fn test_crc32_fold_copy() {
-        // input large enought to trigger the SIMD
-        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-        h.update(&INPUT);
-        let mut dst = [0; INPUT.len()];
-        assert_eq!(crc32_copy(&mut dst, &INPUT), h.finalize());
-
-        assert_eq!(INPUT, dst);
-    }
-
-    quickcheck::quickcheck! {
-        fn crc_fold_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&v);
-
-            let a = crc32(&v, start) ;
-            let b = h.finalize();
-
-            a == b
-        }
-
-        fn crc_fold_copy_is_crc32fast(v: Vec<u8>) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-            h.update(&v);
-
-            let mut dst = vec![0; v.len()];
-
-            let a = crc32_copy(&mut dst, &v) ;
-            let b = h.finalize();
-
-            assert_eq!(a,b);
-
-            v == dst
         }
     }
 }
