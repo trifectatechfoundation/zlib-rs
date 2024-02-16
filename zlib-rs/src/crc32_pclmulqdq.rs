@@ -65,6 +65,12 @@ impl Crc32Fold {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
+const fn reg(input: [u32; 4]) -> __m128i {
+    // safety: any valid [u32; 4] represents a valid __m128i
+    unsafe { core::mem::transmute(input) }
+}
+
 #[derive(Debug)]
 #[cfg(target_arch = "x86_64")]
 struct Accumulator {
@@ -73,16 +79,11 @@ struct Accumulator {
 
 #[cfg(target_arch = "x86_64")]
 impl Accumulator {
-    const XMM_FOLD4: __m128i = {
-        // _mm_set_epi32(0x00000001u32, 0x54442bd4u32, 0x00000001u32, 0xc6e41596u32);
-        // for a transmute the words need to be reversed
-        let bytes = [0xc6e41596u32, 0x00000001u32, 0x54442bd4u32, 0x00000001u32];
-        unsafe { core::mem::transmute(bytes) }
-    };
+    const XMM_FOLD4: __m128i = reg([0xc6e41596u32, 0x00000001u32, 0x54442bd4u32, 0x00000001u32]);
 
     pub fn new() -> Self {
-        let xmm_crc0 = unsafe { _mm_cvtsi32_si128(0x9db42487u32 as i32) };
-        let xmm_zero = unsafe { _mm_setzero_si128() };
+        let xmm_crc0 = reg([0x9db42487, 0, 0, 0]);
+        let xmm_zero = reg([0, 0, 0, 0]);
 
         Self {
             fold: [xmm_crc0, xmm_zero, xmm_zero, xmm_zero],
@@ -99,26 +100,25 @@ impl Accumulator {
 
     #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
     pub unsafe fn finish(self) -> u32 {
-        const CRC_MASK: __m128i = unsafe {
-            core::mem::transmute([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32])
-        };
+        const CRC_MASK: __m128i = reg([0xFFFFFFFFu32, 0xFFFFFFFFu32, 0x00000000u32, 0x00000000u32]);
 
-        const CRC_MASK2: __m128i = unsafe {
-            core::mem::transmute([0x00000000u32, 0xFFFFFFFFu32, 0xFFFFFFFFu32, 0xFFFFFFFFu32])
-        };
+        const CRC_MASK2: __m128i =
+            reg([0x00000000u32, 0xFFFFFFFFu32, 0xFFFFFFFFu32, 0xFFFFFFFFu32]);
 
-        const CRC_K: [__m128i; 3] = {
-            let bytes: [u32; 12] = [
-                0xccaa009e, 0x00000000, /* rk1 */
-                0x751997d0, 0x00000001, /* rk2 */
-                0xccaa009e, 0x00000000, /* rk5 */
-                0x63cd6124, 0x00000001, /* rk6 */
-                0xf7011640, 0x00000001, /* rk7 */
-                0xdb710640, 0x00000001, /* rk8 */
-            ];
+        const RK1_RK2: __m128i = reg([
+            0xccaa009e, 0x00000000, /* rk1 */
+            0x751997d0, 0x00000001, /* rk2 */
+        ]);
 
-            unsafe { core::mem::transmute(bytes) }
-        };
+        const RK5_RK6: __m128i = reg([
+            0xccaa009e, 0x00000000, /* rk5 */
+            0x63cd6124, 0x00000001, /* rk6 */
+        ]);
+
+        const RK7_RK8: __m128i = reg([
+            0xf7011640, 0x00000001, /* rk7 */
+            0xdb710640, 0x00000001, /* rk8 */
+        ]);
 
         let xmm_mask = CRC_MASK;
         let xmm_mask2 = CRC_MASK2;
@@ -128,7 +128,7 @@ impl Accumulator {
         /*
          * k1
          */
-        let mut crc_fold = CRC_K[0];
+        let mut crc_fold = RK1_RK2;
 
         let x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
         xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
@@ -148,7 +148,7 @@ impl Accumulator {
         /*
          * k5
          */
-        crc_fold = CRC_K[1];
+        crc_fold = RK5_RK6;
 
         xmm_crc0 = xmm_crc3;
         xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
@@ -166,7 +166,7 @@ impl Accumulator {
          */
         xmm_crc1 = xmm_crc3;
         xmm_crc2 = xmm_crc3;
-        crc_fold = CRC_K[2];
+        crc_fold = RK7_RK8;
 
         xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
@@ -200,29 +200,28 @@ impl Accumulator {
     }
 
     unsafe fn partial_fold(&mut self, xmm_crc_part: __m128i, len: usize) {
-        const PSHUFB_SHF_TABLE: Align32<[u32; 60]> = Align32([
-            0x84838281, 0x88878685, 0x8c8b8a89, 0x008f8e8d, /* shl 15 (16 - 1)/shr1 */
-            0x85848382, 0x89888786, 0x8d8c8b8a, 0x01008f8e, /* shl 14 (16 - 3)/shr2 */
-            0x86858483, 0x8a898887, 0x8e8d8c8b, 0x0201008f, /* shl 13 (16 - 4)/shr3 */
-            0x87868584, 0x8b8a8988, 0x8f8e8d8c, 0x03020100, /* shl 12 (16 - 4)/shr4 */
-            0x88878685, 0x8c8b8a89, 0x008f8e8d, 0x04030201, /* shl 11 (16 - 5)/shr5 */
-            0x89888786, 0x8d8c8b8a, 0x01008f8e, 0x05040302, /* shl 10 (16 - 6)/shr6 */
-            0x8a898887, 0x8e8d8c8b, 0x0201008f, 0x06050403, /* shl  9 (16 - 7)/shr7 */
-            0x8b8a8988, 0x8f8e8d8c, 0x03020100, 0x07060504, /* shl  8 (16 - 8)/shr8 */
-            0x8c8b8a89, 0x008f8e8d, 0x04030201, 0x08070605, /* shl  7 (16 - 9)/shr9 */
-            0x8d8c8b8a, 0x01008f8e, 0x05040302, 0x09080706, /* shl  6 (16 -10)/shr10*/
-            0x8e8d8c8b, 0x0201008f, 0x06050403, 0x0a090807, /* shl  5 (16 -11)/shr11*/
-            0x8f8e8d8c, 0x03020100, 0x07060504, 0x0b0a0908, /* shl  4 (16 -12)/shr12*/
-            0x008f8e8d, 0x04030201, 0x08070605, 0x0c0b0a09, /* shl  3 (16 -13)/shr13*/
-            0x01008f8e, 0x05040302, 0x09080706, 0x0d0c0b0a, /* shl  2 (16 -14)/shr14*/
-            0x0201008f, 0x06050403, 0x0a090807, 0x0e0d0c0b, /* shl  1 (16 -15)/shr15*/
-        ]);
+        const PSHUFB_SHF_TABLE: [__m128i; 15] = [
+            reg([0x84838281, 0x88878685, 0x8c8b8a89, 0x008f8e8d]), /* shl 15 (16 - 1)/shr1 */
+            reg([0x85848382, 0x89888786, 0x8d8c8b8a, 0x01008f8e]), /* shl 14 (16 - 3)/shr2 */
+            reg([0x86858483, 0x8a898887, 0x8e8d8c8b, 0x0201008f]), /* shl 13 (16 - 4)/shr3 */
+            reg([0x87868584, 0x8b8a8988, 0x8f8e8d8c, 0x03020100]), /* shl 12 (16 - 4)/shr4 */
+            reg([0x88878685, 0x8c8b8a89, 0x008f8e8d, 0x04030201]), /* shl 11 (16 - 5)/shr5 */
+            reg([0x89888786, 0x8d8c8b8a, 0x01008f8e, 0x05040302]), /* shl 10 (16 - 6)/shr6 */
+            reg([0x8a898887, 0x8e8d8c8b, 0x0201008f, 0x06050403]), /* shl  9 (16 - 7)/shr7 */
+            reg([0x8b8a8988, 0x8f8e8d8c, 0x03020100, 0x07060504]), /* shl  8 (16 - 8)/shr8 */
+            reg([0x8c8b8a89, 0x008f8e8d, 0x04030201, 0x08070605]), /* shl  7 (16 - 9)/shr9 */
+            reg([0x8d8c8b8a, 0x01008f8e, 0x05040302, 0x09080706]), /* shl  6 (16 -10)/shr10*/
+            reg([0x8e8d8c8b, 0x0201008f, 0x06050403, 0x0a090807]), /* shl  5 (16 -11)/shr11*/
+            reg([0x8f8e8d8c, 0x03020100, 0x07060504, 0x0b0a0908]), /* shl  4 (16 -12)/shr12*/
+            reg([0x008f8e8d, 0x04030201, 0x08070605, 0x0c0b0a09]), /* shl  3 (16 -13)/shr13*/
+            reg([0x01008f8e, 0x05040302, 0x09080706, 0x0d0c0b0a]), /* shl  2 (16 -14)/shr14*/
+            reg([0x0201008f, 0x06050403, 0x0a090807, 0x0e0d0c0b]), /* shl  1 (16 -15)/shr15*/
+        ];
 
-        let xmm_fold4 = _mm_set_epi32(0x00000001, 0x54442bd4, 0x00000001, 0xc6e41596u32 as i32);
-        let xmm_mask3 = _mm_set1_epi32(0x80808080u32 as i32);
+        let xmm_fold4 = reg([0xc6e41596, 0x00000001, 0x54442bd4, 0x00000001]);
+        let xmm_mask3 = reg([0x80808080u32; 4]);
 
-        let xmm_shl =
-            _mm_load_si128(PSHUFB_SHF_TABLE.0[(4 * (len - 1))..].as_ptr() as *const __m128i);
+        let xmm_shl = PSHUFB_SHF_TABLE[len - 1];
         let mut xmm_shr = xmm_shl;
         xmm_shr = _mm_xor_si128(xmm_shr, xmm_mask3);
 
@@ -265,7 +264,7 @@ impl Accumulator {
         first: &mut bool,
         xmm_initial: __m128i,
     ) {
-        let mut input = [unsafe { _mm_setzero_si128() }; 4];
+        let mut input = [reg([0; 4]); 4];
 
         let src_ptr = src.as_ptr() as *const __m128i;
         for i in 0..N {
@@ -299,10 +298,10 @@ impl Accumulator {
         mut src: &[u8],
         init_crc: u32,
     ) {
-        let mut xmm_crc_part = _mm_setzero_si128();
+        let mut xmm_crc_part = reg([0; 4]);
 
         let mut partial_buf = Align16([0u8; 16]);
-        let xmm_initial = _mm_cvtsi32_si128(init_crc as i32);
+        let xmm_initial = reg([init_crc, 0, 0, 0]);
         let mut first = init_crc != 0;
 
         // Technically the CRC functions don't even call this for input < 64, but a bare minimum of 31
