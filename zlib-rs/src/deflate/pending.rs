@@ -76,16 +76,4 @@ impl<'a> Pending<'a> {
 
         self.pending += buf.len();
     }
-
-    #[inline(always)]
-    #[track_caller]
-    pub unsafe fn extend_raw(&mut self, ptr: *const u8, len: usize) {
-        assert!(self.remaining() >= len, "len must fit in remaining()");
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(ptr, self.out.add(self.pending), len);
-        }
-
-        self.pending += len;
-    }
 }
