@@ -1,8 +1,11 @@
 use std::mem::MaybeUninit;
 
 use crate::{
-    adler32::adler32, c_api::z_stream, read_buf::ReadBuf, trace, Flush, ReturnCode,
-    ADLER32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
+    adler32::adler32,
+    c_api::{gz_header, z_stream, GZipHeader},
+    crc32::{crc32, Crc32Fold},
+    read_buf::ReadBuf,
+    trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
 };
 
 use self::{
@@ -296,6 +299,11 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         heap: Heap::new(),
 
         //
+        crc_fold: Crc32Fold::new(),
+        gzhead: None,
+        gzindex: 0,
+
+        //
         match_start: 0,
         match_length: 0,
         prev_match: 0,
@@ -378,11 +386,19 @@ fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
     // can be made negative by deflate(..., Z_FINISH);
     state.wrap = state.wrap.abs();
 
-    // TODO gzip
-    state.status = Status::Init;
+    state.status = match state.wrap {
+        2 => Status::GZip,
+        _ => Status::Init,
+    };
 
-    // TODO gzip
-    stream.adler = ADLER32_INITIAL_VALUE as _;
+    stream.adler = match state.wrap {
+        2 => {
+            state.crc_fold = Crc32Fold::new();
+            CRC32_INITIAL_VALUE as _
+        }
+        _ => ADLER32_INITIAL_VALUE as _,
+    };
+
     state.last_flush = -2;
 
     state.zng_tr_init();
@@ -623,6 +639,10 @@ pub(crate) struct State<'a> {
     pub(crate) update_hash: fn(h: u32, val: u32) -> u32,
     pub(crate) insert_string: fn(state: &mut State, string: usize, count: usize),
     pub(crate) quick_insert_string: fn(state: &mut State, string: usize) -> u16,
+
+    crc_fold: crate::crc32::Crc32Fold,
+    gzhead: Option<&'a mut GZipHeader>,
+    gzindex: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -990,9 +1010,16 @@ impl<'a> State<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
-    Init,
-    Busy,
-    Finish,
+    Init = 1,
+
+    GZip = 4,
+    Extra = 5,
+    Name = 6,
+    Comment = 7,
+    Hcrc = 8,
+
+    Busy = 2,
+    Finish = 3,
 }
 
 const fn error_message(return_code: ReturnCode) -> *const i8 {
@@ -1043,8 +1070,16 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
 
     stream.avail_in -= len as u32;
 
-    // TODO gzip
-    if stream.state.wrap == 1 {
+    if stream.state.wrap == 2 {
+        // we likely cannot fuse the crc32 and the copy here because the input can be changed by
+        // a concurrent thread. Therefore it cannot be converted into a slice!
+        let window = &mut stream.state.window;
+        window.initialize_at_least(offset + len);
+        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
+
+        let data = &stream.state.window.filled()[offset..][..len];
+        stream.state.crc_fold.fold(data, CRC32_INITIAL_VALUE);
+    } else if stream.state.wrap == 1 {
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
@@ -1937,6 +1972,209 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         }
     }
 
+    if stream.state.status == Status::GZip {
+        /* gzip header */
+        stream.state.crc_fold = Crc32Fold::new();
+
+        stream.state.pending.extend(&[31, 139, 8]);
+
+        let extra_flags = if stream.state.level == 9 {
+            2
+        } else if stream.state.strategy >= Strategy::HuffmanOnly || stream.state.level < 2 {
+            4
+        } else {
+            0
+        };
+
+        match &stream.state.gzhead {
+            None => {
+                let bytes = [0, 0, 0, 0, 0, extra_flags, GZipHeader::OS_CODE];
+                stream.state.pending.extend(&bytes);
+                stream.state.status = Status::Busy;
+
+                /* Compression must start with an empty pending buffer */
+                flush_pending(stream);
+                if !stream.state.pending.pending().is_empty() {
+                    stream.state.last_flush = -1;
+                    return ReturnCode::Ok;
+                }
+            }
+            Some(gzhead) => {
+                stream.state.pending.extend(&[gzhead.flags()]);
+                let bytes = (gzhead.time as u32).to_le_bytes();
+                stream.state.pending.extend(&bytes);
+                stream.state.pending.extend(&[extra_flags, gzhead.os as u8]);
+
+                if !gzhead.extra.is_null() {
+                    let bytes = (gzhead.extra_len as u16).to_le_bytes();
+                    stream.state.pending.extend(&bytes);
+                }
+
+                if gzhead.hcrc > 0 {
+                    stream.adler = crc32(stream.state.pending.pending(), stream.adler as u32) as u64
+                }
+
+                stream.state.gzindex = 0;
+                stream.state.status = Status::Extra;
+            }
+        }
+    }
+
+    if stream.state.status == Status::Extra {
+        if let Some(gzhead) = stream.state.gzhead.as_ref() {
+            if !gzhead.extra.is_null() {
+                let gzhead_extra = gzhead.extra;
+
+                // we'll be using the pending buffer as temporary storage
+                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
+                let mut left = (gzhead.extra_len & 0xffff) as usize - stream.state.gzindex;
+
+                while stream.state.pending.remaining() < left {
+                    let copy = stream.state.pending.remaining();
+
+                    unsafe {
+                        let ptr = gzhead_extra.add(stream.state.gzindex);
+                        stream.state.pending.extend_raw(ptr, copy);
+                    }
+
+                    stream.adler =
+                        crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+
+                    stream.state.gzindex += copy;
+                    flush_pending(stream);
+
+                    // could not flush all the pending output
+                    if !stream.state.pending.pending().is_empty() {
+                        stream.state.last_flush = -1;
+                        return ReturnCode::Ok;
+                    }
+
+                    beg = 0;
+                    left -= copy;
+                }
+
+                unsafe {
+                    let ptr = gzhead_extra.add(stream.state.gzindex);
+                    stream.state.pending.extend_raw(ptr, left);
+                }
+                stream.adler =
+                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+                stream.state.gzindex = 0;
+            }
+        }
+        stream.state.status = Status::Name;
+    }
+
+    if stream.state.status == Status::Name {
+        if let Some(gzhead) = stream.state.gzhead.as_ref() {
+            if !gzhead.name.is_null() {
+                let gzhead_name = gzhead.name;
+
+                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
+
+                loop {
+                    if stream.state.pending.remaining() == 0 {
+                        stream.adler =
+                            crc32(&stream.state.pending.pending()[beg..], stream.adler as u32)
+                                as u64;
+
+                        flush_pending(stream);
+
+                        if !stream.state.pending.pending().is_empty() {
+                            stream.state.last_flush = -1;
+                            return ReturnCode::Ok;
+                        }
+
+                        beg = 0;
+                    }
+
+                    let val = unsafe { *(gzhead_name.add(stream.state.gzindex)) };
+                    stream.state.gzindex += 1;
+
+                    stream.state.pending.extend(&[val]);
+
+                    if val == 0 {
+                        break;
+                    }
+                }
+
+                stream.adler =
+                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+
+                stream.state.gzindex = 0;
+            }
+            stream.state.status = Status::Comment;
+        }
+    }
+
+    if stream.state.status == Status::Comment {
+        if let Some(gzhead) = stream.state.gzhead.as_ref() {
+            if !gzhead.comment.is_null() {
+                let gzhead_comment = gzhead.comment;
+
+                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
+
+                loop {
+                    if stream.state.pending.remaining() == 0 {
+                        stream.adler =
+                            crc32(&stream.state.pending.pending()[beg..], stream.adler as u32)
+                                as u64;
+
+                        flush_pending(stream);
+
+                        if !stream.state.pending.pending().is_empty() {
+                            stream.state.last_flush = -1;
+                            return ReturnCode::Ok;
+                        }
+
+                        beg = 0;
+                    }
+
+                    let val = unsafe { *(gzhead_comment.add(stream.state.gzindex)) };
+                    stream.state.gzindex += 1;
+
+                    stream.state.pending.extend(&[val]);
+
+                    if val == 0 {
+                        break;
+                    }
+                }
+
+                stream.adler =
+                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+
+                stream.state.gzindex = 0;
+            }
+            stream.state.status = Status::Hcrc;
+        }
+    }
+
+    if stream.state.status == Status::Hcrc {
+        if let Some(gzhead) = stream.state.gzhead.as_ref() {
+            if gzhead.hcrc != 0 {
+                if stream.state.pending.remaining() < 2 {
+                    flush_pending(stream);
+                    if !stream.state.pending.pending().is_empty() {
+                        stream.state.last_flush = -1;
+                        return ReturnCode::Ok;
+                    }
+                }
+
+                let bytes = (stream.adler as u16).to_le_bytes();
+                stream.state.pending.extend(&bytes);
+            }
+        }
+
+        stream.state.status = Status::Busy;
+
+        // compression must start with an empty pending buffer
+        flush_pending(stream);
+        if !stream.state.pending.pending().is_empty() {
+            stream.state.last_flush = -1;
+            return ReturnCode::Ok;
+        }
+    }
+
     // Start a new block or continue the current one.
     let state = &mut stream.state;
     if stream.avail_in != 0
@@ -2001,13 +2239,19 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         return ReturnCode::Ok;
     }
 
-    // TODO gzip
+    // write the trailer
+    if stream.state.wrap == 2 {
+        let crc_fold = std::mem::take(&mut stream.state.crc_fold);
+        stream.adler = crc_fold.finish() as u64;
 
-    {
-        if stream.state.wrap == 1 {
-            let adler = stream.adler as u32;
-            stream.state.pending.extend(&adler.to_be_bytes());
-        }
+        let adler = stream.adler as u32;
+        stream.state.pending.extend(&adler.to_le_bytes());
+
+        let total_in = stream.total_in as u32;
+        stream.state.pending.extend(&total_in.to_le_bytes());
+    } else if stream.state.wrap == 1 {
+        let adler = stream.adler as u32;
+        stream.state.pending.extend(&adler.to_be_bytes());
     }
 
     flush_pending(stream);
@@ -2270,11 +2514,23 @@ impl Heap {
     }
 }
 
+pub fn set_header<'a>(
+    stream: &mut DeflateStream<'a>,
+    head: Option<&'a mut gz_header>,
+) -> ReturnCode {
+    if stream.state.wrap != 2 {
+        ReturnCode::StreamError as _
+    } else {
+        stream.state.gzhead = head;
+        ReturnCode::Ok as _
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use std::ffi::{c_char, c_int, c_uint};
+    use std::ffi::{c_char, c_int, c_uint, CStr};
 
     const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
     const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
@@ -2819,5 +3075,224 @@ mod test {
             },
             &[],
         )
+    }
+
+    #[test]
+    fn gzip_no_header() {
+        let config = DeflateConfig {
+            level: 9,
+            method: Method::Deflated,
+            window_bits: 31, // gzip
+            ..Default::default()
+        };
+
+        let input = b"Hello World!";
+
+        fuzz_based_test(
+            input,
+            config,
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 2, 3, 243, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73,
+                81, 4, 0, 163, 28, 41, 28, 12, 0, 0, 0,
+            ],
+        )
+    }
+
+    #[test]
+    fn gzip_with_header() {
+        let extra = "some extra stuff\0";
+        let name = "nomen est omen\0";
+        let comment = "such comment\0";
+
+        let mut header = GZipHeader {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra.as_ptr() as *mut _,
+            extra_len: extra.len() as _,
+            extra_max: 0,
+            name: name.as_ptr() as *mut _,
+            name_max: 0,
+            comment: comment.as_ptr() as *mut _,
+            comm_max: 0,
+            hcrc: 1,
+            done: 0,
+        };
+
+        let config = DeflateConfig {
+            window_bits: 31,
+            ..Default::default()
+        };
+
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, config), ReturnCode::Ok);
+
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
+
+        set_header(stream, Some(&mut header));
+
+        let input = b"Hello World\n";
+        stream.next_in = input.as_ptr() as *mut _;
+        stream.avail_in = input.len() as _;
+
+        let mut output = [0u8; 256];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+
+        let n = stream.total_out as usize;
+
+        assert_eq!(end(stream), ReturnCode::Ok);
+
+        let output_rs = &mut output[..n];
+
+        assert_eq!(output_rs.len(), 81);
+
+        {
+            let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
+
+            const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+            const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+
+            let err = unsafe {
+                libz_ng_sys::deflateInit2_(
+                    stream.as_mut_ptr(),
+                    config.level,
+                    config.method as i32,
+                    config.window_bits,
+                    config.mem_level,
+                    config.strategy as i32,
+                    VERSION,
+                    STREAM_SIZE,
+                )
+            };
+            assert_eq!(err, 0);
+
+            let stream = unsafe { stream.assume_init_mut() };
+
+            let mut header = libz_ng_sys::gz_header {
+                text: 0,
+                time: 0,
+                xflags: 0,
+                os: 0,
+                extra: extra.as_ptr() as *mut _,
+                extra_len: extra.len() as _,
+                extra_max: 0,
+                name: name.as_ptr() as *mut _,
+                name_max: 0,
+                comment: comment.as_ptr() as *mut _,
+                comm_max: 0,
+                hcrc: 1,
+                done: 0,
+            };
+
+            let err = unsafe { libz_ng_sys::deflateSetHeader(stream, &mut header) };
+            assert_eq!(err, 0);
+
+            let input = b"Hello World\n";
+            stream.next_in = input.as_ptr() as *mut _;
+            stream.avail_in = input.len() as _;
+
+            let mut output = [0u8; 256];
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
+
+            let err = unsafe { libz_ng_sys::deflate(stream, Flush::Finish as _) };
+            assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+            let n = stream.total_out;
+
+            let err = unsafe { libz_ng_sys::deflateEnd(stream) };
+            assert_eq!(err, 0);
+
+            assert_eq!(&output[..n], output_rs);
+        }
+
+        let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
+
+        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+
+        let err = unsafe {
+            libz_ng_sys::inflateInit2_(
+                stream.as_mut_ptr(),
+                config.window_bits,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+        assert_eq!(err, 0);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        stream.next_in = output_rs.as_mut_ptr() as _;
+        stream.avail_in = output_rs.len() as _;
+
+        let mut output = [0u8; 12];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        let mut extra_buf = [0u8; 64];
+        let mut name_buf = [0u8; 64];
+        let mut comment_buf = [0u8; 64];
+
+        let mut header = libz_ng_sys::gz_header {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra_buf.as_mut_ptr(),
+            extra_len: 0,
+            extra_max: extra_buf.len() as _,
+            name: name_buf.as_mut_ptr(),
+            name_max: name_buf.len() as _,
+            comment: comment_buf.as_mut_ptr(),
+            comm_max: comment_buf.len() as _,
+            hcrc: 0,
+            done: 0,
+        };
+
+        let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
+        assert_eq!(err, 0);
+
+        let err = unsafe { libz_ng_sys::inflate(stream, Flush::NoFlush as _) };
+        assert_eq!(
+            err,
+            ReturnCode::StreamEnd as i32,
+            "{:?}",
+            if stream.msg.is_null() {
+                None
+            } else {
+                Some(unsafe { CStr::from_ptr(stream.msg) })
+            }
+        );
+
+        assert!(!header.comment.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(header.comment.cast()) }
+                .to_str()
+                .unwrap(),
+            comment.trim_end_matches('\0')
+        );
+
+        assert!(!header.name.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(header.name.cast()) }
+                .to_str()
+                .unwrap(),
+            name.trim_end_matches('\0')
+        );
+
+        assert!(!header.extra.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(header.extra.cast()) }
+                .to_str()
+                .unwrap(),
+            extra.trim_end_matches('\0')
+        );
     }
 }
