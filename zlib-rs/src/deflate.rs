@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use std::{ffi::CStr, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
     adler32::adler32,
@@ -1894,6 +1894,39 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
+#[must_use]
+fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<ReturnCode> {
+    // we'll be using the pending buffer as temporary storage
+    let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
+
+    while stream.state.pending.remaining() < bytes.len() {
+        let copy = stream.state.pending.remaining();
+
+        stream.state.pending.extend(&bytes[..copy]);
+
+        stream.adler = crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+
+        stream.state.gzindex += copy;
+        flush_pending(stream);
+
+        // could not flush all the pending output
+        if !stream.state.pending.pending().is_empty() {
+            stream.state.last_flush = -1;
+            return ControlFlow::Break(ReturnCode::Ok);
+        }
+
+        beg = 0;
+        bytes = &bytes[copy..];
+    }
+
+    stream.state.pending.extend(&bytes);
+
+    stream.adler = crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+    stream.state.gzindex = 0;
+
+    ControlFlow::Continue(())
+}
+
 pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.next_out.is_null()
         || (stream.avail_in != 0 && stream.next_in.is_null())
@@ -2028,41 +2061,16 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
             if !gzhead.extra.is_null() {
                 let gzhead_extra = gzhead.extra;
 
-                // we'll be using the pending buffer as temporary storage
-                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
-                let mut left = (gzhead.extra_len & 0xffff) as usize - stream.state.gzindex;
+                let extra = unsafe {
+                    std::slice::from_raw_parts(
+                        gzhead_extra.add(stream.state.gzindex),
+                        (gzhead.extra_len & 0xffff) as usize - stream.state.gzindex,
+                    )
+                };
 
-                while stream.state.pending.remaining() < left {
-                    let copy = stream.state.pending.remaining();
-
-                    unsafe {
-                        let ptr = gzhead_extra.add(stream.state.gzindex);
-                        stream.state.pending.extend_raw(ptr, copy);
-                    }
-
-                    stream.adler =
-                        crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
-
-                    stream.state.gzindex += copy;
-                    flush_pending(stream);
-
-                    // could not flush all the pending output
-                    if !stream.state.pending.pending().is_empty() {
-                        stream.state.last_flush = -1;
-                        return ReturnCode::Ok;
-                    }
-
-                    beg = 0;
-                    left -= copy;
+                if let ControlFlow::Break(err) = flush_bytes(stream, extra) {
+                    return err;
                 }
-
-                unsafe {
-                    let ptr = gzhead_extra.add(stream.state.gzindex);
-                    stream.state.pending.extend_raw(ptr, left);
-                }
-                stream.adler =
-                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
-                stream.state.gzindex = 0;
             }
         }
         stream.state.status = Status::Name;
@@ -2071,40 +2079,11 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.state.status == Status::Name {
         if let Some(gzhead) = stream.state.gzhead.as_ref() {
             if !gzhead.name.is_null() {
-                let gzhead_name = gzhead.name;
-
-                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
-
-                loop {
-                    if stream.state.pending.remaining() == 0 {
-                        stream.adler =
-                            crc32(&stream.state.pending.pending()[beg..], stream.adler as u32)
-                                as u64;
-
-                        flush_pending(stream);
-
-                        if !stream.state.pending.pending().is_empty() {
-                            stream.state.last_flush = -1;
-                            return ReturnCode::Ok;
-                        }
-
-                        beg = 0;
-                    }
-
-                    let val = unsafe { *(gzhead_name.add(stream.state.gzindex)) };
-                    stream.state.gzindex += 1;
-
-                    stream.state.pending.extend(&[val]);
-
-                    if val == 0 {
-                        break;
-                    }
+                let gzhead_name = unsafe { CStr::from_ptr(gzhead.name.cast()) };
+                let bytes = gzhead_name.to_bytes_with_nul();
+                if let ControlFlow::Break(err) = flush_bytes(stream, bytes) {
+                    return err;
                 }
-
-                stream.adler =
-                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
-
-                stream.state.gzindex = 0;
             }
             stream.state.status = Status::Comment;
         }
@@ -2113,40 +2092,11 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.state.status == Status::Comment {
         if let Some(gzhead) = stream.state.gzhead.as_ref() {
             if !gzhead.comment.is_null() {
-                let gzhead_comment = gzhead.comment;
-
-                let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
-
-                loop {
-                    if stream.state.pending.remaining() == 0 {
-                        stream.adler =
-                            crc32(&stream.state.pending.pending()[beg..], stream.adler as u32)
-                                as u64;
-
-                        flush_pending(stream);
-
-                        if !stream.state.pending.pending().is_empty() {
-                            stream.state.last_flush = -1;
-                            return ReturnCode::Ok;
-                        }
-
-                        beg = 0;
-                    }
-
-                    let val = unsafe { *(gzhead_comment.add(stream.state.gzindex)) };
-                    stream.state.gzindex += 1;
-
-                    stream.state.pending.extend(&[val]);
-
-                    if val == 0 {
-                        break;
-                    }
+                let gzhead_comment = unsafe { CStr::from_ptr(gzhead.comment.cast()) };
+                let bytes = gzhead_comment.to_bytes_with_nul();
+                if let ControlFlow::Break(err) = flush_bytes(stream, bytes) {
+                    return err;
                 }
-
-                stream.adler =
-                    crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
-
-                stream.state.gzindex = 0;
             }
             stream.state.status = Status::Hcrc;
         }
@@ -2155,16 +2105,10 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     if stream.state.status == Status::Hcrc {
         if let Some(gzhead) = stream.state.gzhead.as_ref() {
             if gzhead.hcrc != 0 {
-                if stream.state.pending.remaining() < 2 {
-                    flush_pending(stream);
-                    if !stream.state.pending.pending().is_empty() {
-                        stream.state.last_flush = -1;
-                        return ReturnCode::Ok;
-                    }
-                }
-
                 let bytes = (stream.adler as u16).to_le_bytes();
-                stream.state.pending.extend(&bytes);
+                if let ControlFlow::Break(err) = flush_bytes(stream, &bytes) {
+                    return err;
+                }
             }
         }
 
