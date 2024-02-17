@@ -1916,7 +1916,7 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
         bytes = &bytes[copy..];
     }
 
-    stream.state.pending.extend(&bytes);
+    stream.state.pending.extend(bytes);
 
     stream.adler = crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
     stream.state.gzindex = 0;
