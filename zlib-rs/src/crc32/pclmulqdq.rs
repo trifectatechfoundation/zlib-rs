@@ -242,7 +242,7 @@ impl Accumulator {
         // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
         // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
         // by definition can be up to 15 bytes + one full vector load. */
-        assert!(src.len() >= 31 || init_crc != CRC32_INITIAL_VALUE);
+        assert!(src.len() >= 31 || init_crc == CRC32_INITIAL_VALUE);
 
         if COPY {
             assert_eq!(dst.len(), src.len(), "dst and src must be the same length")
