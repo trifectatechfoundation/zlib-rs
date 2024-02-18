@@ -3046,6 +3046,72 @@ mod test {
     }
 
     #[test]
+    fn gzip_header_pending_flush() {
+        let extra = "aaaaaaaaaaaaaaaaaaaa\0";
+        let name = "bbbbbbbbbbbbbbbbbbbb\0";
+        let comment = "cccccccccccccccccccc\0";
+
+        let mut header = GZipHeader {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra.as_ptr() as *mut _,
+            extra_len: extra.len() as _,
+            extra_max: 0,
+            name: name.as_ptr() as *mut _,
+            name_max: 0,
+            comment: comment.as_ptr() as *mut _,
+            comm_max: 0,
+            hcrc: 1,
+            done: 0,
+        };
+
+        let config = DeflateConfig {
+            window_bits: 31,
+            mem_level: 1,
+            ..Default::default()
+        };
+
+        let mut stream = z_stream::default();
+        assert_eq!(init(&mut stream, config), ReturnCode::Ok);
+
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
+
+        set_header(stream, Some(&mut header));
+
+        let input = b"Hello World\n";
+        stream.next_in = input.as_ptr() as *mut _;
+        stream.avail_in = input.len() as _;
+
+        let mut output = [0u8; 1024];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = 100;
+
+        assert_eq!(stream.state.pending.capacity(), 512);
+
+        // only 12 bytes remain, so to write the name the pending buffer must be flushed.
+        // but there is insufficient output space to flush (only 100 bytes)
+        stream.state.pending.extend(&[0; 500]);
+
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::Ok);
+
+        // now try that again but with sufficient output space
+        stream.avail_out = output.len() as _;
+        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+
+        let n = stream.total_out as usize;
+
+        assert_eq!(end(stream), ReturnCode::Ok);
+
+        let output_rs = &mut output[..n];
+
+        assert_eq!(output_rs.len(), 500 + 99);
+    }
+
+    #[test]
     fn gzip_with_header() {
         let extra = "some extra stuff\0";
         let name = "nomen est omen\0";
