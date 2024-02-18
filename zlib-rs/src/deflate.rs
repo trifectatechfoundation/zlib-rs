@@ -2,7 +2,7 @@ use std::{ffi::CStr, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
     adler32::adler32,
-    c_api::{gz_header, z_stream, GZipHeader},
+    c_api::{gz_header, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
     trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
@@ -644,7 +644,7 @@ pub(crate) struct State<'a> {
     pub(crate) quick_insert_string: fn(state: &mut State, string: usize) -> u16,
 
     crc_fold: crate::crc32::Crc32Fold,
-    gzhead: Option<&'a mut GZipHeader>,
+    gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
 }
 
@@ -2024,7 +2024,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
 
         match &stream.state.gzhead {
             None => {
-                let bytes = [0, 0, 0, 0, 0, extra_flags, GZipHeader::OS_CODE];
+                let bytes = [0, 0, 0, 0, 0, extra_flags, gz_header::OS_CODE];
                 stream.state.pending.extend(&bytes);
                 stream.state.status = Status::Busy;
 
@@ -3051,7 +3051,7 @@ mod test {
         let name = "bbbbbbbbbbbbbbbbbbbb\0";
         let comment = "cccccccccccccccccccc\0";
 
-        let mut header = GZipHeader {
+        let mut header = gz_header {
             text: 0,
             time: 0,
             xflags: 0,
@@ -3117,7 +3117,7 @@ mod test {
         let name = "nomen est omen\0";
         let comment = "such comment\0";
 
-        let mut header = GZipHeader {
+        let mut header = gz_header {
             text: 0,
             time: 0,
             xflags: 0,
