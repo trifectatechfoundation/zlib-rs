@@ -126,7 +126,6 @@ pub const Z_FIXED: c_int = 4;
 pub const Z_DEFAULT_STRATEGY: c_int = 0;
 
 pub type gz_headerp = *mut gz_header;
-pub(crate) type GZipHeader = gz_header;
 
 /// gzip header information passed to and from zlib routines.
 /// See RFC 1952 for more details on the meanings of these fields.
@@ -161,7 +160,7 @@ pub struct gz_header {
     pub done: i32,
 }
 
-impl GZipHeader {
+impl gz_header {
     // based on the spec https://www.ietf.org/rfc/rfc1952.txt
     //
     //   0 - FAT filesystem (MS-DOS, OS/2, NT/Win32)
