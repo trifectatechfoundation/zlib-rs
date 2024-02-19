@@ -187,22 +187,36 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn hit_loop() {
-        let start = 11563;
-        let input = [0; 17];
-        let neon = adler32_neon(start, &input);
-        let rust = crate::adler32::adler32_rust(start, &input);
-
-        assert_eq!(rust, neon);
-    }
-
     quickcheck::quickcheck! {
         fn adler32_neon_is_adler32_rust(v: Vec<u8>, start: u32) -> bool {
             let neon = adler32_neon(start, &v);
             let rust = crate::adler32::adler32_rust(start, &v);
 
             rust == neon
+        }
+    }
+
+    const INPUT: [u8; 1024] = {
+        let mut array = [0; 1024];
+        let mut i = 0;
+        while i < array.len() {
+            array[i] = i as u8;
+            i += 1;
+        }
+
+        array
+    };
+
+    #[test]
+    fn start_alignment() {
+        // SIMD algorithm is sensitive to alignment;
+        for i in 0..16 {
+            for start in [crate::ADLER32_INITIAL_VALUE as u32, 42] {
+                let neon = adler32_neon(start, &INPUT[i..]);
+                let rust = crate::adler32::adler32_rust(start, &INPUT[i..]);
+
+                assert_eq!(neon, rust, "offset = {i}, start = {start}");
+            }
         }
     }
 }
