@@ -1,5 +1,8 @@
 use std::mem::MaybeUninit;
 
+#[cfg(target_arch = "aarch64")]
+mod neon;
+
 pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
