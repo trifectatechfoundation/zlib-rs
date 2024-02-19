@@ -295,44 +295,37 @@ impl<'a> ReadBuf<'a> {
             "buf.len() must fit in remaining()"
         );
 
-        let amt = buf.len();
-        // Cannot overflow, asserted above
-        let end = self.filled + amt;
+        // using simd here (on x86_64) was not fruitful
+        self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
 
-        //        // Safety: the length is asserted above
-        //        unsafe {
-        //            self.buf[self.filled..end]
-        //                .as_mut_ptr()
-        //                .cast::<u8>()
-        //                .copy_from_nonoverlapping(buf.as_ptr(), amt);
-        //        }
-
-        let (it1, remainder) = slice_as_chunks::<_, 32>(buf);
-        let (it2, _) = slice_as_chunks_mut::<_, 32>(&mut self.buf[self.filled..]);
-
-        for (d, s) in it2.iter_mut().zip(it1.iter()) {
-            use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
-            unsafe {
-                let chunk = _mm256_loadu_si256(s.as_ptr().cast());
-                _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
-            }
-        }
-
-        unsafe {
-            self.buf[self.filled + buf.len() - remainder.len()..]
-                .as_mut_ptr()
-                .cast::<u8>()
-                .copy_from_nonoverlapping(remainder.as_ptr(), remainder.len());
-        }
-
-        if self.initialized < end {
-            self.initialized = end;
-        }
+        let end = self.filled + buf.len();
+        self.initialized = Ord::max(self.initialized, end);
         self.filled = end;
     }
 
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
+        let current = self.filled;
+
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("avx512f") {
+            return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("avx2") {
+            return self.copy_match_help::<core::arch::x86_64::__m256i>(offset_from_end, length);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("sse") {
+            return self.copy_match_help::<core::arch::x86_64::__m128i>(offset_from_end, length);
+        }
+
+        self.copy_match_help::<u64>(offset_from_end, length)
+    }
+
+    fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
         let current = self.filled;
 
         let start = current.checked_sub(offset_from_end).expect("in bounds");
@@ -343,7 +336,7 @@ impl<'a> ReadBuf<'a> {
         // X and Y, a string reference with <length = 5, distance = 2>
         // adds X,Y,X,Y,X to the output stream.
 
-        if end > self.filled {
+        if end > current {
             if offset_from_end == 1 {
                 // this will just repeat this value many times
                 let element = self.buf[current - 1];
@@ -354,22 +347,7 @@ impl<'a> ReadBuf<'a> {
                 }
             }
         } else {
-            let (before, after) = self.buf.split_at_mut(current);
-            let (d, _) = slice_as_chunks_mut::<_, 32>(after);
-            let chunk_count = (end - start).div_ceil(32);
-
-            if d.len() >= chunk_count {
-                for (s, d) in before[start..end].chunks(32).zip(d) {
-                    use std::arch::x86_64::{_mm256_loadu_si256, _mm256_storeu_si256};
-
-                    unsafe {
-                        let chunk = _mm256_loadu_si256(s.as_ptr().cast());
-                        _mm256_storeu_si256(d.as_mut_ptr().cast(), chunk);
-                    }
-                }
-            } else {
-                self.buf.copy_within(start..end, current);
-            }
+            Self::copy_chunked_within::<C>(self.buf, current, start, end)
         }
 
         // safety: we just copied length initialized bytes right beyond self.filled
@@ -377,28 +355,46 @@ impl<'a> ReadBuf<'a> {
 
         self.advance(length);
     }
-}
 
-fn slice_as_chunks<T, const N: usize>(slice: &[T]) -> (&[[T; N]], &[T]) {
-    assert!(N != 0, "chunk size must be non-zero");
-    let len = slice.len() / N;
-    let (multiple_of_n, remainder) = slice.split_at(len * N);
-    // SAFETY: We already panicked for zero, and ensured by construction
-    // that the length of the subslice is a multiple of N.
-    let array_slice: &[[T; N]] =
-        unsafe { std::slice::from_raw_parts(multiple_of_n.as_ptr().cast(), len) };
-    (array_slice, remainder)
-}
+    #[inline(always)]
+    fn copy_chunked_within<C: Chunk>(
+        buf: &mut [MaybeUninit<u8>],
+        current: usize,
+        start: usize,
+        end: usize,
+    ) {
+        if (end - start).next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
+            unsafe {
+                Self::copy_chunk_unchecked::<C>(
+                    buf.as_ptr().add(start),
+                    buf.as_mut_ptr().add(current),
+                    buf.as_ptr().add(end),
+                )
+            }
+        } else {
+            // a full simd copy does not fit in the output buffer
+            buf.copy_within(start..end, current);
+        }
+    }
 
-fn slice_as_chunks_mut<T, const N: usize>(slice: &mut [T]) -> (&mut [[T; N]], &mut [T]) {
-    assert!(N != 0, "chunk size must be non-zero");
-    let len = slice.len() / N;
-    let (multiple_of_n, remainder) = slice.split_at_mut(len * N);
-    // SAFETY: We already panicked for zero, and ensured by construction
-    // that the length of the subslice is a multiple of N.
-    let array_slice: &mut [[T; N]] =
-        unsafe { std::slice::from_raw_parts_mut(multiple_of_n.as_mut_ptr().cast(), len) };
-    (array_slice, remainder)
+    /// # Safety
+    ///
+    /// `src` must be safe to perform unaligned reads in `core::mem::size_of::<C>()` chunks until
+    /// `end` is reached. `dst` must be safe to (unalingned) write that number of chunks.
+    #[inline(always)]
+    unsafe fn copy_chunk_unchecked<C: Chunk>(
+        mut src: *const MaybeUninit<u8>,
+        mut dst: *mut MaybeUninit<u8>,
+        end: *const MaybeUninit<u8>,
+    ) {
+        while src < end {
+            let chunk = C::load_chunk(src);
+            C::store_chunk(dst, chunk);
+
+            src = src.add(core::mem::size_of::<C>());
+            dst = dst.add(core::mem::size_of::<C>());
+        }
+    }
 }
 
 impl std::io::Write for ReadBuf<'_> {
@@ -429,6 +425,10 @@ impl fmt::Debug for ReadBuf<'_> {
     }
 }
 
+fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
+    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
+}
+
 unsafe fn slice_to_uninit_mut(slice: &mut [u8]) -> &mut [MaybeUninit<u8>] {
     &mut *(slice as *mut [u8] as *mut [MaybeUninit<u8>])
 }
@@ -443,231 +443,68 @@ unsafe fn slice_assume_init_mut(slice: &mut [MaybeUninit<u8>]) -> &mut [u8] {
     &mut *(slice as *mut [MaybeUninit<u8>] as *mut [u8])
 }
 
-trait ChunkSet {
-    const N: usize = core::mem::size_of::<Self::Chunk>();
+trait Chunk {
+    /// Safety: must be valid to read a `Self::Chunk` value from `from` with an unaligned read.
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self;
 
-    type Chunk;
+    /// Safety: must be valid to write a `Self::Chunk` value to `out` with an unaligned write.
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self);
+}
 
-    unsafe fn memset_2(from: *const u8, chunk: &mut Self::Chunk);
-    unsafe fn memset_4(from: *const u8, chunk: &mut Self::Chunk);
-    unsafe fn memset_8(from: *const u8, chunk: &mut Self::Chunk);
+impl Chunk for u64 {
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        std::ptr::read_unaligned(from.cast())
+    }
 
-    unsafe fn loadchunk(from: *const u8, chunk: &mut Self::Chunk);
-    unsafe fn storechunk(out: *mut u8, chunk: &Self::Chunk);
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        std::ptr::copy_nonoverlapping(
+            chunk.to_ne_bytes().as_ptr().cast(),
+            out,
+            core::mem::size_of::<Self>(),
+        )
+    }
+}
+
+impl Chunk for core::arch::x86_64::__m128i {
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        core::arch::x86_64::_mm_loadu_si128(from.cast())
+    }
 
     #[inline(always)]
-    unsafe fn get_chunk_mag(buf: *const u8, chunk_rem: &mut usize, dist: usize) -> Self::Chunk {
-        let mut bytes_remaining = Self::N;
-
-        let mut chunk = MaybeUninit::zeroed().assume_init();
-        let mut cur_chunk = &mut chunk as *mut Self::Chunk as *mut u8;
-
-        while bytes_remaining > 0 {
-            let cpy_dist = Ord::min(dist, bytes_remaining);
-            std::ptr::copy_nonoverlapping(buf, cur_chunk, cpy_dist);
-            bytes_remaining -= cpy_dist;
-            cur_chunk = cur_chunk.add(cpy_dist);
-
-            // saves an expensive integer division (somewhere)
-            *chunk_rem = cpy_dist;
-        }
-
-        chunk
-    }
-
-    unsafe fn chunkcopy(mut out: *mut u8, mut from: *const u8, mut len: usize) -> *mut u8 {
-        assert!(len > 0, "chunkcopy should never have a length 0");
-
-        let mut chunk = MaybeUninit::zeroed().assume_init();
-
-        let align = ((len - 1) % Self::N) + 1;
-        Self::loadchunk(from, &mut chunk);
-        Self::storechunk(out, &chunk);
-
-        out = out.add(align);
-        from = from.add(align);
-        len -= align;
-
-        while len > 0 {
-            Self::loadchunk(from, &mut chunk);
-            Self::storechunk(out, &chunk);
-
-            out = out.add(Self::N);
-            from = from.add(Self::N);
-            len -= Self::N;
-        }
-
-        out
-    }
-
-    unsafe fn chunkunroll(mut out: *mut u8, dist: &mut usize, len: &mut usize) -> *mut u8 {
-        let from = out.sub(*dist);
-        let mut chunk = MaybeUninit::zeroed().assume_init();
-
-        while *dist < *len && *dist < Self::N {
-            Self::loadchunk(from, &mut chunk);
-            Self::storechunk(out, &chunk);
-
-            out = out.add(*dist);
-            *len -= *dist;
-            *dist += *dist;
-        }
-
-        out
-    }
-
-    unsafe fn chunkmemset(mut out: *mut u8, dist: usize, mut len: usize) -> *mut u8 {
-        assert!(dist > 0, "chunkmemset cannot have a distance 0");
-
-        let from = out.sub(dist);
-
-        let mut chunk_load = MaybeUninit::zeroed().assume_init();
-        let mut chunk_mod = 0;
-
-        match dist {
-            1 => {
-                std::ptr::write_bytes(out, *from, len);
-                return out.add(len);
-            }
-            _ if dist > Self::N => {
-                return Self::chunkcopy(out, out.sub(dist), len);
-            }
-            2 => {
-                Self::memset_2(from, &mut chunk_load);
-            }
-            4 => {
-                Self::memset_4(from, &mut chunk_load);
-            }
-            8 => {
-                Self::memset_8(from, &mut chunk_load);
-            }
-            _ if dist == Self::N => {
-                Self::loadchunk(from, &mut chunk_load);
-            }
-            _ => {
-                chunk_load = Self::get_chunk_mag(from, &mut chunk_mod, dist);
-            }
-        }
-
-        if chunk_mod == 0 {
-            while len >= 2 * Self::N {
-                Self::storechunk(out, &chunk_load);
-                Self::storechunk(out.add(Self::N), &chunk_load);
-                out = out.add(2 * Self::N);
-                len -= 2 * Self::N;
-            }
-        }
-
-        let adv_amount = Self::N - chunk_mod;
-        assert!(adv_amount != 0, "{:?}", (Self::N, chunk_mod));
-        while len >= Self::N {
-            Self::storechunk(out, &chunk_load);
-            len -= adv_amount;
-            out = out.add(adv_amount);
-        }
-
-        if len != 0 {
-            std::ptr::copy_nonoverlapping(&chunk_load as *const _ as *const u8, out, len);
-            out = out.add(len);
-        }
-
-        out
-    }
-
-    unsafe fn chunkmemset_safe(
-        mut out: *mut u8,
-        dist: usize,
-        mut len: usize,
-        mut left: usize,
-    ) -> *mut u8 {
-        // TODO unaligned optimizations?
-        const ALIGN_MASK: usize = 7;
-
-        len = Ord::min(len, left);
-        let mut from = out.sub(dist);
-
-        while (out as usize & ALIGN_MASK) != 0 && len > 0 {
-            *out = *from;
-            out = out.add(1);
-            from = from.add(1);
-
-            len -= 1;
-            left -= 1;
-        }
-
-        if left < (3 * Self::N) {
-            while len > 0 {
-                *out = *from;
-                out = out.add(1);
-                from = from.add(1);
-                len -= 1;
-            }
-            return out;
-        }
-
-        if len != 0 {
-            return Self::chunkmemset(out, dist, len);
-        }
-
-        out
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        core::arch::x86_64::_mm_storeu_si128(out as *mut Self, chunk);
     }
 }
 
-struct Standard;
-
-impl ChunkSet for Standard {
-    type Chunk = u64;
-
-    unsafe fn memset_2(from: *const u8, chunk: &mut Self::Chunk) {
-        let [a, b]: [u8; 2] = std::ptr::read(from.cast());
-        *chunk = u64::from_ne_bytes([a, b, 0, 0, 0, 0, 0, 0]);
+impl Chunk for core::arch::x86_64::__m256i {
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        core::arch::x86_64::_mm256_loadu_si256(from.cast())
     }
 
-    unsafe fn memset_4(from: *const u8, chunk: &mut Self::Chunk) {
-        let [a, b, c, d]: [u8; 4] = std::ptr::read(from.cast());
-        *chunk = u64::from_ne_bytes([a, b, c, d, 0, 0, 0, 0]);
-    }
-
-    unsafe fn memset_8(from: *const u8, chunk: &mut Self::Chunk) {
-        let tmp: [u8; 8] = std::ptr::read(from.cast());
-        *chunk = u64::from_ne_bytes(tmp);
-    }
-
-    unsafe fn loadchunk(from: *const u8, chunk: &mut Self::Chunk) {
-        let tmp: [u8; 8] = std::ptr::read(from.cast());
-        *chunk = u64::from_ne_bytes(tmp);
-    }
-
-    unsafe fn storechunk(out: *mut u8, chunk: &Self::Chunk) {
-        std::ptr::write(out as *mut [u8; 8], chunk.to_ne_bytes());
+    #[inline(always)]
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        core::arch::x86_64::_mm256_storeu_si256(out as *mut Self, chunk);
     }
 }
 
-struct Avx2;
-
-impl ChunkSet for Avx2 {
-    type Chunk = std::arch::x86_64::__m256i;
-
-    unsafe fn memset_2(from: *const u8, chunk: &mut Self::Chunk) {
-        let tmp: i16 = std::ptr::read_unaligned(from.cast());
-        *chunk = std::arch::x86_64::_mm256_set1_epi16(tmp);
+impl Chunk for core::arch::x86_64::__m512i {
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        // TODO AVX-512 is effectively unstable.
+        // We cross our fingers that LLVM optimizes this into a vmovdqu32
+        //
+        // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_loadu_si512&expand=3420&ig_expand=4110
+        std::ptr::read_unaligned(from.cast())
     }
 
-    unsafe fn memset_4(from: *const u8, chunk: &mut Self::Chunk) {
-        let tmp: i32 = std::ptr::read_unaligned(from.cast());
-        *chunk = std::arch::x86_64::_mm256_set1_epi32(tmp);
-    }
-
-    unsafe fn memset_8(from: *const u8, chunk: &mut Self::Chunk) {
-        let tmp: i64 = std::ptr::read_unaligned(from.cast());
-        *chunk = std::arch::x86_64::_mm256_set1_epi64x(tmp);
-    }
-
-    unsafe fn loadchunk(from: *const u8, chunk: &mut Self::Chunk) {
-        *chunk = std::arch::x86_64::_mm256_loadu_si256(from.cast());
-    }
-
-    unsafe fn storechunk(out: *mut u8, chunk: &Self::Chunk) {
-        std::arch::x86_64::_mm256_storeu_si256(out as *mut Self::Chunk, *chunk);
+    #[inline(always)]
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        // TODO AVX-512 is effectively unstable.
+        // We cross our fingers that LLVM optimizes this into a vmovdqu32
+        //
+        // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_storeu_si512&expand=3420&ig_expand=4110,6550
+        std::ptr::write_unaligned(out.cast(), chunk)
     }
 }

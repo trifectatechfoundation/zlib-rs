@@ -904,6 +904,7 @@ impl<'a> State<'a> {
             self.bi_buf |= val << self.bi_valid;
             self.bi_valid = total_bits;
         } else if self.bi_valid == Self::BIT_BUF_SIZE {
+            // with how send_bits is called, this is unreachable in practice
             self.pending.extend(&self.bi_buf.to_le_bytes());
             self.bi_buf = val;
             self.bi_valid = len;
@@ -1439,6 +1440,12 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     }
 }
 
+/// Checks that symbol is a printing character (excluding space)
+#[allow(unused)]
+fn isgraph(c: u8) -> bool {
+    (c > 0x20) && (c <= 0x7E)
+}
+
 fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
     /* tree: the tree to decorate */
     /* max_code: largest code with non zero frequency */
@@ -1479,14 +1486,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
             trace!(
                 "\nn {:>3} {} l {:>2} c {:>4x} ({:x}) ",
                 n,
-                //                match char::from_u32(n as u32) {
-                //                    None => ' ',
-                //                    Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                //                        true => c,
-                //                        false => ' ',
-                //                    },
-                //                },
-                if unsafe { libc::isgraph(n as i32) } > 0 {
+                if isgraph(n u8) {
                     char::from_u32(n as u32).unwrap()
                 } else {
                     ' '
@@ -1496,9 +1496,6 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
                 next_code[len as usize] - 1
             );
         }
-
-        //        Tracecv(tree != static_ltree, (stderr, "\nn %3d %c l %2d c %4x (%x) ",
-        //             n, (isgraph(n & 0xff) ? n : ' '), len, tree[n].Code, next_code[len]-1));
     }
 }
 
@@ -2279,8 +2276,12 @@ mod test {
 
     use std::ffi::{c_char, c_int, c_uint};
 
+    const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
+    const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
+    const LCET10: &str = include_str!("deflate/test-data/lcet10.txt");
+
     #[test]
-    fn detect_data_type() {
+    fn detect_data_type_basic() {
         let empty = || [Value::new(0, 0); LITERALS];
 
         assert_eq!(State::detect_data_type(&empty()), DataType::Binary);
@@ -2300,6 +2301,31 @@ mod test {
         let mut non_text = empty();
         non_text[7] = Value::new(1, 0);
         assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
+    }
+
+    #[test]
+    fn compress_lcet10() {
+        fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
+    }
+
+    #[test]
+    fn compress_paper_100k() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(PAPER_100K, config, &[])
+        }
+    }
+
+    #[test]
+    fn compress_fireworks() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(FIREWORKS, config, &[])
+        }
     }
 
     #[test]
@@ -2613,18 +2639,62 @@ mod test {
         (&mut output[..stream.total_out as usize], ReturnCode::Ok)
     }
 
-    fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
-        let mut output_ng = [0; 1 << 16];
+    fn cve_test(input: &[u8]) {
+        let mut output_ng = [0; 1 << 17];
+        // flush type 4 = Finish is the default
+        let config = DeflateConfig {
+            window_bits: 15,
+            mem_level: 1,
+            ..DeflateConfig::default()
+        };
         let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        let mut output_rs = [0; 1 << 16];
-        let (output, err) = compress_slice(&mut output_rs, input, config);
+        let mut output_rs = [0; 1 << 17];
+        let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
+        assert_eq!(output_ng, output_rs);
+
+        let mut output = vec![0; input.len()];
+        let config = crate::inflate::InflateConfig { window_bits: 15 };
+        let (output, err) = crate::inflate::uncompress_slice(&mut output, output_rs, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn zlib_ng_cve_2018_25032_default() {
+        const DEFAULT: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
+        cve_test(DEFAULT.as_bytes())
+    }
+
+    #[test]
+    fn zlib_ng_cve_2018_25032_fixed() {
+        const FIXED: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/fixed.txt");
+        cve_test(FIXED.as_bytes())
+    }
+
+    #[test]
+    fn zlib_ng_gh_382() {
+        const DEFNEG: &[u8] = include_bytes!("deflate/test-data/zlib-ng/GH-382/defneg3.dat");
+        cve_test(DEFNEG)
+    }
+
+    fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
+        let mut output_ng = [0; 1 << 17];
+        let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        let mut output_rs = [0; 1 << 17];
+        let (output_rs, err) = compress_slice(&mut output_rs, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(output_ng, output_rs);
+
         if !expected.is_empty() {
-            assert_eq!(output_ng, expected);
-            assert_eq!(output, expected);
+            assert_eq!(output_rs, expected);
         }
     }
 
@@ -2736,7 +2806,7 @@ mod test {
     #[test]
     fn read_buf_window_uninitialized() {
         // copies more in `read_buf_window` than is initialized at that point
-        const INPUT: &str = include_str!("deflate/tests/read_buf_window_uninitialized.txt");
+        const INPUT: &str = include_str!("deflate/test-data/read_buf_window_uninitialized.txt");
 
         fuzz_based_test(
             INPUT.as_bytes(),

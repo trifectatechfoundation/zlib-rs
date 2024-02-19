@@ -183,3 +183,13 @@ pub fn compress_slice<'a>(
 
     (&mut output[..stream.total_out], libz_ng_sys::Z_OK)
 }
+
+pub unsafe fn crc32(start: u32, buf: *const u8, len: usize) -> u32 {
+    let lib = libloading::Library::new("/home/folkertdev/c/libcrc.so").unwrap();
+
+    type Func = unsafe extern "C" fn(start: u32, buf: *const u8, len: usize) -> u32;
+
+    let f: libloading::Symbol<Func> = lib.get(b"crc32_sse").unwrap();
+
+    f(start, buf, len)
+}
