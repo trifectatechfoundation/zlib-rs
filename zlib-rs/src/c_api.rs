@@ -157,3 +157,5 @@ pub struct gz_header {
 }
 
 pub type gz_headerp = *mut gz_header;
+
+pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();

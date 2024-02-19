@@ -57,8 +57,6 @@ impl<'a> GzipHeader {
 }
 
 // TODO should only be used by tests; only export when running tests
-pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
-
 #[repr(C)]
 pub struct InflateStream<'a> {
     pub(crate) next_in: *mut crate::c_api::Bytef,
@@ -709,10 +707,7 @@ impl<'a> State<'a> {
     fn extra(&mut self) -> ReturnCode {
         if (self.flags & 0x0400) != 0 {
 
-            let mut copy = self.length;
-            if copy > self.in_available {
-                copy = self.in_available;
-            }
+            let copy = Ord::min(self.length, self.in_available);
 
             if copy != 0 {
                 if let Some(head) = self.head.as_mut() {
@@ -770,12 +765,6 @@ impl<'a> State<'a> {
             let mut copy = 0;
             loop {
 
-                // Take a byte
-                // TODO: can this be done in a single line?
-                //
-                // This does not go well after a few pulls:
-                // let next_byte = self.bit_reader.pull_byte();
-                //
                 need_bits!(self, 8);
                 let len = self.bit_reader.hold() as u8;
                 self.bit_reader.init_bits();
@@ -1979,19 +1968,11 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
 
     let state = &stream.state;
 
-    let writer: MaybeUninit<ReadBuf> =
-        unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
+    //let writer: MaybeUninit<ReadBuf> =
+    //    unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
 
-    // Deep copy the Gzip header.
-    // TODO: is that what we want here?
-    let mut head_copy;
-    let head_opt = match &state.head {
-      Some(head) => {
-        head_copy = (*head).clone();
-        Some(&mut head_copy)
-      },
-      None => None,
-    };
+    //let head: Option<MaybeUninit<GzipHeader>> =
+    //    unsafe { std::ptr::read(&state.head as *const _ as *const MaybeUninit<GzipHeader>) };
 
     let mut copy = State {
         mode: state.mode,
@@ -2001,7 +1982,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         dist_table: state.dist_table,
         wbits: state.wbits,
         window: Window::empty(),
-        head: head_opt,
+        head: None,
         ncode: state.ncode,
         nlen: state.nlen,
         ndist: state.ndist,
@@ -2051,9 +2032,14 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
 
     unsafe { std::ptr::write(destination.state.cast(), copy) };
 
+    let writer: MaybeUninit<ReadBuf> =
+        unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
+
     // update the writer; it cannot be cloned so we need to use some shennanigans
     let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).writer) };
     unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
+
+    // TODO similarly update the gzip header
 
     unsafe { std::ptr::write(dest, destination) };
 
