@@ -208,36 +208,6 @@ pub fn uncompress<'a>(
         return (&mut [], err);
     }
 
-    // TODO: what to allocate here?
-    let extra: [u8; 64] = [0; 64];
-    let name: [u8; 64] = [0; 64];
-    let comment: [u8; 64] = [0; 64];
-
-    // Set header
-    // See: https://www.zlib.net/manual.html
-    let mut header = GzipHeader {
-        text: 0,
-        time: 0,
-        xflags: 0,
-        os: 0,
-        extra: extra.as_ptr() as *mut u8,
-        extra_len: 0,
-        extra_max: 64,
-        name: name.as_ptr() as *mut u8,
-        name_max: 64, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
-        comment_max: 64,
-        hcrc: 0,
-        done: 0,
-    };
-
-    // TODO: remove this when done with testing
-    let _err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-        get_header(stream, &mut header)
-    } else {
-        panic!("Error set/create the Gzip header");
-    };
-
     stream.next_out = dest;
     stream.avail_out = 0;
 
@@ -579,9 +549,7 @@ impl<'a> State<'a> {
         need_bits!(self, 16);
 
         // Gzip
-        //if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
-        // TODO: Force gzip header
-        if self.bit_reader.hold() == 0x8b1f {
+        if (self.wrap & 2) != 0 && self.bit_reader.hold() == 0x8b1f {
             if self.wbits == 0 {
                 self.wbits = 15;
             }
@@ -730,7 +698,6 @@ impl<'a> State<'a> {
                                 copy as u32
                             };
 
-                            // TODO: Im not convinced of this, needs more testing
                             unsafe {
                                 std::ptr::copy_nonoverlapping(
                                     self.bit_reader.as_ptr(),
@@ -888,7 +855,6 @@ impl<'a> State<'a> {
             need_bits!(self, 32);
 
             // TODO gzip
-            /*
             if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
                 self.checksum = adler32(self.checksum, self.writer.filled());
             }
@@ -897,7 +863,6 @@ impl<'a> State<'a> {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
             }
-            */
 
             self.bit_reader.init_bits();
         }
