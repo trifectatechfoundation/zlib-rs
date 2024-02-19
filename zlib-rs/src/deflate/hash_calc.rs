@@ -1,3 +1,5 @@
+use std::arch::is_aarch64_feature_detected;
+
 use crate::deflate::{State, HASH_SIZE, STD_MIN_MATCH};
 
 pub trait HashCalc {
@@ -122,6 +124,20 @@ impl HashCalc for RollHashCalc {
 }
 
 pub struct Crc32HashCalc;
+
+impl Crc32HashCalc {
+    pub const fn is_supported() -> bool {
+        if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
+            return true;
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        return is_aarch64_feature_detected!("crc");
+
+        #[allow(unreachable_code)]
+        false
+    }
+}
 
 impl HashCalc for Crc32HashCalc {
     const HASH_CALC_OFFSET: usize = 0;
