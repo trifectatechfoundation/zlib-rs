@@ -63,10 +63,10 @@ impl Crc32Fold {
             && is_x86_feature_detected!("sse4.1")
     }
 
-    pub fn fold(&mut self, src: &[u8], start: u32) {
+    pub fn fold(&mut self, src: &[u8], _start: u32) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq() {
-            return self.fold.fold(src, start);
+            return self.fold.fold(src, _start);
         }
 
         // in this case the start value is ignored
