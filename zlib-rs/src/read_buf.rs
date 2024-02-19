@@ -465,6 +465,7 @@ impl Chunk for u64 {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Chunk for core::arch::x86_64::__m128i {
     #[inline(always)]
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
@@ -477,6 +478,7 @@ impl Chunk for core::arch::x86_64::__m128i {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Chunk for core::arch::x86_64::__m256i {
     #[inline(always)]
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
@@ -489,6 +491,7 @@ impl Chunk for core::arch::x86_64::__m256i {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Chunk for core::arch::x86_64::__m512i {
     #[inline(always)]
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {

@@ -1,6 +1,7 @@
 use crate::CRC32_INITIAL_VALUE;
 
 mod braid;
+#[cfg(target_arch = "x86_64")]
 mod pclmulqdq;
 
 pub fn crc32(buf: &[u8], start: u32) -> u32 {
