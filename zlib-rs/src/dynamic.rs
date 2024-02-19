@@ -216,7 +216,7 @@ fn compress_slice_dynamic<'a>(
             window_bits,
             mem_level,
             strategy as i32,
-            // b"1.3.0\0".as_ptr() as *const i8,
+            // b"1.3.0\0".as_ptr() as *const std::ffi::c_char,
             // std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
         );
         let return_code = ReturnCode::from(err);
