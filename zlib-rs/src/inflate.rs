@@ -1573,11 +1573,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
 
                             // may need some bytes from the output
                             if op < len as usize {
-                                let len = len as usize - op;
-
-                                writer.copy_match(dist as usize, len);
-                            } else {
-                                // nothing?
+                                writer.copy_match(dist as usize, len as usize - op);
                             }
                         } else if extra_safe {
                             todo!()

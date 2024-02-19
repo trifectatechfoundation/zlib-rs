@@ -18,3 +18,6 @@ libc.workspace = true
 [dev-dependencies]
 libloading = "0.8.1"
 libz-ng-sys = "1.1.12"
+crc32fast = "1.3.2"
+quickcheck = "1.0.3"
+load-dynamic-libz-ng.workspace = true
