@@ -688,7 +688,7 @@ impl<'a> State<'a> {
                     // If extra is not empty, and extra_len and extra_max are set
                     if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
 
-                        let len = (head.extra_len - self.length as u32) as u32;
+                        let len = head.extra_len - self.length as u32;
                         if len < head.extra_max {
 
                             let copy_length = unsafe { head.extra.add(len as usize) };
@@ -1952,7 +1952,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
     let mut head_copy;
     let head_opt = match &state.head {
       Some(head) => {
-        head_copy = (*head).clone();
+        head_copy = *(*head);
         Some(&mut head_copy)
       },
       None => None,
