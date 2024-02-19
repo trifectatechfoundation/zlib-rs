@@ -11,7 +11,7 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
         return braid::crc32_braid::<5>(buf, start);
     }
 
-    let mut crc_state = Crc32Fold::new();
+    let mut crc_state = Crc32Fold::new_with_initial(start);
     crc_state.fold(buf, start);
     crc_state.finish()
 }
@@ -45,10 +45,14 @@ impl Default for Crc32Fold {
 
 impl Crc32Fold {
     pub const fn new() -> Self {
+        Self::new_with_initial(CRC32_INITIAL_VALUE)
+    }
+
+    pub const fn new_with_initial(initial: u32) -> Self {
         Self {
             #[cfg(target_arch = "x86_64")]
             fold: pclmulqdq::Accumulator::new(),
-            value: 0,
+            value: initial,
         }
     }
 
@@ -119,7 +123,11 @@ mod test {
             for start in [CRC32_INITIAL_VALUE, 42] {
                 let mut h = crc32fast::Hasher::new_with_initial(start);
                 h.update(&INPUT[i..]);
-                assert_eq!(crc32(&INPUT[i..], start), h.finalize());
+                assert_eq!(
+                    crc32(&INPUT[i..], start),
+                    h.finalize(),
+                    "offset = {i}, start = {start}"
+                );
             }
         }
     }
