@@ -3,8 +3,8 @@ use crate::adler32::{adler32_len_1, adler32_len_16, BASE, NMAX};
 use core::arch::aarch64::{
     uint16x8_t, uint16x8x2_t, uint16x8x4_t, uint8x16_t, vaddq_u32, vaddw_high_u8, vaddw_u8,
     vdupq_n_u16, vdupq_n_u32, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
-    vget_low_u8, vld1q_u16_x4, vld1q_u8, vld1q_u8_x4, vmlal_high_u16, vmlal_u16, vpadalq_u16,
-    vpadalq_u8, vpadd_u32, vpaddlq_u8, vsetq_lane_u32, vshlq_n_u32,
+    vget_low_u8, vld1q_u8_x4, vmlal_high_u16, vmlal_u16, vpadalq_u16, vpadalq_u8, vpadd_u32,
+    vpaddlq_u8, vsetq_lane_u32, vshlq_n_u32,
 };
 
 const TAPS: [uint16x8x4_t; 2] = unsafe {
@@ -15,15 +15,69 @@ const TAPS: [uint16x8x4_t; 2] = unsafe {
     ])
 };
 
-unsafe fn accum32(mut s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
+pub fn adler32_neon(mut adler: u32, buf: &[u8]) -> u32 {
+    /* split Adler-32 into component sums */
+    let sum2 = (adler >> 16) & 0xffff;
+    adler &= 0xffff;
+
+    /* in case user likes doing a byte at a time, keep it fast */
+    if buf.len() == 1 {
+        return adler32_len_1(adler, buf, sum2);
+    }
+
+    /* initial Adler-32 value (deferred check for len == 1 speed) */
+    if buf.is_empty() {
+        return 1;
+    }
+
+    /* in case short lengths are provided, keep it somewhat fast */
+    if buf.len() < 16 {
+        return adler32_len_16(adler, buf, sum2);
+    }
+
+    // Split Adler-32 into component sums, it can be supplied by the caller sites (e.g. in a PNG file).
+    let mut pair = (adler, sum2);
+
+    // If memory is not SIMD aligned, do scalar sums to an aligned
+    // offset, provided that doing so doesn't completely eliminate
+    // SIMD operation. Aligned loads are still faster on ARM, even
+    // though there's no explicit aligned load instruction
+    const _: () = assert!(core::mem::align_of::<uint8x16_t>() == 16);
+    let (before, middle, after) = unsafe { buf.align_to::<uint8x16_t>() };
+
+    pair = handle_tail(pair, before);
+
+    for chunk in middle.chunks(NMAX as usize) {
+        pair = unsafe { accum32(pair, chunk) };
+        pair.0 %= BASE;
+        pair.1 %= BASE;
+    }
+
+    if !after.is_empty() {
+        pair = handle_tail(pair, after);
+        pair.0 %= BASE;
+        pair.1 %= BASE;
+    }
+
+    // D = B * 65536 + A, see: https://en.wikipedia.org/wiki/Adler-32.
+    return (pair.1 << 16) | pair.0;
+}
+
+fn handle_tail(mut pair: (u32, u32), buf: &[u8]) -> (u32, u32) {
+    for x in buf {
+        pair.0 += *x as u32;
+        pair.1 += pair.0;
+    }
+
+    pair
+}
+
+unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let mut adacc = vdupq_n_u32(0);
     let mut s2acc = vdupq_n_u32(0);
-    let mut s2acc_0 = vdupq_n_u32(0);
-    let mut s2acc_1 = vdupq_n_u32(0);
-    let mut s2acc_2 = vdupq_n_u32(0);
 
-    let mut adacc = vsetq_lane_u32(s.0, adacc, 0);
-    let mut s2acc = vsetq_lane_u32(s.1, s2acc, 0);
+    adacc = vsetq_lane_u32(s.0, adacc, 0);
+    s2acc = vsetq_lane_u32(s.1, s2acc, 0);
 
     let mut s3acc = vdupq_n_u32(0);
     let mut adacc_prev = adacc;
@@ -93,6 +147,10 @@ unsafe fn accum32(mut s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let t0_t3 = TAPS[0];
     let t4_t7 = TAPS[1];
 
+    let mut s2acc_0 = vdupq_n_u32(0);
+    let mut s2acc_1 = vdupq_n_u32(0);
+    let mut s2acc_2 = vdupq_n_u32(0);
+
     s2acc = vmlal_high_u16(s2acc, t0_t3.0, s2_0);
     s2acc_0 = vmlal_u16(s2acc_0, vget_low_u16(t0_t3.0), vget_low_u16(s2_0));
     s2acc_1 = vmlal_high_u16(s2acc_1, t0_t3.1, s2_1);
@@ -123,63 +181,6 @@ unsafe fn accum32(mut s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let as_ = vpadd_u32(adacc2, s2acc2);
 
     (vget_lane_u32(as_, 0), vget_lane_u32(as_, 1))
-}
-
-fn handle_tail(mut pair: (u32, u32), buf: &[u8]) -> (u32, u32) {
-    for x in buf {
-        pair.0 += *x as u32;
-        pair.1 += pair.0;
-    }
-
-    pair
-}
-
-fn adler32_neon(mut adler: u32, buf: &[u8]) -> u32 {
-    /* split Adler-32 into component sums */
-    let sum2 = (adler >> 16) & 0xffff;
-    adler &= 0xffff;
-
-    /* in case user likes doing a byte at a time, keep it fast */
-    if buf.len() == 1 {
-        return adler32_len_1(adler, buf, sum2);
-    }
-
-    /* initial Adler-32 value (deferred check for len == 1 speed) */
-    if buf.is_empty() {
-        return 1;
-    }
-
-    /* in case short lengths are provided, keep it somewhat fast */
-    if buf.len() < 16 {
-        return adler32_len_16(adler, buf, sum2);
-    }
-
-    // Split Adler-32 into component sums, it can be supplied by the caller sites (e.g. in a PNG file).
-    let mut pair = (adler, sum2);
-
-    // If memory is not SIMD aligned, do scalar sums to an aligned
-    // offset, provided that doing so doesn't completely eliminate
-    // SIMD operation. Aligned loads are still faster on ARM, even
-    // though there's no explicit aligned load instruction
-    const _: () = assert!(core::mem::align_of::<uint8x16_t>() == 16);
-    let (before, middle, after) = unsafe { buf.align_to::<uint8x16_t>() };
-
-    pair = handle_tail(pair, before);
-
-    for chunk in middle.chunks(NMAX as usize) {
-        pair = unsafe { accum32(pair, chunk) };
-        pair.0 %= BASE;
-        pair.1 %= BASE;
-    }
-
-    if !after.is_empty() {
-        pair = handle_tail(pair, after);
-        pair.0 %= BASE;
-        pair.1 %= BASE;
-    }
-
-    // D = B * 65536 + A, see: https://en.wikipedia.org/wiki/Adler-32.
-    return (pair.1 << 16) | pair.0;
 }
 
 #[cfg(test)]
