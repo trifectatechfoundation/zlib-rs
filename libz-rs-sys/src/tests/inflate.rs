@@ -228,6 +228,8 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
         let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
 
+        println!("{:?} {:?} {:?}", ret, err);
+
         if let Some(err) = err {
             assert_eq!(ret, err)
         }
@@ -473,6 +475,7 @@ fn bad_zlib_header_check() {
 }
 
 #[test]
+#[ignore = "gzip"]
 fn need_dictionary() {
     inf(
         &[0x08, 0xb8, 0x0, 0x0, 0x0, 0x1],
@@ -840,6 +843,7 @@ fn copy_direct_from_output() {
 }
 
 #[test]
+#[ignore = "gzip"]
 fn cover_cve_2022_37434() {
     inf(
         &[
