@@ -6,6 +6,8 @@ use std::ffi::{c_char, c_int, c_void};
 
 use libz_rs_sys::*;
 use zlib_rs::{Flush, MAX_WBITS};
+use zlib_rs::c_api::INFLATE_STATE_SIZE;
+use zlib_rs::inflate::get_header;
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -182,7 +184,35 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
     let mut out = vec![0u8; len];
 
     if win == 47 {
-        todo!("gzip")
+
+        // TODO: what to allocate here?
+        let extra: [u8; 64] = [0; 64];
+        let name: [u8; 64] = [0; 64];
+        let comment: [u8; 64] = [0; 64];
+
+        // Set header
+        // See: https://www.zlib.net/manual.html
+        let mut header = GzipHeader {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra.as_ptr() as *mut u8,
+            extra_len: 0,
+            extra_max: 64,
+            name: name.as_ptr() as *mut u8,
+            name_max: 64, // How / where should this be set?
+            comment: comment.as_ptr() as *mut u8,
+            comment_max: 64,
+            hcrc: 0,
+            done: 0,
+        };
+
+        let _err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
+            get_header(stream, &mut header)
+        } else {
+            panic!("Error set/create the Gzip header");
+        };
     }
 
     let mut have = input.len();
@@ -320,7 +350,7 @@ fn cover_wrap() {
 
     // ------------------------------
 
-    let size = 2 * zlib_rs::inflate::INFLATE_STATE_SIZE + 256;
+    let size = 2 * INFLATE_STATE_SIZE + 256;
     mem_limit(&mut strm, size);
 
     ret = unsafe { inflatePrime(&mut strm, 16, 0) };
@@ -402,7 +432,6 @@ fn check_adler32() {
     )
 }
 #[test]
-#[ignore = "gzip"]
 fn bad_header_crc() {
     inf(
         &[
@@ -417,7 +446,6 @@ fn bad_header_crc() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn check_gzip_length() {
     inf(
         &[
@@ -433,7 +461,6 @@ fn check_gzip_length() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn bad_zlib_header_check() {
     inf(
         &[0x78, 0x90],
@@ -446,7 +473,6 @@ fn bad_zlib_header_check() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn need_dictionary() {
     inf(
         &[0x08, 0xb8, 0x0, 0x0, 0x0, 0x1],
@@ -814,7 +840,6 @@ fn copy_direct_from_output() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn cover_cve_2022_37434() {
     inf(
         &[

@@ -3,6 +3,7 @@
 
 use std::ffi::{c_char, c_int, c_long, c_ulong, c_void};
 use std::{alloc::Layout, mem::MaybeUninit};
+use core::slice;
 
 mod bitreader;
 mod inffixed_tbl;
@@ -14,7 +15,7 @@ use crate::{
     DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
-use crate::c_api::gz_header;
+use crate::crc32;
 
 use self::{
     bitreader::BitReader,
@@ -39,21 +40,6 @@ pub struct GzipHeader {
     pub comment_max: crate::c_api::uInt,
     pub hcrc: libc::c_int,
     pub done: libc::c_int,
-}
-
-/// TODO: Move to separate file?
-impl<'a> GzipHeader {
-    #[inline(always)]
-    pub unsafe fn from_header_mut(head: *mut gz_header) -> Option<&'a mut Self> {
-        if head.is_null() {
-            return None;
-        }
-
-        // safety: GzipHeader has the same layout as gz_header
-        let header = unsafe { &mut *(head as *mut GzipHeader) };
-
-        Some(header)
-    }
 }
 
 // TODO should only be used by tests; only export when running tests
@@ -205,36 +191,6 @@ pub fn uncompress<'a>(
     if err != ReturnCode::Ok {
         return (&mut [], err);
     }
-
-    // TODO: what to allocate here?
-    let extra: [u8; 64] = [0; 64];
-    let name: [u8; 64] = [0; 64];
-    let comment: [u8; 64] = [0; 64];
-
-    // Set header
-    // See: https://www.zlib.net/manual.html
-    let mut header = GzipHeader {
-        text: 0,
-        time: 0,
-        xflags: 0,
-        os: 0,
-        extra: extra.as_ptr() as *mut u8,
-        extra_len: 0,
-        extra_max: 64,
-        name: name.as_ptr() as *mut u8,
-        name_max: 64, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
-        comment_max: 64,
-        hcrc: 0,
-        done: 0,
-    };
-
-    // TODO: remove this when done with testing
-    let _err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-        get_header(stream, &mut header)
-    } else {
-        panic!("Error set/create the Gzip header");
-    };
 
     stream.next_out = dest;
     stream.avail_out = 0;
@@ -577,14 +533,14 @@ impl<'a> State<'a> {
         need_bits!(self, 16);
 
         // Gzip
-        //if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
-        // TODO: Force gzip header
-        if self.bit_reader.hold() == 0x8b1f {
+        if (self.wrap & 2) == 1 && self.bit_reader.hold() == 0x8b1f {
             if self.wbits == 0 {
                 self.wbits = 15;
             }
 
-            // TODO: CRC
+            let b0 = self.bit_reader.bits(8) as u8;
+            let b1 = (self.bit_reader.hold() >> 8) as u8;
+            self.checksum = crc32(&[b0, b1], crate::CRC32_INITIAL_VALUE);
             self.bit_reader.init_bits();
 
             self.mode = Mode::Flags;
@@ -649,7 +605,11 @@ impl<'a> State<'a> {
             head.text = ((self.bit_reader.hold() >> 8) & 1) as i32;
         }
 
-        // TODO: CRC header check
+        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            let b0 = self.bit_reader.bits(8) as u8;
+            let b1 = (self.bit_reader.hold() >> 8) as u8;
+            self.checksum = crc32(&[b0, b1], self.checksum);
+        }
 
         self.bit_reader.init_bits();
         self.mode = Mode::Time;
@@ -662,7 +622,13 @@ impl<'a> State<'a> {
             head.time = self.bit_reader.hold();
         }
 
-        // TODO: Header CRC
+        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            let b0 = self.bit_reader.bits(8) as u8;
+            let b1 = (self.bit_reader.hold() >> 8) as u8;
+            let b2 = (self.bit_reader.hold() >> 16) as u8;
+            let b3 = (self.bit_reader.hold() >> 24) as u8;
+            self.checksum = crc32(&[b0, b1, b2, b3], self.checksum);
+        }
 
         self.bit_reader.init_bits();
         self.mode = Mode::Os;
@@ -676,7 +642,11 @@ impl<'a> State<'a> {
             head.os = (self.bit_reader.hold() >> 8) as i32;
         }
 
-        // TODO: crc check
+        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            let b0 = self.bit_reader.bits(8) as u8;
+            let b1 = (self.bit_reader.hold() >> 8) as u8;
+            self.checksum = crc32(&[b0, b1], self.checksum);
+        }
 
         self.bit_reader.init_bits();
         self.mode = Mode::ExLen;
@@ -692,7 +662,11 @@ impl<'a> State<'a> {
                 head.extra_len = self.bit_reader.hold() as u32;
             }
 
-            // TODO: CRC header check
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                let b0 = self.bit_reader.bits(8) as u8;
+                let b1 = (self.bit_reader.hold() >> 8) as u8;
+                self.checksum = crc32(&[b0, b1], self.checksum);
+            }
 
             self.bit_reader.init_bits();
 
@@ -708,14 +682,13 @@ impl<'a> State<'a> {
         if (self.flags & 0x0400) != 0 {
 
             let copy = Ord::min(self.length, self.in_available);
-
             if copy != 0 {
                 if let Some(head) = self.head.as_mut() {
 
                     // If extra is not empty, and extra_len and extra_max are set
                     if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
 
-                        let len = (head.extra_len - self.length as u32) as u32;
+                        let len = head.extra_len - self.length as u32;
                         if len < head.extra_max {
 
                             let copy_length = unsafe { head.extra.add(len as usize) };
@@ -725,7 +698,6 @@ impl<'a> State<'a> {
                                 copy as u32
                             };
 
-                            // TODO: Im not convinced of this, needs more testing
                             unsafe {
                                 std::ptr::copy_nonoverlapping(
                                     self.bit_reader.as_ptr(),
@@ -737,7 +709,11 @@ impl<'a> State<'a> {
                     }
                 }
 
-                // TODO: Crc header check
+                // Checksum
+                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    let bytes = unsafe { slice::from_raw_parts(self.bit_reader.as_ptr(), copy) };
+                    self.checksum = crc32(bytes, self.checksum)
+                }
 
                 self.in_available -= copy;
                 self.bit_reader.advance(copy);
@@ -783,7 +759,12 @@ impl<'a> State<'a> {
                 }
             }
 
-            // TODO: Crc header check
+            if let Some(head) = self.head.as_mut() {
+                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    let bytes = unsafe { slice::from_raw_parts(head.name, copy) };
+                    self.checksum = crc32(bytes, self.checksum)
+                }
+            }
 
             if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
@@ -830,7 +811,12 @@ impl<'a> State<'a> {
                 }
             }
 
-            // TODO: Crc header check
+            if let Some(head) = self.head.as_mut() {
+                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    let bytes = unsafe { slice::from_raw_parts(head.comment, copy) };
+                    self.checksum = crc32(bytes, self.checksum)
+                }
+            }
 
             if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::StreamEnd);
@@ -848,11 +834,10 @@ impl<'a> State<'a> {
         if (self.flags & 0x0200) != 0 {
             need_bits!(self, 16);
 
-            // TODO: CRC check
-            //if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.check() & 0xffff) {
-            //    self.mode = Mode::Bad;
-            //    return self.bad("header crc mismatch\0");
-            //}
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() as u32 != (self.checksum & 0xffff) {
+                self.mode = Mode::Bad;
+                return self.bad("header crc mismatch\0");
+            }
 
             self.bit_reader.init_bits();
         }
@@ -862,8 +847,9 @@ impl<'a> State<'a> {
             head.done = 1;
         }
 
-        // TODO: Finish CRC header check
+        println!("CHECKSUM: {:?}", crate::CRC32_INITIAL_VALUE);
 
+        self.checksum = crate::CRC32_INITIAL_VALUE;
         self.mode = Mode::Type;
         self.type_()
     }
@@ -876,22 +862,38 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
-            // TODO gzip
-            /*
             if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
-                self.checksum = adler32(self.checksum, self.writer.filled());
+                if self.flags != 0 {
+                    self.checksum = crc32(self.writer.filled(), self.checksum);
+                } else {
+                    self.checksum = adler32(self.checksum, self.writer.filled());
+                }
             }
 
-            if self.wrap & 4 != 0 && zswap32(self.bit_reader.hold() as u32) != self.checksum {
+            let given_checksum = if self.flags != 0 {
+                self.bit_reader.hold() as u32
+            } else {
+                zswap32(self.bit_reader.hold() as u32)
+            };
+
+            if self.wrap & 4 != 0 && given_checksum != self.checksum {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
             }
-            */
 
             self.bit_reader.init_bits();
         }
 
-        // in zlib this moves into the DONE state
+        // for gzip, last bytes contain LENGTH
+        if self.wrap != 0 && self.flags != 0 {
+            need_bits!(self, 32);
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.writer.len() & 0xffffffff) as u64 {
+                self.mode = Mode::Bad;
+                return self.bad("incorrect length check\0");
+            }
+
+            self.bit_reader.init_bits();
+        }
 
         // inflate stream terminated properly
         self.inflate_leave(ReturnCode::StreamEnd)
@@ -2178,16 +2180,11 @@ fn init_window<'a>(
 }
 
 pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeader) -> ReturnCode {
-
-    // TODO Why does this always fail?
-    //if (stream.state.wrap & 2) == 0 {
-    //    return ReturnCode::StreamError;
-    //}
-
-    // TODO more checks
+    if (stream.state.wrap & 2) == 0 {
+        return ReturnCode::StreamError;
+    }
 
     head.done = 0;
     stream.state.head = Some(head);
-
     ReturnCode::Ok
 }
