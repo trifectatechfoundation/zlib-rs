@@ -1,5 +1,3 @@
-use std::arch::is_aarch64_feature_detected;
-
 use crate::deflate::{State, HASH_SIZE, STD_MIN_MATCH};
 
 pub trait HashCalc {
@@ -132,7 +130,7 @@ impl Crc32HashCalc {
         }
 
         #[cfg(target_arch = "aarch64")]
-        return is_aarch64_feature_detected!("crc");
+        return std::arch::is_aarch64_feature_detected!("crc");
 
         #[allow(unreachable_code)]
         false

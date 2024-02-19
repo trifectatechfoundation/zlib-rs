@@ -2823,4 +2823,12 @@ mod test {
             &[],
         )
     }
+
+    quickcheck::quickcheck! {
+        fn rs_is_ng(bytes: Vec<u8>) -> bool {
+            fuzz_based_test(&bytes, DeflateConfig::default(), &[]);
+
+            true
+        }
+    }
 }
