@@ -995,7 +995,7 @@ enum Status {
     Finish,
 }
 
-const fn error_message(return_code: ReturnCode) -> *const i8 {
+const fn error_message(return_code: ReturnCode) -> *const std::ffi::c_char {
     const TABLE: [&str; 10] = [
         "need dictionary\0",      /* Z_NEED_DICT       2  */
         "stream end\0",           /* Z_STREAM_END      1  */
