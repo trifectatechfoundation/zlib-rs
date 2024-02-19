@@ -128,6 +128,12 @@ impl HashCalc for Crc32HashCalc {
 
     const HASH_CALC_MASK: u32 = (HASH_SIZE - 1) as u32;
 
+    #[cfg(target_arch = "x86")]
+    fn hash_calc(h: u32, val: u32) -> u32 {
+        unsafe { std::arch::x86::_mm_crc32_u32(h, val) }
+    }
+
+    #[cfg(target_arch = "x86_64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
         unsafe { std::arch::x86_64::_mm_crc32_u32(h, val) }
     }
