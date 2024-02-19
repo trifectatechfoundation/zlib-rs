@@ -105,7 +105,7 @@ mod test {
 
     #[test]
     fn test_crc32_fold() {
-        // input large enought to trigger the SIMD
+        // input large enough to trigger the SIMD
         let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
         h.update(&INPUT);
         assert_eq!(crc32(&INPUT, CRC32_INITIAL_VALUE), h.finalize());
@@ -125,7 +125,7 @@ mod test {
 
     #[test]
     fn test_crc32_fold_copy() {
-        // input large enought to trigger the SIMD
+        // input large enough to trigger the SIMD
         let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
         h.update(&INPUT);
         let mut dst = [0; INPUT.len()];
