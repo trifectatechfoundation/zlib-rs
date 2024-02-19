@@ -93,6 +93,74 @@ impl Crc32Fold {
     }
 }
 
+/// CRC32 single round checksum for bytes (8 bits).
+///
+/// [Arm's documentation](https://developer.arm.com/architectures/instruction-sets/intrinsics/__crc32b)
+#[cfg(target_arch = "arm")]
+#[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
+fn __crc32b(h: u32, val: u8) -> u32 {
+    let mut out = 0u32;
+    unsafe {
+        std::arch::asm!("crc32b {wd:w}, {wn:w}, {wm:w}",
+        wn = in(reg) h,
+        wm = in(reg) val,
+        wd = out(reg) out,
+        )
+    }
+    out
+}
+
+/// CRC32 single round checksum for half words (16 bits).
+///
+/// [Arm's documentation](https://developer.arm.com/architectures/instruction-sets/intrinsics/__crc32h)
+#[cfg(target_arch = "arm")]
+#[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
+fn __crc32h(h: u32, val: u16) -> u32 {
+    let mut out = 0u32;
+    unsafe {
+        std::arch::asm!("crc32h {wd:w}, {wn:w}, {wm:w}",
+        wn = in(reg) h,
+        wm = in(reg) val,
+        wd = out(reg) out,
+        )
+    }
+    out
+}
+
+/// CRC32 single round checksum for words (32 bits).
+///
+/// [Arm's documentation](https://developer.arm.com/architectures/instruction-sets/intrinsics/__crc32w)
+#[cfg(target_arch = "arm")]
+#[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
+fn __crc32w(h: u32, val: u32) -> u32 {
+    let mut out = 0u32;
+    unsafe {
+        std::arch::asm!("crc32w {wd:w}, {wn:w}, {wm:w}",
+        wn = in(reg) h,
+        wm = in(reg) val,
+        wd = out(reg) out,
+        )
+    }
+    out
+}
+
+/// CRC32-C single round checksum for words (32 bits).
+///
+/// [Arm's documentation](https://developer.arm.com/architectures/instruction-sets/intrinsics/__crc32cw)
+#[cfg(target_arch = "arm")]
+#[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
+pub fn __crc32cw(crc: u32, data: u32) -> u32 {
+    let mut out = 0u32;
+    unsafe {
+        std::arch::asm!("crc32cw {wd:w}, {wn:w}, {wm:w}",
+        wn = in(reg) crc,
+        wm = in(reg) data,
+        wd = out(reg) out,
+        )
+    }
+    out
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -167,6 +235,35 @@ mod test {
             assert_eq!(a,b);
 
             v == dst
+        }
+    }
+
+    #[cfg(target_arch = "arm")]
+    mod arm_crc32_asm {
+        use super::*;
+
+        #[test]
+        unsafe fn test_crc32b() {
+            assert_eq!(__crc32b(0, 0), 0);
+            assert_eq!(__crc32b(0, 255), 755167117);
+        }
+
+        #[test]
+        unsafe fn test_crc32h() {
+            assert_eq!(__crc32h(0, 0), 0);
+            assert_eq!(__crc32h(0, 16384), 1994146192);
+        }
+
+        #[test]
+        unsafe fn test_crc32w() {
+            assert_eq!(__crc32w(0, 0), 0);
+            assert_eq!(__crc32w(0, 4294967295), 3736805603);
+        }
+
+        #[test]
+        unsafe fn test_crc32cw() {
+            assert_eq!(__crc32cw(0, 0), 0);
+            assert_eq!(__crc32cw(0, 4294967295), 3080238136);
         }
     }
 }

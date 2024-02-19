@@ -140,16 +140,7 @@ impl HashCalc for Crc32HashCalc {
 
     #[cfg(target_arch = "aarch64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        let mut out = 0u32;
-        unsafe {
-            std::arch::asm!("crc32cw {wd:w}, {wn:w}, {wm:w}",
-            wn = in(reg) h,
-            wm = in(reg) val,
-            wd = out(reg) out,
-            )
-        }
-
-        out
+        crate::crc32::__crc32cw(h, val)
     }
 }
 
