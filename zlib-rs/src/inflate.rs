@@ -2027,9 +2027,6 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
 
     unsafe { std::ptr::write(destination.state.cast(), copy) };
 
-    let writer: MaybeUninit<ReadBuf> =
-        unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
-
     // update the writer; it cannot be cloned so we need to use some shennanigans
     let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).writer) };
     unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
