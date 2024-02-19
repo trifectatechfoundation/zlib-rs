@@ -779,7 +779,6 @@ impl<'a> State<'a> {
         self.comment()
     }
 
-    // https://github.com/madler/zlib/blob/develop/inflate.c#L1330
     fn comment(&mut self) -> ReturnCode {
         assert!(self.length == 0);
 
@@ -846,8 +845,6 @@ impl<'a> State<'a> {
             head.hcrc = (self.flags >> 9) & 1;
             head.done = 1;
         }
-
-        println!("CHECKSUM: {:?}", crate::CRC32_INITIAL_VALUE);
 
         self.checksum = crate::CRC32_INITIAL_VALUE;
         self.mode = Mode::Type;
