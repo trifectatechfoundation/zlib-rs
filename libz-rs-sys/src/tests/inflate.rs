@@ -227,9 +227,6 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         stream.next_out = out.as_mut_ptr();
 
         let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
-
-        println!("{:?} {:?} {:?}", ret, err);
-
         if let Some(err) = err {
             assert_eq!(ret, err)
         }
