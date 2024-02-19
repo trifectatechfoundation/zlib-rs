@@ -185,6 +185,7 @@ pub fn compress_slice<'a>(
 }
 
 pub unsafe fn crc32(start: u32, buf: *const u8, len: usize) -> u32 {
+    // source code: https://gist.github.com/folkertdev/daa2caff0d0b91a19e81138cb4a780bb
     let path = std::path::Path::new("libcrc32.so").canonicalize().unwrap();
 
     let lib = libloading::Library::new(path).unwrap();
@@ -213,8 +214,6 @@ mod tests {
                 let x = unsafe { crc32(0, buf.as_ptr(), buf.len()) };
 
                 assert_eq!(x, 3543112608);
-
-                return;
             } else {
                 eprintln!("pclmulqdq not supported");
             }
