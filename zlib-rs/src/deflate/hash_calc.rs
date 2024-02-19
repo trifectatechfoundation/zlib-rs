@@ -126,7 +126,7 @@ impl HashCalc for RollHashCalc {
 pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
-    pub const fn is_supported() -> bool {
+    pub fn is_supported() -> bool {
         if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
             return true;
         }
@@ -156,7 +156,7 @@ impl HashCalc for Crc32HashCalc {
 
     #[cfg(target_arch = "aarch64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        crate::crc32::__crc32cw(h, val)
+        unsafe { crate::crc32::arm::__crc32cw(h, val) }
     }
 }
 
