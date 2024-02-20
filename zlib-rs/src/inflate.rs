@@ -2011,7 +2011,9 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
     let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).writer) };
     unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
 
-    // TODO similarly update the gzip header
+    // similarly update the gzip header
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).head) };
+    unsafe { std::ptr::copy(&state.head, field_ptr, 1) };
 
     unsafe { std::ptr::write(dest, destination) };
 
