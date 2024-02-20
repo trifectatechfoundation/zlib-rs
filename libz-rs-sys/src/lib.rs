@@ -11,7 +11,7 @@ use std::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
 
 use zlib_rs::{
     deflate::{DeflateConfig, DeflateStream, Method, Strategy},
-    inflate::{GzipHeader, InflateConfig, InflateStream},
+    inflate::{InflateConfig, InflateStream},
     Flush, ReturnCode,
 };
 
@@ -207,8 +207,7 @@ pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> 
             return ReturnCode::StreamError as _
         }
 
-        // safety: GzipHeader has the same layout as gz_header
-        let header = unsafe { &mut *(head as *mut GzipHeader) };
+        let header = unsafe { &mut *(head) };
 
         zlib_rs::inflate::get_header(stream, header) as i32
     } else {

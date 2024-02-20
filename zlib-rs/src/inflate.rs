@@ -11,7 +11,7 @@ mod inftrees;
 mod window;
 
 use crate::{
-    adler32::adler32, allocate, c_api::z_stream, read_buf::ReadBuf, Code, Flush, ReturnCode,
+    adler32::adler32, allocate, c_api::{gz_header, Z_DEFLATED, z_stream}, read_buf::ReadBuf, Code, Flush, ReturnCode,
     DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
@@ -22,25 +22,6 @@ use self::{
     inftrees::{inflate_table, CodeType, InflateTable},
     window::Window,
 };
-
-/// TODO: Move to separate file?
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct GzipHeader {
-    pub text: libc::c_int,
-    pub time: crate::c_api::z_size,
-    pub xflags: libc::c_int,
-    pub os: libc::c_int,
-    pub extra: *mut crate::c_api::Bytef,
-    pub extra_len: crate::c_api::uInt,
-    pub extra_max: crate::c_api::uInt,
-    pub name: *mut crate::c_api::Bytef,
-    pub name_max: crate::c_api::uInt,
-    pub comment: *mut crate::c_api::Bytef,
-    pub comment_max: crate::c_api::uInt,
-    pub hcrc: libc::c_int,
-    pub done: libc::c_int,
-}
 
 // TODO should only be used by tests; only export when running tests
 #[repr(C)]
@@ -318,7 +299,7 @@ pub(crate) struct State<'a> {
     window: Window<'a>,
 
     /// place to store gzip header if needed
-    head: Option<&'a mut GzipHeader>,
+    head: Option<&'a mut gz_header>,
 
     //
     /// number of code length code lengths
@@ -482,9 +463,6 @@ const fn zswap32(q: u32) -> u32 {
 const INFLATE_FAST_MIN_HAVE: usize = 15;
 const INFLATE_FAST_MIN_LEFT: usize = 260;
 
-// only supported compression method
-const Z_DEFLATED: u64 = 8;
-
 impl<'a> State<'a> {
     fn dispatch(&mut self) -> ReturnCode {
         match self.mode {
@@ -552,7 +530,7 @@ impl<'a> State<'a> {
             return self.bad("incorrect header check\0");
         }
 
-        if self.bit_reader.bits(4) != Z_DEFLATED {
+        if self.bit_reader.bits(4) != Z_DEFLATED as u64 {
             self.mode = Mode::Bad;
             return self.bad("unknown compression method\0");
         }
@@ -591,7 +569,7 @@ impl<'a> State<'a> {
         self.flags = self.bit_reader.hold() as i32;
 
         // Z_DEFLATED = 8 is the only supported method
-        if self.flags & 0xff != Z_DEFLATED as i32 {
+        if self.flags & 0xff != Z_DEFLATED {
             self.mode = Mode::Bad;
             return self.bad("unknown compression method\0");
         }
@@ -623,11 +601,7 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            let b0 = self.bit_reader.bits(8) as u8;
-            let b1 = (self.bit_reader.hold() >> 8) as u8;
-            let b2 = (self.bit_reader.hold() >> 16) as u8;
-            let b3 = (self.bit_reader.hold() >> 24) as u8;
-            self.checksum = crc32(&[b0, b1, b2, b3], self.checksum);
+            self.checksum = crc32(&(self.bit_reader.hold() as u32).to_ne_bytes(), self.checksum);
         }
 
         self.bit_reader.init_bits();
@@ -643,9 +617,7 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            let b0 = self.bit_reader.bits(8) as u8;
-            let b1 = (self.bit_reader.hold() >> 8) as u8;
-            self.checksum = crc32(&[b0, b1], self.checksum);
+            self.checksum = crc32(&(self.bit_reader.hold() as u16).to_ne_bytes(), self.checksum);
         }
 
         self.bit_reader.init_bits();
@@ -663,9 +635,7 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                let b0 = self.bit_reader.bits(8) as u8;
-                let b1 = (self.bit_reader.hold() >> 8) as u8;
-                self.checksum = crc32(&[b0, b1], self.checksum);
+                self.checksum = crc32(&(self.bit_reader.hold() as u16).to_ne_bytes(), self.checksum);
             }
 
         } else if let Some(head) = self.head.as_mut() {
@@ -2169,7 +2139,7 @@ fn init_window<'a>(
     Ok(window)
 }
 
-pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut GzipHeader) -> ReturnCode {
+pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut gz_header) -> ReturnCode {
     if (stream.state.wrap & 2) == 0 {
         return ReturnCode::StreamError;
     }

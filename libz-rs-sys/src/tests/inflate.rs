@@ -192,7 +192,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
         // Set header
         // See: https://www.zlib.net/manual.html
-        let mut header = GzipHeader {
+        let mut header = gz_header {
             text: 0,
             time: 0,
             xflags: 0,
