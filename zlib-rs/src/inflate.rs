@@ -1,7 +1,6 @@
 #![allow(non_snake_case)] // TODO ultimately remove this
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
-use core::slice;
 use std::ffi::{c_char, c_int, c_long, c_ulong, c_void};
 use std::{alloc::Layout, mem::MaybeUninit};
 
