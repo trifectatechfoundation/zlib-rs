@@ -1,4 +1,4 @@
-pub mod adler32;
+mod adler32;
 pub mod allocate;
 pub mod c_api;
 pub mod crc32;
@@ -6,6 +6,7 @@ pub mod deflate;
 pub mod inflate;
 mod read_buf;
 
+pub use adler32::adler32;
 pub use crc32::crc32;
 
 #[macro_export]
