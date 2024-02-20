@@ -661,7 +661,7 @@ impl<'a> State<'a> {
 
     fn extra(&mut self) -> ReturnCode {
         if (self.flags & 0x0400) != 0 {
-            let copy = Ord::min(self.length, self.in_available);
+            let copy = Ord::min(self.length, self.bit_reader.bytes_remaining());
             if copy != 0 {
                 if let Some(head) = self.head.as_mut() {
                     // If extra is not empty, and extra_len and extra_max are set
