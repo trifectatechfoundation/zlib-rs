@@ -206,7 +206,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
     if win == 47 {
         let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-            get_header(stream, &mut header)
+            get_header(stream, Some(&mut header))
         } else {
             ReturnCode::MemError
         };

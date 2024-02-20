@@ -755,7 +755,7 @@ impl<'a> State<'a> {
     fn comment(&mut self) -> ReturnCode {
         assert_eq!(self.length, 0);
 
-        if (self.flags & 0x0100) != 0 {
+        if (self.flags & 0x01000) != 0 {
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
@@ -778,7 +778,7 @@ impl<'a> State<'a> {
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         comment_slice.as_ptr(),
-                        head.name,
+                        head.comment,
                         comment_slice.len(),
                     )
                 };
@@ -2146,12 +2146,17 @@ fn init_window<'a>(
     Ok(window)
 }
 
-pub fn get_header<'a>(stream: &'a mut InflateStream<'a>, head: &'a mut gz_header) -> ReturnCode {
+pub fn get_header<'a>(
+    stream: &mut InflateStream<'a>,
+    head: Option<&'a mut gz_header>,
+) -> ReturnCode {
     if (stream.state.wrap & 2) == 0 {
         return ReturnCode::StreamError;
     }
 
-    head.done = 0;
-    stream.state.head = Some(head);
+    stream.state.head = head.map(|head| {
+        head.done = 0;
+        head
+    });
     ReturnCode::Ok
 }

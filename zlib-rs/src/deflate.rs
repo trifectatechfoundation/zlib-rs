@@ -2475,6 +2475,8 @@ pub fn set_header<'a>(
 
 #[cfg(test)]
 mod test {
+    use crate::inflate::{InflateConfig, InflateStream};
+
     use super::*;
 
     use std::ffi::{c_char, c_int, c_uint, CStr};
@@ -3242,88 +3244,165 @@ mod test {
             assert_eq!(&output[..n], output_rs);
         }
 
-        let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
+        {
+            let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
 
-        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+            const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+            const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
-        let err = unsafe {
-            libz_ng_sys::inflateInit2_(
-                stream.as_mut_ptr(),
-                config.window_bits,
-                VERSION,
-                STREAM_SIZE,
-            )
-        };
-        assert_eq!(err, 0);
+            let err = unsafe {
+                libz_ng_sys::inflateInit2_(
+                    stream.as_mut_ptr(),
+                    config.window_bits,
+                    VERSION,
+                    STREAM_SIZE,
+                )
+            };
+            assert_eq!(err, 0);
 
-        let stream = unsafe { stream.assume_init_mut() };
+            let stream = unsafe { stream.assume_init_mut() };
 
-        stream.next_in = output_rs.as_mut_ptr() as _;
-        stream.avail_in = output_rs.len() as _;
+            stream.next_in = output_rs.as_mut_ptr() as _;
+            stream.avail_in = output_rs.len() as _;
 
-        let mut output = [0u8; 12];
-        stream.next_out = output.as_mut_ptr();
-        stream.avail_out = output.len() as _;
+            let mut output = [0u8; 12];
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
 
-        let mut extra_buf = [0u8; 64];
-        let mut name_buf = [0u8; 64];
-        let mut comment_buf = [0u8; 64];
+            let mut extra_buf = [0u8; 64];
+            let mut name_buf = [0u8; 64];
+            let mut comment_buf = [0u8; 64];
 
-        let mut header = libz_ng_sys::gz_header {
-            text: 0,
-            time: 0,
-            xflags: 0,
-            os: 0,
-            extra: extra_buf.as_mut_ptr(),
-            extra_len: 0,
-            extra_max: extra_buf.len() as _,
-            name: name_buf.as_mut_ptr(),
-            name_max: name_buf.len() as _,
-            comment: comment_buf.as_mut_ptr(),
-            comm_max: comment_buf.len() as _,
-            hcrc: 0,
-            done: 0,
-        };
+            let mut header = libz_ng_sys::gz_header {
+                text: 0,
+                time: 0,
+                xflags: 0,
+                os: 0,
+                extra: extra_buf.as_mut_ptr(),
+                extra_len: 0,
+                extra_max: extra_buf.len() as _,
+                name: name_buf.as_mut_ptr(),
+                name_max: name_buf.len() as _,
+                comment: comment_buf.as_mut_ptr(),
+                comm_max: comment_buf.len() as _,
+                hcrc: 0,
+                done: 0,
+            };
 
-        let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
-        assert_eq!(err, 0);
+            let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
+            assert_eq!(err, 0);
 
-        let err = unsafe { libz_ng_sys::inflate(stream, Flush::NoFlush as _) };
-        assert_eq!(
-            err,
-            ReturnCode::StreamEnd as i32,
-            "{:?}",
-            if stream.msg.is_null() {
-                None
-            } else {
-                Some(unsafe { CStr::from_ptr(stream.msg) })
-            }
-        );
+            let err = unsafe { libz_ng_sys::inflate(stream, Flush::NoFlush as _) };
+            assert_eq!(
+                err,
+                ReturnCode::StreamEnd as i32,
+                "{:?}",
+                if stream.msg.is_null() {
+                    None
+                } else {
+                    Some(unsafe { CStr::from_ptr(stream.msg) })
+                }
+            );
 
-        assert!(!header.comment.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.comment.cast()) }
-                .to_str()
-                .unwrap(),
-            comment.trim_end_matches('\0')
-        );
+            assert!(!header.comment.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.comment.cast()) }
+                    .to_str()
+                    .unwrap(),
+                comment.trim_end_matches('\0')
+            );
 
-        assert!(!header.name.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.name.cast()) }
-                .to_str()
-                .unwrap(),
-            name.trim_end_matches('\0')
-        );
+            assert!(!header.name.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.name.cast()) }
+                    .to_str()
+                    .unwrap(),
+                name.trim_end_matches('\0')
+            );
 
-        assert!(!header.extra.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.extra.cast()) }
-                .to_str()
-                .unwrap(),
-            extra.trim_end_matches('\0')
-        );
+            assert!(!header.extra.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.extra.cast()) }
+                    .to_str()
+                    .unwrap(),
+                extra.trim_end_matches('\0')
+            );
+        }
+
+        {
+            let mut stream = z_stream::default();
+
+            let config = InflateConfig {
+                window_bits: config.window_bits,
+            };
+
+            assert_eq!(crate::inflate::init(&mut stream, config), ReturnCode::Ok);
+
+            let Some(stream) = (unsafe { InflateStream::from_stream_mut(&mut stream) }) else {
+                unreachable!();
+            };
+
+            stream.next_in = output_rs.as_mut_ptr() as _;
+            stream.avail_in = output_rs.len() as _;
+
+            let mut output = [0u8; 12];
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
+
+            let mut extra_buf = [0u8; 64];
+            let mut name_buf = [0u8; 64];
+            let mut comment_buf = [0u8; 64];
+
+            let mut header = gz_header {
+                text: 0,
+                time: 0,
+                xflags: 0,
+                os: 0,
+                extra: extra_buf.as_mut_ptr(),
+                extra_len: 0,
+                extra_max: extra_buf.len() as _,
+                name: name_buf.as_mut_ptr(),
+                name_max: name_buf.len() as _,
+                comment: comment_buf.as_mut_ptr(),
+                comm_max: comment_buf.len() as _,
+                hcrc: 0,
+                done: 0,
+            };
+
+            assert_eq!(
+                crate::inflate::get_header(stream, Some(&mut header)),
+                ReturnCode::Ok
+            );
+
+            assert_eq!(
+                unsafe { crate::inflate::inflate(stream, Flush::Finish) },
+                ReturnCode::StreamEnd
+            );
+
+            assert!(!header.comment.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.comment.cast()) }
+                    .to_str()
+                    .unwrap(),
+                comment.trim_end_matches('\0')
+            );
+
+            assert!(!header.name.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.name.cast()) }
+                    .to_str()
+                    .unwrap(),
+                name.trim_end_matches('\0')
+            );
+
+            assert!(!header.extra.is_null());
+            assert_eq!(
+                unsafe { CStr::from_ptr(header.extra.cast()) }
+                    .to_str()
+                    .unwrap(),
+                extra.trim_end_matches('\0')
+            );
+        }
     }
 
     quickcheck::quickcheck! {

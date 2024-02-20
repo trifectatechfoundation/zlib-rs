@@ -208,7 +208,7 @@ pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> 
 
         let header = unsafe { &mut *(head) };
 
-        zlib_rs::inflate::get_header(stream, header) as i32
+        zlib_rs::inflate::get_header(stream, Some(header)) as i32
     } else {
         ReturnCode::StreamError as _
     }
