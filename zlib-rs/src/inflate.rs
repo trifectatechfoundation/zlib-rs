@@ -675,18 +675,13 @@ impl<'a> State<'a> {
                         let len = head.extra_len.saturating_sub(self.length as u32);
 
                         if len < head.extra_max {
-                            let copy_length = unsafe { head.extra.add(len as usize) };
-                            let dest = if len + (copy as u32) > head.extra_max {
-                                head.extra_max - len
-                            } else {
-                                copy as u32
-                            };
+                            let count = Ord::min(copy as u32, head.extra_max - len);
 
                             unsafe {
                                 std::ptr::copy_nonoverlapping(
                                     self.bit_reader.as_ptr(),
-                                    copy_length,
-                                    dest as usize,
+                                    head.extra.add(len as usize),
+                                    count as usize,
                                 );
                             }
                         }
