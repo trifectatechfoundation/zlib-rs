@@ -715,33 +715,34 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
-            let mut copy = 0;
-            loop {
-                let len = self.bit_reader.as_slice()[copy];
-                copy += 1;
+            if let Some(head) = self.head.as_mut() {
+                let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
+                let slice = self.bit_reader.as_slice();
 
-                if let Some(head) = self.head.as_mut() {
-                    if !head.name.is_null() && self.length < (head.name_max as usize) {
-                        unsafe { *head.name = len };
-                        head.name = unsafe { head.name.add(1) };
-                        self.length += 1;
-                    }
+                let null_terminator_index = slice
+                    .iter()
+                    .take(remaining_name_bytes)
+                    .position(|c| *c == 0);
+
+                // we include the null terminator if it exists
+                let name_slice = match null_terminator_index {
+                    Some(i) => &slice[..=i],
+                    None => slice,
+                };
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(name_slice.as_ptr(), head.name, name_slice.len())
+                };
+
+                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    self.checksum = crc32(name_slice, self.checksum);
                 }
 
-                if len == 0 || copy >= self.bit_reader.bytes_remaining() {
-                    break;
+                self.bit_reader.advance(name_slice.len());
+
+                if self.bit_reader.bytes_remaining() == 0 {
+                    return self.inflate_leave(ReturnCode::Ok);
                 }
-            }
-
-            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                let bytes = &self.bit_reader.as_slice()[..copy];
-                self.checksum = crc32(bytes, self.checksum)
-            }
-
-            self.bit_reader.advance(copy);
-
-            if self.bit_reader.bytes_remaining() == 0 {
-                return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
             head.name = std::ptr::null_mut();
@@ -760,38 +761,38 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
-            let mut copy = 0;
-            loop {
-                // Take a byte
-                need_bits!(self, 8);
-                let len = self.bit_reader.hold() as u8;
-                self.bit_reader.init_bits();
-
-                copy += 1;
-                if let Some(head) = self.head.as_mut() {
-                    if !head.comment.is_null() && self.length < (head.comm_max as usize) {
-                        unsafe {
-                            *head.comment = len;
-                        }
-                        head.comment = unsafe { head.comment.add(1) };
-                        self.length += 1;
-                    }
-                }
-
-                if len == 0 || copy >= self.bit_reader.bytes_remaining() {
-                    break;
-                }
-            }
-
             if let Some(head) = self.head.as_mut() {
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    let bytes = unsafe { slice::from_raw_parts(head.comment.sub(copy), copy) };
-                    self.checksum = crc32(bytes, self.checksum)
-                }
-            }
+                let remaining_comment_bytes = (head.comm_max as usize).saturating_sub(self.length);
+                let slice = self.bit_reader.as_slice();
 
-            if self.bit_reader.bytes_remaining() == 0 {
-                return self.inflate_leave(ReturnCode::Ok);
+                let null_terminator_index = slice
+                    .iter()
+                    .take(remaining_comment_bytes)
+                    .position(|c| *c == 0);
+
+                // we include the null terminator if it exists
+                let comment_slice = match null_terminator_index {
+                    Some(i) => &slice[..=i],
+                    None => slice,
+                };
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        comment_slice.as_ptr(),
+                        head.name,
+                        comment_slice.len(),
+                    )
+                };
+
+                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    self.checksum = crc32(comment_slice, self.checksum);
+                }
+
+                self.bit_reader.advance(comment_slice.len());
+
+                if self.bit_reader.bytes_remaining() == 0 {
+                    return self.inflate_leave(ReturnCode::Ok);
+                }
             }
         } else if let Some(head) = self.head.as_mut() {
             head.comment = std::ptr::null_mut();
