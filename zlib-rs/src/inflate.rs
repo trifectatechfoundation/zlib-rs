@@ -668,11 +668,11 @@ impl<'a> State<'a> {
                 self.checksum = crc32(&[b0, b1], self.checksum);
             }
 
-            self.bit_reader.init_bits();
-
         } else if let Some(head) = self.head.as_mut() {
             head.extra = std::ptr::null_mut();
         }
+
+        self.bit_reader.init_bits();
 
         self.mode = Mode::Extra;
         self.extra()
@@ -720,8 +720,9 @@ impl<'a> State<'a> {
                 self.length -= copy;
             }
 
+            // Checks for errors occur after returning
             if self.length != 0 {
-                return self.inflate_leave(ReturnCode::StreamEnd);
+                return self.inflate_leave(ReturnCode::Ok);
             }
         }
 
@@ -731,11 +732,9 @@ impl<'a> State<'a> {
     }
 
     fn name(&mut self) -> ReturnCode {
-        assert!(self.length == 0);
-
         if (self.flags & 0x0800) != 0 {
             if self.in_available == 0 {
-                return self.inflate_leave(ReturnCode::StreamEnd);
+                return self.inflate_leave(ReturnCode::Ok);
             }
 
             let mut copy = 0;
@@ -761,13 +760,13 @@ impl<'a> State<'a> {
 
             if let Some(head) = self.head.as_mut() {
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    let bytes = unsafe { slice::from_raw_parts(head.name, copy) };
+                    let bytes = unsafe { slice::from_raw_parts(head.name.sub(copy), copy) };
                     self.checksum = crc32(bytes, self.checksum)
                 }
             }
 
             if self.bit_reader.bytes_remaining() == 0 {
-                return self.inflate_leave(ReturnCode::StreamEnd);
+                return self.inflate_leave(ReturnCode::Ok);
             }
 
         } else if let Some(head) = self.head.as_mut() {
@@ -785,7 +784,7 @@ impl<'a> State<'a> {
         if (self.flags & 0x0100) != 0 {
 
             if self.in_available == 0 {
-                return self.inflate_leave(ReturnCode::StreamEnd);
+                return self.inflate_leave(ReturnCode::Ok);
             }
 
             let mut copy = 0;
@@ -812,13 +811,13 @@ impl<'a> State<'a> {
 
             if let Some(head) = self.head.as_mut() {
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    let bytes = unsafe { slice::from_raw_parts(head.comment, copy) };
+                    let bytes = unsafe { slice::from_raw_parts(head.comment.sub(copy), copy) };
                     self.checksum = crc32(bytes, self.checksum)
                 }
             }
 
             if self.bit_reader.bytes_remaining() == 0 {
-                return self.inflate_leave(ReturnCode::StreamEnd);
+                return self.inflate_leave(ReturnCode::Ok);
             }
 
         } else if let Some(head) = self.head.as_mut() {

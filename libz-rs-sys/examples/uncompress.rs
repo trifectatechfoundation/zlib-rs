@@ -78,6 +78,31 @@ fn main() {
 
             drop(dest_vec)
         }
+        "gz" => {
+            let path = it.next().unwrap();
+            let input = std::fs::read(&path).unwrap();
+
+            let mut dest_vec = vec![0u8; 1 << 28];
+
+            let mut dest_len = dest_vec.len() as u64;
+            let dest = dest_vec.as_mut_ptr();
+
+            let source = input.as_ptr();
+            let source_len = input.len() as _;
+
+            let err = unsafe { ::libz_rs_sys::uncompress(dest, &mut dest_len, source, source_len) };
+
+            if err != 0 {
+                panic!("error {err}");
+            }
+
+            dest_vec.truncate(dest_len as usize);
+
+            let path = PathBuf::from(path);
+            std::fs::write(path.with_extension(""), &dest_vec).unwrap();
+
+            drop(dest_vec)
+        }
         "xx" => {
             let path = it.next().unwrap();
             let input = std::fs::read(&path).unwrap();
