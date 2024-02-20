@@ -178,6 +178,14 @@ unsafe fn helper_32_bytes<const COPY: bool>(
 mod test {
     use super::*;
 
+    #[test]
+    fn empty_input() {
+        let avx2 = adler32_avx2(0, &[]);
+        let rust = crate::adler32::generic::adler32_rust(0, &[]);
+
+        assert_eq!(rust, avx2);
+    }
+
     quickcheck::quickcheck! {
         fn adler32_avx2_is_adler32_rust(v: Vec<u8>, start: u32) -> bool {
             let avx2 = adler32_avx2(start, &v);
