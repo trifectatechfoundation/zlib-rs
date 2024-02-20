@@ -186,25 +186,25 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
     let name: [u8; 64] = [0; 64];
     let comment: [u8; 64] = [0; 64];
 
-    if win == 47 {
-        // Set header
-        // See: https://www.zlib.net/manual.html
-        let mut header = gz_header {
-            text: 0,
-            time: 0,
-            xflags: 0,
-            os: 0,
-            extra: extra.as_ptr() as *mut u8,
-            extra_len: 0,
-            extra_max: 1024,
-            name: name.as_ptr() as *mut u8,
-            name_max: 64, // How / where should this be set?
-            comment: comment.as_ptr() as *mut u8,
-            comm_max: 64,
-            hcrc: 0,
-            done: 0,
-        };
+    // Set header
+    // See: https://www.zlib.net/manual.html
+    let mut header = gz_header {
+        text: 0,
+        time: 0,
+        xflags: 0,
+        os: 0,
+        extra: extra.as_ptr() as *mut u8,
+        extra_len: 0,
+        extra_max: 1024,
+        name: name.as_ptr() as *mut u8,
+        name_max: 64, // How / where should this be set?
+        comment: comment.as_ptr() as *mut u8,
+        comm_max: 64,
+        hcrc: 0,
+        done: 0,
+    };
 
+    if win == 47 {
         let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
             get_header(stream, &mut header)
         } else {
