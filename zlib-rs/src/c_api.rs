@@ -128,7 +128,6 @@ pub const Z_DEFAULT_STRATEGY: c_int = 0;
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct gz_header {
-
     /// true if contents is propably text
     pub text: c_int,
 

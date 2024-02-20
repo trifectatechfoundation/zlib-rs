@@ -1,9 +1,9 @@
 #![allow(non_snake_case)] // TODO ultimately remove this
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
+use core::slice;
 use std::ffi::{c_char, c_int, c_long, c_ulong, c_void};
 use std::{alloc::Layout, mem::MaybeUninit};
-use core::slice;
 
 mod bitreader;
 mod inffixed_tbl;
@@ -11,8 +11,11 @@ mod inftrees;
 mod window;
 
 use crate::{
-    adler32::adler32, allocate, c_api::{gz_header, Z_DEFLATED, z_stream}, read_buf::ReadBuf, Code, Flush, ReturnCode,
-    DEF_WBITS, MAX_WBITS, MIN_WBITS,
+    adler32::adler32,
+    allocate,
+    c_api::{gz_header, z_stream, Z_DEFLATED},
+    read_buf::ReadBuf,
+    Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
 use crate::crc32;
@@ -582,7 +585,7 @@ impl<'a> State<'a> {
             return self.bad("unknown header flags set\0");
         }
 
-        if let Some(head) = self.head.as_mut()  {
+        if let Some(head) = self.head.as_mut() {
             head.text = ((self.bit_reader.hold() >> 8) & 1) as i32;
         }
 
@@ -599,12 +602,15 @@ impl<'a> State<'a> {
 
     fn time(&mut self) -> ReturnCode {
         need_bits!(self, 32);
-        if let Some(head) = self.head.as_mut()  {
+        if let Some(head) = self.head.as_mut() {
             head.time = self.bit_reader.hold();
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            self.checksum = crc32(&(self.bit_reader.hold() as u32).to_ne_bytes(), self.checksum);
+            self.checksum = crc32(
+                &(self.bit_reader.hold() as u32).to_ne_bytes(),
+                self.checksum,
+            );
         }
 
         self.bit_reader.init_bits();
@@ -614,13 +620,16 @@ impl<'a> State<'a> {
 
     fn os(&mut self) -> ReturnCode {
         need_bits!(self, 16);
-        if let Some(head) = self.head.as_mut()  {
+        if let Some(head) = self.head.as_mut() {
             head.xflags = (self.bit_reader.hold() & 0xff) as i32;
             head.os = (self.bit_reader.hold() >> 8) as i32;
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            self.checksum = crc32(&(self.bit_reader.hold() as u16).to_ne_bytes(), self.checksum);
+            self.checksum = crc32(
+                &(self.bit_reader.hold() as u16).to_ne_bytes(),
+                self.checksum,
+            );
         }
 
         self.bit_reader.init_bits();
@@ -633,14 +642,16 @@ impl<'a> State<'a> {
             need_bits!(self, 16);
 
             self.length = self.bit_reader.hold() as usize;
-            if let Some(head) = self.head.as_mut()  {
+            if let Some(head) = self.head.as_mut() {
                 head.extra_len = self.bit_reader.hold() as u32;
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(&(self.bit_reader.hold() as u16).to_ne_bytes(), self.checksum);
+                self.checksum = crc32(
+                    &(self.bit_reader.hold() as u16).to_ne_bytes(),
+                    self.checksum,
+                );
             }
-
         } else if let Some(head) = self.head.as_mut() {
             head.extra = std::ptr::null_mut();
         }
@@ -653,17 +664,13 @@ impl<'a> State<'a> {
 
     fn extra(&mut self) -> ReturnCode {
         if (self.flags & 0x0400) != 0 {
-
             let copy = Ord::min(self.length, self.in_available);
             if copy != 0 {
                 if let Some(head) = self.head.as_mut() {
-
                     // If extra is not empty, and extra_len and extra_max are set
                     if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
-
                         let len = head.extra_len - self.length as u32;
                         if len < head.extra_max {
-
                             let copy_length = unsafe { head.extra.add(len as usize) };
                             let dest = if len + (copy as u32) > head.extra_max {
                                 head.extra_max - len
@@ -675,7 +682,7 @@ impl<'a> State<'a> {
                                 std::ptr::copy_nonoverlapping(
                                     self.bit_reader.as_ptr(),
                                     copy_length,
-                                    dest as usize
+                                    dest as usize,
                                 );
                             }
                         }
@@ -684,8 +691,7 @@ impl<'a> State<'a> {
 
                 // Checksum
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    let bytes = unsafe { slice::from_raw_parts(self.bit_reader.as_ptr(), copy) };
-                    self.checksum = crc32(bytes, self.checksum)
+                    self.checksum = crc32(&self.bit_reader.as_slice()[..copy], self.checksum)
                 }
 
                 self.in_available -= copy;
@@ -712,7 +718,6 @@ impl<'a> State<'a> {
 
             let mut copy = 0;
             loop {
-
                 need_bits!(self, 8);
                 let len = self.bit_reader.hold() as u8;
                 self.bit_reader.init_bits();
@@ -720,7 +725,9 @@ impl<'a> State<'a> {
                 copy += 1;
                 if let Some(head) = self.head.as_mut() {
                     if !head.name.is_null() && self.length < (head.name_max as usize) {
-                        unsafe { *head.name = len; }
+                        unsafe {
+                            *head.name = len;
+                        }
                         head.name = unsafe { head.name.add(1) };
                         self.length += 1;
                     }
@@ -741,7 +748,6 @@ impl<'a> State<'a> {
             if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
-
         } else if let Some(head) = self.head.as_mut() {
             head.name = std::ptr::null_mut();
         }
@@ -752,17 +758,15 @@ impl<'a> State<'a> {
     }
 
     fn comment(&mut self) -> ReturnCode {
-        assert!(self.length == 0);
+        assert_eq!(self.length, 0);
 
         if (self.flags & 0x0100) != 0 {
-
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
             let mut copy = 0;
             loop {
-
                 // Take a byte
                 need_bits!(self, 8);
                 let len = self.bit_reader.hold() as u8;
@@ -771,7 +775,9 @@ impl<'a> State<'a> {
                 copy += 1;
                 if let Some(head) = self.head.as_mut() {
                     if !head.comment.is_null() && self.length < (head.comment_max as usize) {
-                        unsafe { *head.comment = len; }
+                        unsafe {
+                            *head.comment = len;
+                        }
                         head.comment = unsafe { head.comment.add(1) };
                         self.length += 1;
                     }
@@ -792,7 +798,6 @@ impl<'a> State<'a> {
             if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
-
         } else if let Some(head) = self.head.as_mut() {
             head.comment = std::ptr::null_mut();
         }
@@ -856,7 +861,9 @@ impl<'a> State<'a> {
         // for gzip, last bytes contain LENGTH
         if self.wrap != 0 && self.flags != 0 {
             need_bits!(self, 32);
-            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.writer.len() & 0xffffffff) as u64 {
+            if (self.wrap & 4) != 0
+                && self.bit_reader.hold() != (self.writer.len() & 0xffffffff) as u64
+            {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect length check\0");
             }

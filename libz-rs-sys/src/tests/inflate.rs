@@ -5,8 +5,8 @@ use crate as libz_rs_sys;
 use std::ffi::{c_char, c_int, c_void};
 
 use libz_rs_sys::*;
-use zlib_rs::{Flush, MAX_WBITS};
 use zlib_rs::inflate::{get_header, INFLATE_STATE_SIZE};
+use zlib_rs::{Flush, MAX_WBITS};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -182,13 +182,11 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
     let mut out = vec![0u8; len];
 
+    let extra: [u8; 64] = [0; 64];
+    let name: [u8; 64] = [0; 64];
+    let comment: [u8; 64] = [0; 64];
+
     if win == 47 {
-
-        // TODO: what to allocate here?
-        let extra: [u8; 64] = [0; 64];
-        let name: [u8; 64] = [0; 64];
-        let comment: [u8; 64] = [0; 64];
-
         // Set header
         // See: https://www.zlib.net/manual.html
         let mut header = gz_header {
@@ -228,8 +226,6 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         stream.next_out = out.as_mut_ptr();
 
         let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
-
-        println!("err {:?} ret {:?}", err, ret);
 
         if let Some(err) = err {
             if err != 9 {

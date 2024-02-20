@@ -199,12 +199,11 @@ pub unsafe extern "C" fn inflateSetDictionary(
     zlib_rs::inflate::set_dictionary(stream, dict) as _
 }
 
-// part of gzib
+// part of gzip
 pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
-
         if head.is_null() {
-            return ReturnCode::StreamError as _
+            return ReturnCode::StreamError as _;
         }
 
         let header = unsafe { &mut *(head) };
