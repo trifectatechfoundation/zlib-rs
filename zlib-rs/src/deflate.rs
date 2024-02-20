@@ -3046,6 +3046,23 @@ mod test {
     }
 
     #[test]
+    fn gzip_stored_block_checksum() {
+        fuzz_based_test(
+            &[
+                27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 9, 0,
+            ],
+            DeflateConfig {
+                level: 0,
+                method: Method::Deflated,
+                window_bits: 26,
+                mem_level: 6,
+                strategy: Strategy::Default,
+            },
+            &[],
+        )
+    }
+
+    #[test]
     fn gzip_header_pending_flush() {
         let extra = "aaaaaaaaaaaaaaaaaaaa\0";
         let name = "bbbbbbbbbbbbbbbbbbbb\0";
