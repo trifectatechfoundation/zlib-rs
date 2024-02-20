@@ -1,4 +1,4 @@
-mod adler32;
+pub mod adler32;
 pub mod allocate;
 pub mod c_api;
 pub mod crc32;
