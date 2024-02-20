@@ -42,6 +42,9 @@ pub struct InflateStream<'a> {
     pub(crate) reserved: crate::c_api::uLong,
 }
 
+// TODO should only be used by tests; only export when running tests
+pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
+
 impl<'a> InflateStream<'a> {
     const _S: () = assert!(core::mem::size_of::<z_stream>() == core::mem::size_of::<Self>());
     const _A: () = assert!(core::mem::align_of::<z_stream>() == core::mem::align_of::<Self>());

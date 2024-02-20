@@ -6,8 +6,7 @@ use std::ffi::{c_char, c_int, c_void};
 
 use libz_rs_sys::*;
 use zlib_rs::{Flush, MAX_WBITS};
-use zlib_rs::c_api::INFLATE_STATE_SIZE;
-use zlib_rs::inflate::get_header;
+use zlib_rs::inflate::{get_header, INFLATE_STATE_SIZE};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
