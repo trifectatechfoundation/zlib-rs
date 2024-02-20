@@ -47,7 +47,7 @@ pub fn adler32_neon(mut adler: u32, buf: &[u8]) -> u32 {
 
     pair = handle_tail(pair, before);
 
-    for chunk in middle.chunks(NMAX as usize) {
+    for chunk in middle.chunks(NMAX as usize / core::mem::size_of::<uint8x16_t>()) {
         pair = unsafe { accum32(pair, chunk) };
         pair.0 %= BASE;
         pair.1 %= BASE;
@@ -218,5 +218,16 @@ mod tests {
                 assert_eq!(neon, rust, "offset = {i}, start = {start}");
             }
         }
+    }
+
+    #[test]
+    fn large_input() {
+        const DEFAULT: &str =
+            include_str!("../deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
+
+        let neon = adler32_neon(42, &DEFAULT.as_bytes());
+        let rust = crate::adler32::adler32_rust(42, &DEFAULT.as_bytes());
+
+        assert_eq!(neon, rust);
     }
 }
