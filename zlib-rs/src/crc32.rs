@@ -10,12 +10,16 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
     /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
      * these short lengths might also prove to be effective */
     if buf.len() < 64 {
-        return braid::crc32_braid::<5>(buf, start);
+        return crc32_braid(buf, start);
     }
 
     let mut crc_state = Crc32Fold::new_with_initial(start);
     crc_state.fold(buf, start);
     crc_state.finish()
+}
+
+pub fn crc32_braid(buf: &[u8], start: u32) -> u32 {
+    braid::crc32_braid::<5>(buf, start)
 }
 
 #[allow(unused)]
@@ -109,6 +113,8 @@ impl Crc32Fold {
 
 #[cfg(test)]
 mod test {
+    use test::braid::crc32_braid;
+
     use super::*;
 
     const INPUT: [u8; 1024] = {
@@ -182,5 +188,61 @@ mod test {
 
             v == dst
         }
+    }
+
+    #[test]
+    fn chunked() {
+        const INPUT: &[&[u8]] = &[
+            &[116],
+            &[111, 107, 105, 111, 44, 32, 97, 115],
+            &[121, 110, 99, 45, 115, 116, 100, 44],
+            &[32, 97, 110, 100, 32, 115, 109, 111],
+            &[108, 46, 32, 89, 111, 117, 226, 128],
+            &[153, 118, 101, 32, 112, 114, 111, 98],
+            &[97, 98, 108, 121, 32, 117, 115, 101],
+            &[100, 32, 116, 104, 101, 109, 32, 97],
+            &[116, 32, 115, 111, 109, 101, 32, 112],
+            &[111, 105, 110, 116, 44, 32, 101, 105],
+            &[116, 104, 101, 114, 32, 100, 105, 114],
+            &[101, 99, 116, 108, 121, 32, 111, 114],
+            &[0],
+        ];
+
+        const START: u32 = 2380683574;
+
+        let mut in_chunks = START;
+        for chunk in INPUT {
+            in_chunks = crc32(chunk, in_chunks);
+        }
+
+        let flattened: Vec<_> = INPUT.iter().copied().flatten().copied().collect();
+        let flat = crc32(&flattened, START);
+
+        assert_eq!(in_chunks, flat);
+    }
+
+    #[test]
+    fn nasty_alignment() {
+        const START: u32 = 2380683574;
+
+        const FLAT: &[u8] = &[
+            116, 111, 107, 105, 111, 44, 32, 97, 115, 121, 110, 99, 45, 115, 116, 100, 44, 32, 97,
+            110, 100, 32, 115, 109, 111, 108, 46, 32, 89, 111, 117, 226, 128, 153, 118, 101, 32,
+            112, 114, 111, 98, 97, 98, 108, 121, 32, 117, 115, 101, 100, 32, 116, 104, 101, 109,
+            32, 97, 116, 32, 115, 111, 109, 101, 32, 112, 111, 105, 110, 116, 44, 32, 101, 105,
+            116, 104, 101, 114, 32, 100, 105, 114, 101, 99, 116, 108, 121, 32, 111, 114, 0,
+        ];
+
+        let mut i = 0;
+        let mut flat = FLAT.to_vec();
+        while flat[i..].as_ptr() as usize % 16 != 15 {
+            flat.insert(0, 0);
+            i += 1;
+        }
+
+        let flat = &flat[i..];
+
+        assert_eq!(crc32_braid::<5>(flat, START), crc32(flat, START));
+        assert_eq!(crc32(flat, 2380683574), 1175758345);
     }
 }
