@@ -52,7 +52,7 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
 
     /* initial Adler-32 value (deferred check for len == 1 speed) */
     if buf.is_empty() {
-        return 1;
+        return adler | (sum2 << 16);
     }
 
     /* in case short lengths are provided, keep it somewhat fast */
