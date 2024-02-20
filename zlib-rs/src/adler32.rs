@@ -6,10 +6,6 @@ mod generic;
 #[cfg(target_arch = "aarch64")]
 mod neon;
 
-pub fn adler32_aligned(start_checksum: u32, data: &[u8]) -> u32 {
-    avx2::adler32_aligned_avx2(start_checksum, data)
-}
-
 pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {

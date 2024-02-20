@@ -52,15 +52,7 @@ pub fn main() {
             let path = it.next().unwrap();
             let input = std::fs::read(path).unwrap();
 
-            let h = zlib_rs::adler32::adler32(42, &input);
-            println!("{:#x}", h);
-        }
-
-        "adler32_aligned" => {
-            let path = it.next().unwrap();
-            let input = std::fs::read(path).unwrap();
-
-            let h = zlib_rs::adler32::adler32_aligned(42, &input);
+            let h = zlib_rs::adler32(42, &input);
             println!("{:#x}", h);
         }
 
