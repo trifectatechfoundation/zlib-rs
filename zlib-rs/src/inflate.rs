@@ -717,16 +717,12 @@ impl<'a> State<'a> {
 
             let mut copy = 0;
             loop {
-                need_bits!(self, 8);
-                let len = self.bit_reader.hold() as u8;
-                self.bit_reader.init_bits();
-
+                let len = self.bit_reader.as_slice()[copy];
                 copy += 1;
+
                 if let Some(head) = self.head.as_mut() {
                     if !head.name.is_null() && self.length < (head.name_max as usize) {
-                        unsafe {
-                            *head.name = len;
-                        }
+                        unsafe { *head.name = len };
                         head.name = unsafe { head.name.add(1) };
                         self.length += 1;
                     }
@@ -737,12 +733,12 @@ impl<'a> State<'a> {
                 }
             }
 
-            if let Some(head) = self.head.as_mut() {
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    let bytes = unsafe { slice::from_raw_parts(head.name.sub(copy), copy) };
-                    self.checksum = crc32(bytes, self.checksum)
-                }
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                let bytes = &self.bit_reader.as_slice()[..copy];
+                self.checksum = crc32(bytes, self.checksum)
             }
+
+            self.bit_reader.advance(copy);
 
             if self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
