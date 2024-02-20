@@ -5,7 +5,8 @@ use crate as libz_rs_sys;
 use std::ffi::{c_char, c_int, c_void};
 
 use libz_rs_sys::*;
-use zlib_rs::inflate::{get_header, INFLATE_STATE_SIZE};
+use zlib_rs::deflate::compress_slice;
+use zlib_rs::inflate::{uncompress_slice, INFLATE_STATE_SIZE};
 use zlib_rs::{Flush, MAX_WBITS};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
@@ -205,13 +206,8 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
     };
 
     if win == 47 {
-        let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-            get_header(stream, Some(&mut header))
-        } else {
-            ReturnCode::MemError
-        };
-
-        assert!(err == ReturnCode::Ok);
+        let err = unsafe { inflateGetHeader(&mut stream, &mut header) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
     }
 
     let mut have = input.len();
@@ -1096,4 +1092,49 @@ fn inflate_adler() {
 
     let length = Ord::min(stream.total_out as usize, ORIGINAL.len());
     assert_eq!(&uncompressed[..length], &ORIGINAL.as_bytes()[..length])
+}
+
+#[test]
+fn inflate_get_header_non_gzip_stream() {
+    let mut stream = mem_setup();
+
+    let win = 15; // i.e. zlib compression (and not gzip)
+    let init_err = unsafe { inflateInit2_(&mut stream, win, VERSION, STREAM_SIZE) };
+    if init_err != Z_OK {
+        mem_done(&mut stream);
+        return;
+    }
+
+    let mut header = gz_header::default();
+
+    assert_eq!(
+        unsafe { inflateGetHeader(&mut stream, &mut header) },
+        ReturnCode::StreamError as i32
+    );
+}
+
+#[test]
+fn inflate_window_bits_0_is_15() {
+    let input = b"Hello World!\n";
+
+    let mut compressed = [0; 64];
+    let (compressed, err) = compress_slice(&mut compressed, input, DeflateConfig::new(6));
+    assert_eq!(err, ReturnCode::Ok);
+
+    let config = InflateConfig { window_bits: 15 };
+    let mut output_15 = [0; 64];
+    let (output_15, err) = uncompress_slice(&mut output_15, compressed, config);
+    assert_eq!(err, ReturnCode::Ok);
+
+    let config = InflateConfig { window_bits: 0 };
+    let mut output_0 = [0; 64];
+    let (output_0, err) = uncompress_slice(&mut output_0, compressed, config);
+    assert_eq!(err, ReturnCode::Ok);
+
+    // for window size 0, the default of 15 is picked
+    // NOTE: the window size does not actually influence
+    // the output for an input this small.
+    assert_eq!(output_15, output_0);
+
+    assert_eq!(output_15, input);
 }

@@ -856,9 +856,7 @@ impl<'a> State<'a> {
         // for gzip, last bytes contain LENGTH
         if self.wrap != 0 && self.flags != 0 {
             need_bits!(self, 32);
-            if (self.wrap & 4) != 0
-                && self.bit_reader.hold() != (self.writer.len() & 0xffffffff) as u64
-            {
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.writer.len() as u32) as u64 {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect length check\0");
             }
