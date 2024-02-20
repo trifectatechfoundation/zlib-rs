@@ -1,22 +1,22 @@
 pub fn slide_hash(state: &mut crate::deflate::State) {
     let wsize = state.w_size as u16;
 
+    slide_hash_chain(state.head, wsize);
+    slide_hash_chain(state.prev, wsize);
+}
+
+fn slide_hash_chain(table: &mut [u16], wsize: u16) {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
-        avx2::slide_hash_chain(state.head, wsize);
-        avx2::slide_hash_chain(state.prev, wsize);
-        return;
+        return avx2::slide_hash_chain(table, wsize);
     }
 
     #[cfg(target_arch = "aarch64")]
     if std::arch::is_aarch64_feature_detected!("neon") {
-        neon::slide_hash_chain(state.head, wsize);
-        neon::slide_hash_chain(state.prev, wsize);
-        return;
+        return neon::slide_hash_chain(table, wsize);
     }
 
-    rust::slide_hash_chain(state.head, wsize);
-    rust::slide_hash_chain(state.prev, wsize);
+    rust::slide_hash_chain(table, wsize);
 }
 
 mod rust {
@@ -128,6 +128,24 @@ mod tests {
             neon::slide_hash_chain(&mut input, WSIZE);
 
             assert_eq!(input, OUTPUT);
+        }
+    }
+
+    quickcheck::quickcheck! {
+        fn slide_is_rust_slide(v: Vec<u16>, wsize: u16) -> bool {
+            // pad to a multiple of 32
+            let difference = v.len().next_multiple_of(32) - v.len();
+            let mut v = v;
+            v.extend(std::iter::repeat(u16::MAX).take(difference));
+
+
+            let mut a = v.clone();
+            let mut b = v;
+
+            rust::slide_hash_chain(&mut a, wsize);
+            slide_hash_chain(&mut b, wsize);
+
+            a == b
         }
     }
 }
