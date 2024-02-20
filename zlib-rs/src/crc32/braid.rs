@@ -136,6 +136,11 @@ mod test {
         !crc
     }
 
+    #[test]
+    fn empty_is_identity() {
+        assert_eq!(crc32_naive(&[], 32), 32);
+    }
+
     quickcheck::quickcheck! {
         fn naive_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
