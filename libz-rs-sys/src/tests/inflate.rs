@@ -182,7 +182,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
     let mut out = vec![0u8; len];
 
-    let extra: [u8; 64] = [0; 64];
+    let extra: [u8; 1024] = [0; 1024];
     let name: [u8; 64] = [0; 64];
     let comment: [u8; 64] = [0; 64];
 
@@ -196,11 +196,11 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
             os: 0,
             extra: extra.as_ptr() as *mut u8,
             extra_len: 0,
-            extra_max: 64,
+            extra_max: 1024,
             name: name.as_ptr() as *mut u8,
             name_max: 64, // How / where should this be set?
             comment: comment.as_ptr() as *mut u8,
-            comment_max: 64,
+            comm_max: 64,
             hcrc: 0,
             done: 0,
         };

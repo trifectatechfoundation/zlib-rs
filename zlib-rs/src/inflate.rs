@@ -655,11 +655,10 @@ impl<'a> State<'a> {
                     self.checksum,
                 );
             }
+            self.bit_reader.init_bits();
         } else if let Some(head) = self.head.as_mut() {
             head.extra = std::ptr::null_mut();
         }
-
-        self.bit_reader.init_bits();
 
         self.mode = Mode::Extra;
         self.extra()
@@ -672,7 +671,9 @@ impl<'a> State<'a> {
                 if let Some(head) = self.head.as_mut() {
                     // If extra is not empty, and extra_len and extra_max are set
                     if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
+                        assert!(head.extra_len >= self.length as u32);
                         let len = head.extra_len - self.length as u32;
+
                         if len < head.extra_max {
                             let copy_length = unsafe { head.extra.add(len as usize) };
                             let dest = if len + (copy as u32) > head.extra_max {
@@ -777,7 +778,7 @@ impl<'a> State<'a> {
 
                 copy += 1;
                 if let Some(head) = self.head.as_mut() {
-                    if !head.comment.is_null() && self.length < (head.comment_max as usize) {
+                    if !head.comment.is_null() && self.length < (head.comm_max as usize) {
                         unsafe {
                             *head.comment = len;
                         }
