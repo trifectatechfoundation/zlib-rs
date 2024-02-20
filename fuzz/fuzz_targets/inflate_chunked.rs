@@ -40,7 +40,7 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
             window_bits as i32,
             mem_level,
             strategy,
-            b"1.3.0\0".as_ptr() as *const i8,
+            b"1.3.0\0".as_ptr() as *const std::ffi::c_char,
             std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
         );
         let return_code = ReturnCode::from(err);

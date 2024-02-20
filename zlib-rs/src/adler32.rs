@@ -145,6 +145,7 @@ fn adler32_len_16(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     adler | (sum2 << 16)
 }
 
+#[cfg_attr(not(target_arch = "x86_64"), allow(unused))]
 fn adler32_copy_len_16(
     mut adler: u32,
     dst: &mut [MaybeUninit<u8>],
@@ -179,6 +180,7 @@ fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     adler32_len_16(adler, it.remainder(), sum2)
 }
 
+#[cfg(target_arch = "x86_64")]
 mod avx2 {
     use super::*;
 

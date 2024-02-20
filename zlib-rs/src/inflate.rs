@@ -1811,7 +1811,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
 
     if let Some(msg) = stream.state.error_message {
         assert!(msg.ends_with(|c| c == '\0'));
-        stream.msg = msg.as_ptr() as *mut u8 as *mut i8;
+        stream.msg = msg.as_ptr() as *mut u8 as *mut std::ffi::c_char;
     }
 
     if ((in_read == 0 && out_written == 0) || flush == Flush::Finish as _)

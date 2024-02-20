@@ -422,11 +422,14 @@ fn lm_set_level(state: &mut State, level: i8) {
         state.update_hash = RollHashCalc::update_hash;
         state.insert_string = RollHashCalc::insert_string;
         state.quick_insert_string = RollHashCalc::quick_insert_string;
-    } else {
-        // NOTE: this is hardcoded currently
+    } else if Crc32HashCalc::is_supported() {
         state.update_hash = Crc32HashCalc::update_hash;
         state.insert_string = Crc32HashCalc::insert_string;
         state.quick_insert_string = Crc32HashCalc::quick_insert_string;
+    } else {
+        state.update_hash = StandardHashCalc::update_hash;
+        state.insert_string = StandardHashCalc::insert_string;
+        state.quick_insert_string = StandardHashCalc::quick_insert_string;
     }
 
     state.level = level;
@@ -995,7 +998,7 @@ enum Status {
     Finish,
 }
 
-const fn error_message(return_code: ReturnCode) -> *const i8 {
+const fn error_message(return_code: ReturnCode) -> *const std::ffi::c_char {
     const TABLE: [&str; 10] = [
         "need dictionary\0",      /* Z_NEED_DICT       2  */
         "stream end\0",           /* Z_STREAM_END      1  */
@@ -2819,5 +2822,13 @@ mod test {
             },
             &[],
         )
+    }
+
+    quickcheck::quickcheck! {
+        fn rs_is_ng(bytes: Vec<u8>) -> bool {
+            fuzz_based_test(&bytes, DeflateConfig::default(), &[]);
+
+            true
+        }
     }
 }
