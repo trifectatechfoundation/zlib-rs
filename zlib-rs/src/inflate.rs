@@ -628,10 +628,8 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            self.checksum = crc32(
-                &(self.bit_reader.hold() as u16).to_ne_bytes(),
-                self.checksum,
-            );
+            let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+            self.checksum = crc32(&bytes, self.checksum);
         }
 
         self.bit_reader.init_bits();
@@ -649,10 +647,8 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(
-                    &(self.bit_reader.hold() as u16).to_ne_bytes(),
-                    self.checksum,
-                );
+                let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+                self.checksum = crc32(&bytes, self.checksum);
             }
             self.bit_reader.init_bits();
         } else if let Some(head) = self.head.as_mut() {
@@ -718,10 +714,9 @@ impl<'a> State<'a> {
                 let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
                 let slice = self.bit_reader.as_slice();
 
-                let null_terminator_index = slice
-                    .iter()
-                    .take(remaining_name_bytes)
-                    .position(|c| *c == 0);
+                // the name string will always be null-terminated, but might be longer than we have
+                // space for in the header struct. Nonetheless, we read the whole thing.
+                let null_terminator_index = slice.iter().position(|c| *c == 0);
 
                 // we include the null terminator if it exists
                 let name_slice = match null_terminator_index {
@@ -730,7 +725,11 @@ impl<'a> State<'a> {
                 };
 
                 unsafe {
-                    std::ptr::copy_nonoverlapping(name_slice.as_ptr(), head.name, name_slice.len())
+                    std::ptr::copy_nonoverlapping(
+                        name_slice.as_ptr(),
+                        head.name,
+                        Ord::min(slice.len(), remaining_name_bytes),
+                    )
                 };
 
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
@@ -764,10 +763,9 @@ impl<'a> State<'a> {
                 let remaining_comment_bytes = (head.comm_max as usize).saturating_sub(self.length);
                 let slice = self.bit_reader.as_slice();
 
-                let null_terminator_index = slice
-                    .iter()
-                    .take(remaining_comment_bytes)
-                    .position(|c| *c == 0);
+                // the comment string will always be null-terminated, but might be longer than we have
+                // space for in the header struct. Nonetheless, we read the whole thing.
+                let null_terminator_index = slice.iter().position(|c| *c == 0);
 
                 // we include the null terminator if it exists
                 let comment_slice = match null_terminator_index {
@@ -779,7 +777,7 @@ impl<'a> State<'a> {
                     std::ptr::copy_nonoverlapping(
                         comment_slice.as_ptr(),
                         head.comment,
-                        comment_slice.len(),
+                        Ord::min(slice.len(), remaining_comment_bytes),
                     )
                 };
 
