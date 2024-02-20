@@ -32,7 +32,7 @@ impl<'a> Pending<'a> {
         unsafe { std::slice::from_raw_parts(self.out, self.pending) }
     }
 
-    fn remaining(&self) -> usize {
+    pub(crate) fn remaining(&self) -> usize {
         self.end as usize - self.out as usize
     }
 

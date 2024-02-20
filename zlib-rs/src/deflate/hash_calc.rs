@@ -154,7 +154,7 @@ impl HashCalc for Crc32HashCalc {
 
     #[cfg(target_arch = "aarch64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        unsafe { crate::crc32::arm::__crc32cw(h, val) }
+        unsafe { crate::crc32::acle::__crc32cw(h, val) }
     }
 }
 

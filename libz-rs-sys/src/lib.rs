@@ -248,6 +248,21 @@ pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     }
 }
 
+pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> i32 {
+    if let Some(stream) = DeflateStream::from_stream_mut(strm) {
+        zlib_rs::deflate::set_header(
+            stream,
+            if head.is_null() {
+                None
+            } else {
+                Some(&mut *head)
+            },
+        ) as _
+    } else {
+        ReturnCode::StreamError as _
+    }
+}
+
 pub unsafe extern "C" fn compress(
     dest: *mut Bytef,
     destLen: *mut c_ulong,

@@ -1,9 +1,17 @@
 use std::mem::MaybeUninit;
 
+#[cfg(target_arch = "aarch64")]
+mod neon;
+
 pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
         return avx2::adler32_avx2(start_checksum, data);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if std::arch::is_aarch64_feature_detected!("neon") {
+        return self::neon::adler32_neon(start_checksum, data);
     }
 
     adler32_rust(start_checksum, data)
@@ -17,7 +25,7 @@ pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: 
         return avx2::adler32_fold_copy_avx2(start_checksum, dst, src);
     }
 
-    let adler = adler32_rust(start_checksum, src);
+    let adler = adler32(start_checksum, src);
     dst[..src.len()].copy_from_slice(slice_to_uninit(src));
     adler
 }

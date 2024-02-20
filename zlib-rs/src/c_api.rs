@@ -125,34 +125,76 @@ pub const Z_RLE: c_int = 3;
 pub const Z_FIXED: c_int = 4;
 pub const Z_DEFAULT_STRATEGY: c_int = 0;
 
+pub type gz_headerp = *mut gz_header;
+
+/// gzip header information passed to and from zlib routines.
+/// See RFC 1952 for more details on the meanings of these fields.
+#[derive(Debug)]
 #[repr(C)]
-#[derive(Copy, Clone)]
 pub struct gz_header {
-    /// true if contents is propably text
-    pub text: c_int,
-
+    /// true if compressed data believed to be text
+    pub text: i32,
     /// modification time
-    pub time: z_size,
-    pub xflags: c_int,
-    pub os: c_int,
-
-    pub extra: *mut Bytef,
-    pub extra_len: uInt,
-    pub extra_max: uInt,
-
-    /// file name
-    pub name: *mut Bytef,
-    pub name_max: uInt,
-
-    /// comment
-    pub comment: *mut Bytef,
-    pub comment_max: uInt,
-
-    /// true for a header CRC16
-    pub hcrc: c_int,
-
-    /// true when done reading header
-    pub done: c_int,
+    pub time: c_ulong,
+    /// extra flags (not used when writing a gzip file)
+    pub xflags: i32,
+    /// operating system
+    pub os: i32,
+    /// pointer to extra field or NULL if none
+    pub extra: *mut u8,
+    /// extra field length (valid if extra != NULL)
+    pub extra_len: u32,
+    /// space at extra (only when reading header)
+    pub extra_max: u32,
+    /// pointer to zero-terminated file name or NULL
+    pub name: *mut u8,
+    /// space at name (only when reading header)
+    pub name_max: u32,
+    /// pointer to zero-terminated comment or NULL
+    pub comment: *mut u8,
+    /// space at comment (only when reading header)
+    pub comm_max: u32,
+    /// true if there was or will be a header crc
+    pub hcrc: i32,
+    /// true when done reading gzip header (not used when writing a gzip file)
+    pub done: i32,
 }
 
-pub type gz_headerp = *mut gz_header;
+impl gz_header {
+    // based on the spec https://www.ietf.org/rfc/rfc1952.txt
+    //
+    //   0 - FAT filesystem (MS-DOS, OS/2, NT/Win32)
+    //   1 - Amiga
+    //   2 - VMS (or OpenVMS)
+    //   3 - Unix
+    //   4 - VM/CMS
+    //   5 - Atari TOS
+    //   6 - HPFS filesystem (OS/2, NT)
+    //   7 - Macintosh
+    //   8 - Z-System
+    //   9 - CP/M
+    //  10 - TOPS-20
+    //  11 - NTFS filesystem (NT)
+    //  12 - QDOS
+    //  13 - Acorn RISCOS
+    // 255 - unknown
+    pub(crate) const OS_CODE: u8 = {
+        if cfg!(windows) {
+            0
+        } else if cfg!(all(unix, not(target_os = "macos"))) {
+            3
+        } else if cfg!(target_os = "macos") {
+            7
+        } else {
+            255
+        }
+    };
+
+    pub(crate) fn flags(&self) -> u8 {
+        (if self.text > 0 { 1 } else { 0 })
+            + (if self.hcrc > 0 { 2 } else { 0 })
+            + (if self.extra.is_null() { 0 } else { 4 })
+            + (if self.name.is_null() { 0 } else { 8 })
+            + (if self.comment.is_null() { 0 } else { 16 })
+    }
+}
