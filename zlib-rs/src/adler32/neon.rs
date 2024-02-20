@@ -60,7 +60,7 @@ pub fn adler32_neon(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     // D = B * 65536 + A, see: https://en.wikipedia.org/wiki/Adler-32.
-    (pair.1 << 16) | pair.0;
+    (pair.1 << 16) | pair.0
 }
 
 fn handle_tail(mut pair: (u32, u32), buf: &[u8]) -> (u32, u32) {
