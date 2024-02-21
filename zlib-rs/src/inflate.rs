@@ -280,9 +280,9 @@ struct Table {
     bits: usize,
 }
 
-pub struct State<'a> {
+pub(crate) struct State<'a> {
     /// Current inflate mode
-    pub mode: Mode,
+    mode: Mode,
 
     /// true if processing the last block
     last: bool,
@@ -2158,4 +2158,11 @@ pub fn get_header<'a>(
         head
     });
     ReturnCode::Ok
+}
+
+// TODO should only be used by tests; hide with feature flags
+pub unsafe fn set_mode_dict(strm: &mut z_stream) {
+    unsafe {
+        (*(strm.state as *mut State)).mode = Mode::Dict;
+    }
 }
