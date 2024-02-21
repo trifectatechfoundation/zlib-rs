@@ -680,8 +680,10 @@ impl<'a> State<'a> {
                     if !head.extra.is_null() {
                         let written_so_far = head.extra_len as usize - self.length;
 
-                        let count =
-                            Ord::min(head.extra_max as usize - written_so_far, extra_slice.len());
+                        let count = Ord::min(
+                            (head.extra_max as usize).saturating_sub(written_so_far),
+                            extra_slice.len(),
+                        );
 
                         unsafe {
                             std::ptr::copy_nonoverlapping(
