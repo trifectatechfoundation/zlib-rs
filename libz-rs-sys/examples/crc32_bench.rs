@@ -48,6 +48,14 @@ pub fn main() {
             println!("{:#x}", h.finalize());
         }
 
+        "adler32" => {
+            let path = it.next().unwrap();
+            let input = std::fs::read(path).unwrap();
+
+            let h = zlib_rs::adler32(42, &input);
+            println!("{:#x}", h);
+        }
+
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
 }
