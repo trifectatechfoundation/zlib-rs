@@ -320,7 +320,9 @@ pub(crate) struct State<'a> {
 
     // IO
     bit_reader: BitReader<'a>,
+
     writer: ReadBuf<'a>,
+    total: usize,
 
     /// length of a block to copy
     length: usize,
@@ -391,7 +393,10 @@ impl<'a> State<'a> {
             out_available,
 
             bit_reader: BitReader::new(reader),
+
             writer,
+            total: 0,
+
             window: Window::empty(),
             head: None,
 
@@ -848,6 +853,8 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
+            self.total += self.writer.len();
+
             if self.wrap & 4 != 0 {
                 if self.flags != 0 {
                     self.crc_fold.fold(self.writer.filled(), self.checksum);
@@ -870,11 +877,15 @@ impl<'a> State<'a> {
 
             self.bit_reader.init_bits();
         }
+        self.mode = Mode::Length;
+        self.length()
+    }
 
+    fn length(&mut self) -> ReturnCode {
         // for gzip, last bytes contain LENGTH
         if self.wrap != 0 && self.flags != 0 {
             need_bits!(self, 32);
-            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.writer.len() as u32) as u64 {
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() != self.total as u64 {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect length check\0");
             }
@@ -1798,8 +1809,9 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
 
-    stream.total_out += out_written as u64;
     stream.total_in += in_read as u64;
+    stream.total_out += out_written as u64;
+    state.total += out_written;
 
     stream.avail_in = state.bit_reader.bytes_remaining() as u32;
     stream.next_in = state.bit_reader.as_ptr() as *mut u8;
@@ -1974,6 +1986,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         next: state.next,
         bit_reader: state.bit_reader,
         writer: ReadBuf::new(&mut []),
+        total: state.total,
         length: state.length,
         offset: state.offset,
         extra: state.extra,
