@@ -170,6 +170,116 @@ fn mem_done(stream: &mut z_stream) {
     stream.zfree = None;
 }
 
+#[test]
+fn gzip_header_check() {
+    let input = &[
+        0x1f, 0x8b, 0x08, 0x1f, 0x44, 0x0a, 0x45, 0x65, 0x00, 0x03, 0x0e, 0x00, 0x54, 0x47, 0x0a,
+        0x00, 0x45, 0x58, 0x54, 0x52, 0x41, 0x20, 0x44, 0x41, 0x54, 0x41, 0x74, 0x65, 0x73, 0x74,
+        0x2e, 0x74, 0x78, 0x74, 0x00, 0x41, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x74, 0x00,
+        0x3b, 0x92, 0x2b, 0x49, 0x2d, 0x2e, 0xe1, 0x02, 0x00, 0xc6, 0x35, 0xb9, 0x3b, 0x05, 0x00,
+        0x00, 0x00,
+    ];
+    let _what = "gzip header parsing";
+    let step = 0;
+    let win = 47;
+    let len = 1;
+    let err = Z_DATA_ERROR;
+
+    let mut err = Some(err);
+    let mut stream = mem_setup();
+
+    let init_err = unsafe { inflateInit2_(&mut stream, win, VERSION, STREAM_SIZE) };
+    if init_err != Z_OK {
+        mem_done(&mut stream);
+        return;
+    }
+
+    let mut out = vec![0u8; len];
+
+    let extra: [u8; 64] = [0; 64];
+    let name: [u8; 64] = [0; 64];
+    let comment: [u8; 64] = [0; 64];
+
+    // Set header
+    // See: https://www.zlib.net/manual.html
+    let mut header = gz_header {
+        text: 0,
+        time: 0,
+        xflags: 0,
+        os: 0,
+        extra: extra.as_ptr() as *mut u8,
+        extra_len: 0,
+        extra_max: 1024,
+        name: name.as_ptr() as *mut u8,
+        name_max: 64, // How / where should this be set?
+        comment: comment.as_ptr() as *mut u8,
+        comm_max: 64,
+        hcrc: 0,
+        done: 0,
+    };
+
+    let err = unsafe { inflateGetHeader(&mut stream, &mut header) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let mut have = input.len();
+    let step = if step == 0 || step > have { have } else { step };
+
+    stream.avail_in = step as _;
+    have -= step;
+    stream.next_in = input.as_ptr() as *mut _;
+
+    loop {
+        stream.avail_out = len as _;
+        stream.next_out = out.as_mut_ptr();
+
+        let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+        if let Some(err) = err {
+            assert_eq!(ret, err)
+        }
+
+        println!("{:?}", header);
+        assert_eq!(header.text, 1);
+
+        if !matches!(ret, Z_OK | Z_BUF_ERROR | Z_NEED_DICT) {
+            break;
+        }
+
+        let mut copy = z_stream::default();
+        let ret = unsafe { inflateCopy(&mut copy, &stream) };
+        assert_eq!(ret, Z_OK);
+
+        let ret = unsafe { inflateEnd(&mut copy) };
+        assert_eq!(ret, Z_OK);
+
+        // only care about this error on the first iteration
+        err = None;
+
+        have += stream.avail_in as usize;
+        stream.avail_in = if step > have { have } else { step } as _;
+        have -= stream.avail_in as usize;
+
+        if stream.avail_in == 0 {
+            break;
+        }
+    }
+
+    /*
+    unsafe {
+    //    println!("name {:?}", *header.name);
+          assert_eq!(*header.name, "test.txt");
+    }
+    */
+    //assert_eq!(true, false);
+
+    let ret = unsafe { inflateReset2(&mut stream, -8) };
+    assert_eq!(ret, Z_OK);
+
+    let ret = unsafe { inflateEnd(&mut stream) };
+    assert_eq!(ret, Z_OK);
+
+    mem_done(&mut stream);
+}
+
 fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int) {
     let mut err = Some(err);
 
