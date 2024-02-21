@@ -219,7 +219,7 @@ fn gzip_header_check() {
     let ret = unsafe { inflateGetHeader(&mut stream, &mut header) };
     assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
 
-    let mut have = input.len();
+    let have = input.len();
     let step = if step == 0 || step > have { have } else { step };
 
     stream.avail_in = step as _;
