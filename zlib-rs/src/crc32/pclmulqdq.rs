@@ -259,20 +259,23 @@ impl Accumulator {
                 dst[..src.len()].copy_from_slice(&partial_buf.0[..src.len()]);
             }
         } else {
-            let align_diff = (16 - (src.as_ptr() as usize & 0xF)) & 0xF;
-            if align_diff != 0 {
+            let (before, _, _) = unsafe { src.align_to::<__m128i>() };
+
+            if !before.is_empty() {
                 xmm_crc_part = _mm_loadu_si128(src.as_ptr() as *const __m128i);
                 if COPY {
                     _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, xmm_crc_part);
-                    dst = &mut dst[align_diff..];
+                    dst = &mut dst[before.len()..];
                 } else {
-                    if init_crc != CRC32_INITIAL_VALUE {
+                    let is_initial = init_crc == CRC32_INITIAL_VALUE;
+
+                    if !is_initial {
                         let xmm_initial = reg([init_crc, 0, 0, 0]);
                         xmm_crc_part = _mm_xor_si128(xmm_crc_part, xmm_initial);
                         init_crc = CRC32_INITIAL_VALUE;
                     }
 
-                    if align_diff < 4 && init_crc != CRC32_INITIAL_VALUE {
+                    if before.len() < 4 && !is_initial {
                         let xmm_t0 = xmm_crc_part;
                         xmm_crc_part = _mm_loadu_si128((src.as_ptr() as *const __m128i).add(1));
 
@@ -283,9 +286,9 @@ impl Accumulator {
                     }
                 }
 
-                self.partial_fold(xmm_crc_part, align_diff);
+                self.partial_fold(xmm_crc_part, before.len());
 
-                src = &src[align_diff..];
+                src = &src[before.len()..];
             }
 
             // if is_x86_feature_detected!("vpclmulqdq") {

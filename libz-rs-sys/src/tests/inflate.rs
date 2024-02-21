@@ -2,7 +2,7 @@ use std::mem::ManuallyDrop;
 
 use crate as libz_rs_sys;
 
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_void, CStr};
 
 use libz_rs_sys::*;
 use zlib_rs::deflate::compress_slice;
@@ -1247,4 +1247,151 @@ fn inflate_window_bits_0_is_15() {
     assert_eq!(output_15, output_0);
 
     assert_eq!(output_15, input);
+}
+
+#[test]
+fn gzip_chunked() {
+    let input = b"Hello World\n";
+
+    let extra =
+        "Scheduling and executing async tasks is a job handled by an async runtime, such as\0";
+    let name =
+        "tokio, async-std, and smol. You’ve probably used them at some point, either directly or\0";
+    let comment =
+        "indirectly. They, along with many frameworks that require async, do their best to hide\0";
+
+    let config = DeflateConfig {
+        window_bits: 31,
+        ..Default::default()
+    };
+
+    let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
+
+    const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+    const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+
+    let err = unsafe {
+        libz_rs_sys::deflateInit2_(
+            stream.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        )
+    };
+    assert_eq!(err, 0);
+
+    let stream = unsafe { stream.assume_init_mut() };
+
+    let mut header = libz_rs_sys::gz_header {
+        text: 0,
+        time: 0,
+        xflags: 0,
+        os: 0,
+        extra: extra.as_ptr() as *mut _,
+        extra_len: extra.len() as _,
+        extra_max: 0,
+        name: name.as_ptr() as *mut _,
+        name_max: 0,
+        comment: comment.as_ptr() as *mut _,
+        comm_max: 0,
+        hcrc: 1,
+        done: 0,
+    };
+
+    let err = unsafe { libz_rs_sys::deflateSetHeader(stream, &mut header) };
+    assert_eq!(err, 0);
+
+    stream.next_in = input.as_ptr() as *mut _;
+    stream.avail_in = input.len() as _;
+
+    let mut output_rs = [0u8; 512];
+    stream.next_out = output_rs.as_mut_ptr();
+    stream.avail_out = output_rs.len() as _;
+
+    let err = unsafe { libz_rs_sys::deflate(stream, Flush::Finish as _) };
+    assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+    let output_rs = &mut output_rs[..stream.total_out as usize];
+
+    let err = unsafe { libz_rs_sys::deflateEnd(stream) };
+    assert_eq!(err, 0);
+
+    {
+        let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
+
+        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+
+        let err = unsafe {
+            libz_rs_sys::inflateInit2_(
+                stream.as_mut_ptr(),
+                config.window_bits,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+        assert_eq!(err, 0);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        stream.next_in = output_rs.as_mut_ptr() as _;
+        stream.avail_in = output_rs.len() as _;
+
+        let mut output = [0u8; 64];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        let mut extra_buf = [0u8; 64];
+        let mut name_buf = [0u8; 64];
+        let mut comment_buf = [0u8; 256];
+
+        let mut header = libz_rs_sys::gz_header {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra_buf.as_mut_ptr(),
+            extra_len: 0,
+            extra_max: extra_buf.len() as _,
+            name: name_buf.as_mut_ptr(),
+            name_max: name_buf.len() as _,
+            comment: comment_buf.as_mut_ptr(),
+            comm_max: comment_buf.len() as _,
+            hcrc: 0,
+            done: 0,
+        };
+
+        let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
+        assert_eq!(err, 0);
+
+        let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
+        assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+        let err = unsafe { libz_rs_sys::inflateEnd(stream) };
+        assert_eq!(err, ReturnCode::Ok as i32);
+
+        assert!(!header.extra.is_null());
+        assert_eq!(
+            std::str::from_utf8(&extra_buf).unwrap(),
+            &extra[..extra_buf.len()]
+        );
+
+        assert!(!header.name.is_null());
+        assert_eq!(
+            std::str::from_utf8(&name_buf).unwrap(),
+            &name[..name_buf.len()]
+        );
+
+        assert!(!header.comment.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(comment_buf.as_ptr().cast()) }
+                .to_str()
+                .unwrap(),
+            comment.trim_end_matches('\0')
+        );
+    }
 }

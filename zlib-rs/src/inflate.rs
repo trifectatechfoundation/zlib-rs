@@ -628,10 +628,8 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            self.checksum = crc32(
-                &(self.bit_reader.hold() as u16).to_ne_bytes(),
-                self.checksum,
-            );
+            let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+            self.checksum = crc32(&bytes, self.checksum);
         }
 
         self.bit_reader.init_bits();
@@ -643,16 +641,15 @@ impl<'a> State<'a> {
         if (self.flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
+            // self.length (and head.extra_len) represent the length of the extra field
             self.length = self.bit_reader.hold() as usize;
             if let Some(head) = self.head.as_mut() {
-                head.extra_len = self.bit_reader.hold() as u32;
+                head.extra_len = self.length as u32;
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(
-                    &(self.bit_reader.hold() as u16).to_ne_bytes(),
-                    self.checksum,
-                );
+                let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+                self.checksum = crc32(&bytes, self.checksum);
             }
             self.bit_reader.init_bits();
         } else if let Some(head) = self.head.as_mut() {
@@ -665,36 +662,36 @@ impl<'a> State<'a> {
 
     fn extra(&mut self) -> ReturnCode {
         if (self.flags & 0x0400) != 0 {
-            let copy = Ord::min(self.length, self.in_available);
-            if copy != 0 {
+            // self.length is the number of remaining `extra` bytes. But they may not all be available
+            let extra_available = Ord::min(self.length, self.bit_reader.bytes_remaining());
+            let extra_slice = &self.bit_reader.as_slice()[..extra_available];
+
+            if !extra_slice.is_empty() {
                 if let Some(head) = self.head.as_mut() {
-                    // If extra is not empty, and extra_len and extra_max are set
-                    if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
-                        debug_assert!(head.extra_len >= self.length as u32);
-                        let len = head.extra_len.saturating_sub(self.length as u32);
+                    if !head.extra.is_null() {
+                        let written_so_far = head.extra_len as usize - self.length;
 
-                        if len < head.extra_max {
-                            let count = Ord::min(copy as u32, head.extra_max - len);
+                        let count =
+                            Ord::min(head.extra_max as usize - written_so_far, extra_slice.len());
 
-                            unsafe {
-                                std::ptr::copy_nonoverlapping(
-                                    self.bit_reader.as_ptr(),
-                                    head.extra.add(len as usize),
-                                    count as usize,
-                                );
-                            }
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                self.bit_reader.as_ptr(),
+                                head.extra.add(written_so_far),
+                                count,
+                            );
                         }
                     }
                 }
 
                 // Checksum
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(&self.bit_reader.as_slice()[..copy], self.checksum)
+                    self.checksum = crc32(extra_slice, self.checksum)
                 }
 
-                self.in_available -= copy;
-                self.bit_reader.advance(copy);
-                self.length -= copy;
+                self.in_available -= extra_available;
+                self.bit_reader.advance(extra_available);
+                self.length -= extra_available;
             }
 
             // Checks for errors occur after returning
@@ -714,34 +711,39 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
+            // the name string will always be null-terminated, but might be longer than we have
+            // space for in the header struct. Nonetheless, we read the whole thing.
+            let slice = self.bit_reader.as_slice();
+            let null_terminator_index = slice.iter().position(|c| *c == 0);
+
+            // we include the null terminator if it exists
+            let name_slice = match null_terminator_index {
+                Some(i) => &slice[..=i],
+                None => slice,
+            };
+
+            // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
-                let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
-                let slice = self.bit_reader.as_slice();
-
-                let null_terminator_index = slice
-                    .iter()
-                    .take(remaining_name_bytes)
-                    .position(|c| *c == 0);
-
-                // we include the null terminator if it exists
-                let name_slice = match null_terminator_index {
-                    Some(i) => &slice[..=i],
-                    None => slice,
-                };
-
-                unsafe {
-                    std::ptr::copy_nonoverlapping(name_slice.as_ptr(), head.name, name_slice.len())
-                };
-
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(name_slice, self.checksum);
+                if !head.name.is_null() {
+                    let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            name_slice.as_ptr(),
+                            head.name,
+                            Ord::min(slice.len(), remaining_name_bytes),
+                        )
+                    };
                 }
+            }
 
-                self.bit_reader.advance(name_slice.len());
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                self.checksum = crc32(name_slice, self.checksum);
+            }
 
-                if self.bit_reader.bytes_remaining() == 0 {
-                    return self.inflate_leave(ReturnCode::Ok);
-                }
+            self.bit_reader.advance(name_slice.len());
+
+            if self.bit_reader.bytes_remaining() == 0 {
+                return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
             head.name = std::ptr::null_mut();
@@ -760,38 +762,39 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
+            // the comment string will always be null-terminated, but might be longer than we have
+            // space for in the header struct. Nonetheless, we read the whole thing.
+            let slice = self.bit_reader.as_slice();
+            let null_terminator_index = slice.iter().position(|c| *c == 0);
+
+            // we include the null terminator if it exists
+            let comment_slice = match null_terminator_index {
+                Some(i) => &slice[..=i],
+                None => slice,
+            };
+
+            // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
-                let remaining_comment_bytes = (head.comm_max as usize).saturating_sub(self.length);
-                let slice = self.bit_reader.as_slice();
-
-                let null_terminator_index = slice
-                    .iter()
-                    .take(remaining_comment_bytes)
-                    .position(|c| *c == 0);
-
-                // we include the null terminator if it exists
-                let comment_slice = match null_terminator_index {
-                    Some(i) => &slice[..=i],
-                    None => slice,
-                };
-
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        comment_slice.as_ptr(),
-                        head.comment,
-                        comment_slice.len(),
-                    )
-                };
-
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(comment_slice, self.checksum);
+                if !head.comment.is_null() {
+                    let remaining_comm_bytes = (head.comm_max as usize).saturating_sub(self.length);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            comment_slice.as_ptr(),
+                            head.comment,
+                            Ord::min(slice.len(), remaining_comm_bytes),
+                        )
+                    };
                 }
+            }
 
-                self.bit_reader.advance(comment_slice.len());
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                self.checksum = crc32(comment_slice, self.checksum);
+            }
 
-                if self.bit_reader.bytes_remaining() == 0 {
-                    return self.inflate_leave(ReturnCode::Ok);
-                }
+            self.bit_reader.advance(comment_slice.len());
+
+            if self.bit_reader.bytes_remaining() == 0 {
+                return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
             head.comment = std::ptr::null_mut();

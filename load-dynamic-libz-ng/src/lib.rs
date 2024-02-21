@@ -185,11 +185,40 @@ pub fn compress_slice<'a>(
 }
 
 pub unsafe fn crc32(start: u32, buf: *const u8, len: usize) -> u32 {
-    let lib = libloading::Library::new("/home/folkertdev/c/libcrc.so").unwrap();
+    // source code: https://gist.github.com/folkertdev/daa2caff0d0b91a19e81138cb4a780bb
+    let path = std::path::Path::new("libcrc32.so").canonicalize().unwrap();
+
+    let lib = libloading::Library::new(path).unwrap();
 
     type Func = unsafe extern "C" fn(start: u32, buf: *const u8, len: usize) -> u32;
 
     let f: libloading::Symbol<Func> = lib.get(b"crc32_sse").unwrap();
 
     f(start, buf, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn try_crc32() {
+        if std::path::Path::new("libcrc32.so").exists() {
+            if is_x86_feature_detected!("pclmulqdq")
+                && is_x86_feature_detected!("sse2")
+                && is_x86_feature_detected!("sse4.1")
+            {
+                let buf = (0..255u8).collect::<Vec<_>>();
+
+                let x = unsafe { crc32(0, buf.as_ptr(), buf.len()) };
+
+                assert_eq!(x, 3543112608);
+            } else {
+                eprintln!("pclmulqdq not supported");
+            }
+        } else {
+            eprintln!("libcrc32.so not found");
+        }
+    }
 }
