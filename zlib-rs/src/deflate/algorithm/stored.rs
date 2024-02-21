@@ -230,8 +230,14 @@ fn read_buf_direct_copy(stream: &mut DeflateStream, size: usize) -> usize {
 
     stream.avail_in -= len as u32;
 
-    // TODO gzip and maybe DEFLATE_NEED_CHECKSUM too?
-    if stream.state.wrap == 1 {
+    if stream.state.wrap == 2 {
+        // we likely cannot fuse the crc32 and the copy here because the input can be changed by
+        // a concurrent thread. Therefore it cannot be converted into a slice!
+        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+
+        let data = unsafe { std::slice::from_raw_parts(output, len) };
+        stream.state.crc_fold.fold(data, 0);
+    } else if stream.state.wrap == 1 {
         // we cannot fuse the adler and the copy in our case, because adler32 takes a slice.
         // Another process is allowed to concurrently modify stream.next_in, so we cannot turn it
         // into a rust slice (violates its safety requirements)

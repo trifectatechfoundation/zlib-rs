@@ -90,7 +90,7 @@ pub unsafe fn compress(
     f(dest, destLen, source, sourceLen)
 }
 
-unsafe fn deflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
+pub unsafe fn deflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi::c_int {
     const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
 
     let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();

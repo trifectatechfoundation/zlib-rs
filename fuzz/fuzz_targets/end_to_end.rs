@@ -10,7 +10,7 @@ use std::ffi::{c_char, c_int, c_uint};
 fuzz_target!(|input: (String, DeflateConfig)| {
     let (data, config) = input;
 
-    if !(0..=15).contains(&config.window_bits) {
+    if !(0..32).contains(&config.window_bits) {
         // lower is raw, higher is gzip
         return;
     }

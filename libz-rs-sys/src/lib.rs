@@ -199,9 +199,20 @@ pub unsafe extern "C" fn inflateSetDictionary(
     zlib_rs::inflate::set_dictionary(stream, dict) as _
 }
 
-// pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
-//     todo!("part of gzip support")
-// }
+// part of gzip
+pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
+    if let Some(stream) = InflateStream::from_stream_mut(strm) {
+        let header = if head.is_null() {
+            None
+        } else {
+            Some(unsafe { &mut *(head) })
+        };
+
+        zlib_rs::inflate::get_header(stream, header) as i32
+    } else {
+        ReturnCode::StreamError as _
+    }
+}
 
 // undocumented but exposed function
 pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> c_int {
