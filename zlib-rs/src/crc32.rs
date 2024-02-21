@@ -42,7 +42,7 @@ pub fn crc32_copy(dst: &mut ReadBuf, buf: &[u8]) -> u32 {
     crc_state.finish()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Crc32Fold {
     #[cfg(target_arch = "x86_64")]
     fold: pclmulqdq::Accumulator,
