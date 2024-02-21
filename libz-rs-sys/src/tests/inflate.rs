@@ -7,6 +7,7 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use libz_rs_sys::*;
 use zlib_rs::deflate::compress_slice;
 use zlib_rs::inflate::{uncompress_slice, INFLATE_STATE_SIZE};
+use zlib_rs::inflate::{Mode, State};
 use zlib_rs::{Flush, MAX_WBITS};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
@@ -224,9 +225,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
 
         if let Some(err) = err {
-            if err != 9 {
-                assert_eq!(ret, err)
-            }
+            assert_eq!(ret, err)
         }
 
         if !matches!(ret, Z_OK | Z_BUF_ERROR | Z_NEED_DICT) {
@@ -234,7 +233,23 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         }
 
         if matches!(ret, Z_NEED_DICT) {
-            todo!("need dict");
+            let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 1) };
+            println!("{:?}", ret);
+            assert_eq!(ret, Z_DATA_ERROR);
+
+            mem_limit(&mut stream, 1);
+            let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 0) };
+            assert_eq!(ret, Z_MEM_ERROR);
+            mem_limit(&mut stream, 0);
+
+            unsafe {
+                (*(stream.state as *mut State)).mode = Mode::Dict;
+            }
+            let ret = unsafe { inflateSetDictionary(&mut stream, out.as_ptr(), 0) };
+            assert_eq!(ret, Z_OK);
+
+            let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+            assert_eq!(ret, Z_BUF_ERROR);
         }
 
         let mut copy = z_stream::default();
@@ -470,7 +485,6 @@ fn bad_zlib_header_check() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn need_dictionary() {
     inf(
         &[0x08, 0xb8, 0x0, 0x0, 0x0, 0x1],

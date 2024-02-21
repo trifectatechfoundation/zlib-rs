@@ -280,9 +280,10 @@ struct Table {
     bits: usize,
 }
 
-pub(crate) struct State<'a> {
+pub struct State<'a> {
     /// Current inflate mode
-    mode: Mode,
+    pub mode: Mode,
+
     /// true if processing the last block
     last: bool,
     /// bitflag
@@ -2044,7 +2045,7 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
         let dictid = adler32(1, dictionary);
 
         if dictid != stream.state.checksum {
-            return ReturnCode::StreamError;
+            return ReturnCode::DataError;
         }
     }
 
