@@ -723,14 +723,16 @@ impl<'a> State<'a> {
 
             // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
-                let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        name_slice.as_ptr(),
-                        head.name,
-                        Ord::min(slice.len(), remaining_name_bytes),
-                    )
-                };
+                if !head.name.is_null() {
+                    let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            name_slice.as_ptr(),
+                            head.name,
+                            Ord::min(slice.len(), remaining_name_bytes),
+                        )
+                    };
+                }
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
@@ -772,14 +774,16 @@ impl<'a> State<'a> {
 
             // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
-                let remaining_comment_bytes = (head.comm_max as usize).saturating_sub(self.length);
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        comment_slice.as_ptr(),
-                        head.comment,
-                        Ord::min(slice.len(), remaining_comment_bytes),
-                    )
-                };
+                if !head.comment.is_null() {
+                    let remaining_comm_bytes = (head.comm_max as usize).saturating_sub(self.length);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            comment_slice.as_ptr(),
+                            head.comment,
+                            Ord::min(slice.len(), remaining_comm_bytes),
+                        )
+                    };
+                }
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
