@@ -1346,13 +1346,18 @@ fn gzip_chunked(chunk_size: usize) {
     assert_eq!(err, 0);
 
     {
-        let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
+        #[allow(unused_imports)] // to switch to libz_ng_sys easily
+        use libz_rs_sys::{
+            gz_header, inflate, inflateEnd, inflateGetHeader, inflateInit2_, z_stream,
+        };
+
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-        const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+        const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
 
         let err = unsafe {
-            libz_rs_sys::inflateInit2_(
+            inflateInit2_(
                 stream.as_mut_ptr(),
                 config.window_bits,
                 VERSION,
@@ -1371,7 +1376,7 @@ fn gzip_chunked(chunk_size: usize) {
         let mut name_buf = [0u8; 64];
         let mut comment_buf = [0u8; 256];
 
-        let mut header = libz_rs_sys::gz_header {
+        let mut header = gz_header {
             text: 0,
             time: 0,
             xflags: 0,
@@ -1387,14 +1392,14 @@ fn gzip_chunked(chunk_size: usize) {
             done: 0,
         };
 
-        let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
+        let err = unsafe { inflateGetHeader(stream, &mut header) };
         assert_eq!(err, 0);
 
         for chunk in output_rs.chunks_mut(chunk_size) {
             stream.next_in = chunk.as_mut_ptr();
             stream.avail_in = chunk.len() as _;
 
-            let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
+            let err = unsafe { inflate(stream, Flush::NoFlush as _) };
 
             if err == ReturnCode::StreamEnd as i32 {
                 break;
@@ -1403,7 +1408,7 @@ fn gzip_chunked(chunk_size: usize) {
             assert_eq!(err, ReturnCode::Ok as i32);
         }
 
-        let err = unsafe { libz_rs_sys::inflateEnd(stream) };
+        let err = unsafe { inflateEnd(stream) };
         assert_eq!(err, ReturnCode::Ok as i32);
 
         assert!(!header.extra.is_null());
