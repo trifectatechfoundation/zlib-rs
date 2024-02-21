@@ -17,7 +17,7 @@ use crate::{
     Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
-use crate::crc32;
+use crate::crc32::{crc32, Crc32Fold};
 
 use self::{
     bitreader::BitReader,
@@ -353,6 +353,8 @@ pub(crate) struct State<'a> {
     flush: Flush,
 
     checksum: u32,
+    crc_fold: Crc32Fold,
+
     havedict: bool,
     dmax: usize,
     flags: i32,
@@ -405,6 +407,8 @@ impl<'a> State<'a> {
             error_message: None,
 
             checksum: 0,
+            crc_fold: Crc32Fold::new(),
+
             havedict: false,
             dmax: 0,
             flags: 0,
@@ -1971,6 +1975,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         error_message: state.error_message,
         flush: state.flush,
         checksum: state.checksum,
+        crc_fold: state.crc_fold,
         havedict: state.havedict,
         dmax: state.dmax,
         flags: state.flags,

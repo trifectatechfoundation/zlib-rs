@@ -24,7 +24,7 @@ const fn reg(input: [u32; 4]) -> __m128i {
     unsafe { core::mem::transmute(input) }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg(target_arch = "x86_64")]
 pub(crate) struct Accumulator {
     fold: [__m128i; 4],
