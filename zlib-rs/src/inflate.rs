@@ -678,7 +678,7 @@ impl<'a> State<'a> {
                             std::ptr::copy_nonoverlapping(
                                 self.bit_reader.as_ptr(),
                                 head.extra.add(written_so_far),
-                                count as usize,
+                                count,
                             );
                         }
                     }
