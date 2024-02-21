@@ -1430,10 +1430,12 @@ fn gzip_chunked() {
             done: 0,
         };
 
+        dbg!(name_buf.as_ptr());
+
         let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
         assert_eq!(err, 0);
 
-        for chunk in output_rs.chunks_mut(512) {
+        for chunk in output_rs.chunks_mut(32) {
             stream.next_in = chunk.as_mut_ptr();
             stream.avail_in = chunk.len() as _;
 

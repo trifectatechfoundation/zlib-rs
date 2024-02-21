@@ -208,7 +208,7 @@ mod test {
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], slice);
 
-        assert_eq!(checksum, 0);
+        assert_eq!(checksum, 6946835);
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod test {
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[2, 2, 1, 2, 2], slice);
 
-        assert_eq!(checksum, 0);
+        assert_eq!(checksum, 2490379);
     }
 
     #[test]
