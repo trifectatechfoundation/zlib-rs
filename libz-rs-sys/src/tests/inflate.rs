@@ -1256,7 +1256,21 @@ fn inflate_window_bits_0_is_15() {
 }
 
 #[test]
-fn gzip_chunked() {
+fn gzip_chunked_2_bytes() {
+    gzip_chunked(2);
+}
+
+#[test]
+fn gzip_chunked_32_bytes() {
+    gzip_chunked(32);
+}
+
+#[test]
+fn gzip_chunked_512_bytes() {
+    gzip_chunked(512);
+}
+
+fn gzip_chunked(chunk_size: usize) {
     let input = b"Hello World\n";
 
     let extra =
@@ -1371,7 +1385,7 @@ fn gzip_chunked() {
         let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
         assert_eq!(err, 0);
 
-        for chunk in output_rs.chunks_mut(32) {
+        for chunk in output_rs.chunks_mut(chunk_size) {
             stream.next_in = chunk.as_mut_ptr();
             stream.avail_in = chunk.len() as _;
 
