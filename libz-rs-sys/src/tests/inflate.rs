@@ -1256,6 +1256,11 @@ fn inflate_window_bits_0_is_15() {
 }
 
 #[test]
+fn gzip_chunked_1_byte() {
+    gzip_chunked(1);
+}
+
+#[test]
 fn gzip_chunked_2_bytes() {
     gzip_chunked(2);
 }

@@ -508,7 +508,7 @@ impl<'a> State<'a> {
             Mode::DictId => self.dict_id(),
             Mode::Bad => todo!(),
             Mode::Mem => self.mem(),
-            Mode::Length => todo!(),
+            Mode::Length => self.length(),
         }
     }
 
@@ -755,9 +755,10 @@ impl<'a> State<'a> {
                 self.checksum = crc32(name_slice, self.checksum);
             }
 
+            let reached_end = name_slice.last() == Some(&0);
             self.bit_reader.advance(name_slice.len());
 
-            if self.bit_reader.bytes_remaining() == 0 {
+            if !reached_end && self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
@@ -807,9 +808,10 @@ impl<'a> State<'a> {
                 self.checksum = crc32(comment_slice, self.checksum);
             }
 
+            let reached_end = comment_slice.last() == Some(&0);
             self.bit_reader.advance(comment_slice.len());
 
-            if self.bit_reader.bytes_remaining() == 0 {
+            if !reached_end && self.bit_reader.bytes_remaining() == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
