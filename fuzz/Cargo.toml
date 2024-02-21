@@ -67,3 +67,9 @@ name = "crc32"
 path = "fuzz_targets/crc32.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "uncompress_gzip"
+path = "fuzz_targets/uncompress_gzip.rs"
+test = false
+doc = false
