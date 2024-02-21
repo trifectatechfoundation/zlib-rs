@@ -27,18 +27,19 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
     }
 
     {
-        let mut dst = [0; 1 << 16];
-
         let expected = {
             let mut h = crc32fast::Hasher::new_with_initial(0);
             h.update(&input[..]);
             h.finalize()
         };
 
-        let actual = zlib_rs::crc32::crc32_copy(&mut dst[..input.len()], input.as_slice());
+        let mut buf = [0; 1 << 16];
+        let mut dst = zlib_rs::read_buf::ReadBuf::new(&mut buf[..input.len()]);
+
+        let actual = zlib_rs::crc32::crc32_copy(&mut dst, input.as_slice());
 
         assert_eq!(expected, actual);
 
-        assert_eq!(input, &dst[..input.len()]);
+        assert_eq!(input, dst.filled());
     }
 });
