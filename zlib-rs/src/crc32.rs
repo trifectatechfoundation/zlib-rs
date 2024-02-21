@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -32,11 +34,11 @@ pub fn crc32_copy(dst: &mut [u8], buf: &[u8]) -> u32 {
     }
 
     let mut crc_state = Crc32Fold::new();
-    crc_state.fold_copy(dst, buf);
+    crc_state.fold_copy(unsafe { slice_to_uninit_mut(dst) }, buf);
     crc_state.finish()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Crc32Fold {
     #[cfg(target_arch = "x86_64")]
     fold: pclmulqdq::Accumulator,
@@ -91,14 +93,14 @@ impl Crc32Fold {
         self.value = braid::crc32_braid::<5>(src, self.value);
     }
 
-    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
+    pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq() {
             return self.fold.fold_copy(dst, src);
         }
 
         self.fold(src, 0);
-        dst[..src.len()].copy_from_slice(src);
+        dst[..src.len()].copy_from_slice(slice_to_uninit(src));
     }
 
     pub fn finish(self) -> u32 {
@@ -109,6 +111,20 @@ impl Crc32Fold {
 
         self.value
     }
+}
+
+// when stable, use MaybeUninit::write_slice
+fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
+    // safety: &[T] and &[MaybeUninit<T>] have the same layout
+    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
+}
+
+// when stable, use MaybeUninit::write_slice
+// this one is unsafe because after the borrow ends, slice is a `&mut [u8]` again, but in the
+// meantime we could have written a `MaybeUninit::uninit` into the slice, and that is UB.
+unsafe fn slice_to_uninit_mut(slice: &mut [u8]) -> &mut [MaybeUninit<u8>] {
+    // safety: &[T] and &[MaybeUninit<T>] have the same layout
+    unsafe { &mut *(slice as *mut [u8] as *mut [MaybeUninit<u8>]) }
 }
 
 #[cfg(test)]

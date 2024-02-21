@@ -1327,6 +1327,68 @@ fn gzip_chunked() {
     assert_eq!(err, 0);
 
     {
+        let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
+
+        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+
+        let err = unsafe {
+            libz_ng_sys::inflateInit2_(
+                stream.as_mut_ptr(),
+                config.window_bits,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+        assert_eq!(err, 0);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        let mut output = [0u8; 64];
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        let mut extra_buf = [0u8; 64];
+        let mut name_buf = [0u8; 64];
+        let mut comment_buf = [0u8; 256];
+
+        let mut header = libz_ng_sys::gz_header {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra_buf.as_mut_ptr(),
+            extra_len: 0,
+            extra_max: extra_buf.len() as _,
+            name: name_buf.as_mut_ptr(),
+            name_max: name_buf.len() as _,
+            comment: comment_buf.as_mut_ptr(),
+            comm_max: comment_buf.len() as _,
+            hcrc: 0,
+            done: 0,
+        };
+
+        let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
+        assert_eq!(err, 0);
+
+        for chunk in output_rs.chunks_mut(32) {
+            stream.next_in = chunk.as_mut_ptr();
+            stream.avail_in = chunk.len() as _;
+
+            let err = unsafe { load_dynamic_libz_ng::inflate(stream, Flush::NoFlush as _) };
+
+            if err == ReturnCode::StreamEnd as i32 {
+                break;
+            }
+
+            assert_eq!(err, ReturnCode::Ok as i32);
+        }
+
+        // let err = unsafe { libz_ng_sys::inflateEnd(stream) };
+        // assert_eq!(err, ReturnCode::Ok as i32);
+    }
+
+    {
         let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
 
         const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
@@ -1343,9 +1405,6 @@ fn gzip_chunked() {
         assert_eq!(err, 0);
 
         let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = output_rs.as_mut_ptr() as _;
-        stream.avail_in = output_rs.len() as _;
 
         let mut output = [0u8; 64];
         stream.next_out = output.as_mut_ptr();
@@ -1374,8 +1433,18 @@ fn gzip_chunked() {
         let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
         assert_eq!(err, 0);
 
-        let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
-        assert_eq!(err, ReturnCode::StreamEnd as i32);
+        for chunk in output_rs.chunks_mut(512) {
+            stream.next_in = chunk.as_mut_ptr();
+            stream.avail_in = chunk.len() as _;
+
+            let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
+
+            if err == ReturnCode::StreamEnd as i32 {
+                break;
+            }
+
+            assert_eq!(err, ReturnCode::Ok as i32);
+        }
 
         let err = unsafe { libz_rs_sys::inflateEnd(stream) };
         assert_eq!(err, ReturnCode::Ok as i32);

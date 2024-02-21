@@ -17,7 +17,7 @@ use crate::{
     Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
-use crate::crc32;
+use crate::crc32::{crc32, Crc32Fold};
 
 use self::{
     bitreader::BitReader,
@@ -226,9 +226,11 @@ pub fn uncompress<'a>(
     (output_slice, ret)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Mode {
-    Head,
+    Head = 16180,
+
     Flags,
     Time,
     Os,
@@ -237,26 +239,30 @@ pub enum Mode {
     Name,
     Comment,
     HCrc,
-    Sync,
-    Mem,
-    Length,
+
+    DictId,
+    Dict,
+
     Type,
     TypeDo,
     Stored,
     CopyBlock,
-    Check,
+    Table,
+    LenLens,
+    CodeLens,
+
     Len,
     LenExt,
     Dist,
     DistExt,
     Match,
-    Table,
-    LenLens,
-    CodeLens,
-    DictId,
-    Dict,
+
+    Check,
+    Length,
     Done,
+    Mem,
     Bad,
+    Sync,
 }
 
 #[derive(Clone, Copy)]
@@ -320,7 +326,9 @@ pub(crate) struct State<'a> {
 
     // IO
     bit_reader: BitReader<'a>,
+
     writer: ReadBuf<'a>,
+    total: usize,
 
     /// length of a block to copy
     length: usize,
@@ -353,6 +361,8 @@ pub(crate) struct State<'a> {
     flush: Flush,
 
     checksum: u32,
+    crc_fold: Crc32Fold,
+
     havedict: bool,
     dmax: usize,
     flags: i32,
@@ -389,7 +399,10 @@ impl<'a> State<'a> {
             out_available,
 
             bit_reader: BitReader::new(reader),
+
             writer,
+            total: 0,
+
             window: Window::empty(),
             head: None,
 
@@ -405,6 +418,8 @@ impl<'a> State<'a> {
             error_message: None,
 
             checksum: 0,
+            crc_fold: Crc32Fold::new(),
+
             havedict: false,
             dmax: 0,
             flags: 0,
@@ -788,7 +803,7 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(comment_slice, self.checksum);
+                self.checksum = crate::crc32::crc32(comment_slice, self.checksum);
             }
 
             self.bit_reader.advance(comment_slice.len());
@@ -821,7 +836,12 @@ impl<'a> State<'a> {
             head.done = 1;
         }
 
-        self.checksum = crate::CRC32_INITIAL_VALUE;
+        /* compute crc32 checksum if not in raw mode */
+        if (self.wrap & 4 != 0) && self.flags != 0 {
+            self.crc_fold = Crc32Fold::new();
+            self.checksum = crate::CRC32_INITIAL_VALUE;
+        }
+
         self.mode = Mode::Type;
         self.type_()
     }
@@ -834,9 +854,12 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
-            if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
+            self.total += self.writer.len();
+
+            if self.wrap & 4 != 0 {
                 if self.flags != 0 {
-                    self.checksum = crc32(self.writer.filled(), self.checksum);
+                    self.crc_fold.fold(self.writer.filled(), self.checksum);
+                    self.checksum = self.crc_fold.finish();
                 } else {
                     self.checksum = adler32(self.checksum, self.writer.filled());
                 }
@@ -856,10 +879,14 @@ impl<'a> State<'a> {
             self.bit_reader.init_bits();
         }
 
-        // for gzip, last bytes contain LENGTH
+        self.mode = Mode::Length;
+        self.length()
+    }
+
+    fn length(&mut self) -> ReturnCode {
         if self.wrap != 0 && self.flags != 0 {
             need_bits!(self, 32);
-            if (self.wrap & 4) != 0 && self.bit_reader.hold() != (self.writer.len() as u32) as u64 {
+            if (self.wrap & 4) != 0 && self.bit_reader.hold() != self.total as u64 {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect length check\0");
             }
@@ -1783,8 +1810,11 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
 
-    stream.total_out += out_written as u64;
     stream.total_in += in_read as u64;
+    stream.total_out += out_written as u64;
+    stream.state.total += out_written;
+
+    let state = &mut stream.state;
 
     stream.avail_in = state.bit_reader.bytes_remaining() as u32;
     stream.next_in = state.bit_reader.as_ptr() as *mut u8;
@@ -1807,7 +1837,9 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
             && valid_mode(state.mode)
             && (not_done(state.mode) || !matches!(state.flush, Flush::Finish)));
 
-    if must_update_window && update_window(stream, out_written) != ReturnCode::Ok {
+    let update_checksum = state.wrap & 4 != 0;
+
+    if must_update_window && update_window(stream, out_written, update_checksum) != ReturnCode::Ok {
         stream.state.mode = Mode::Mem;
         err = ReturnCode::MemError;
     }
@@ -1957,6 +1989,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         next: state.next,
         bit_reader: state.bit_reader,
         writer: ReadBuf::new(&mut []),
+        total: state.total,
         length: state.length,
         offset: state.offset,
         extra: state.extra,
@@ -1971,6 +2004,7 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         error_message: state.error_message,
         flush: state.flush,
         checksum: state.checksum,
+        crc_fold: state.crc_fold,
         havedict: state.havedict,
         dmax: state.dmax,
         flags: state.flags,
@@ -2061,10 +2095,13 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
             }
         }
 
-        stream.state.checksum = stream
-            .state
-            .window
-            .extend(dictionary, stream.state.checksum);
+        stream.state.window.extend(
+            dictionary,
+            stream.state.flags,
+            false,
+            &mut stream.state.checksum,
+            &mut stream.state.crc_fold,
+        );
 
         ReturnCode::Ok
     };
@@ -2107,7 +2144,11 @@ pub unsafe extern "C" fn end(strm: *mut z_stream) -> i32 {
     ReturnCode::Ok as _
 }
 
-fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode {
+fn update_window(
+    stream: &mut InflateStream,
+    bytes_written: usize,
+    update_checksum: bool,
+) -> ReturnCode {
     // initialize the window if needed
     if stream.state.window.size() == 0 {
         match init_window(
@@ -2120,9 +2161,12 @@ fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode
         }
     }
 
-    stream.state.checksum = stream.state.window.extend(
+    stream.state.window.extend(
         &stream.state.writer.filled()[..bytes_written],
-        stream.state.checksum,
+        stream.state.flags,
+        update_checksum,
+        &mut stream.state.checksum,
+        &mut stream.state.crc_fold,
     );
 
     ReturnCode::Ok
