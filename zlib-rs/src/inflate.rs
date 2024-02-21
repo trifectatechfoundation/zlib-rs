@@ -710,20 +710,20 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
+            // the name string will always be null-terminated, but might be longer than we have
+            // space for in the header struct. Nonetheless, we read the whole thing.
+            let slice = self.bit_reader.as_slice();
+            let null_terminator_index = slice.iter().position(|c| *c == 0);
+
+            // we include the null terminator if it exists
+            let name_slice = match null_terminator_index {
+                Some(i) => &slice[..=i],
+                None => slice,
+            };
+
+            // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
                 let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
-                let slice = self.bit_reader.as_slice();
-
-                // the name string will always be null-terminated, but might be longer than we have
-                // space for in the header struct. Nonetheless, we read the whole thing.
-                let null_terminator_index = slice.iter().position(|c| *c == 0);
-
-                // we include the null terminator if it exists
-                let name_slice = match null_terminator_index {
-                    Some(i) => &slice[..=i],
-                    None => slice,
-                };
-
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         name_slice.as_ptr(),
@@ -731,16 +731,16 @@ impl<'a> State<'a> {
                         Ord::min(slice.len(), remaining_name_bytes),
                     )
                 };
+            }
 
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(name_slice, self.checksum);
-                }
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                self.checksum = crc32(name_slice, self.checksum);
+            }
 
-                self.bit_reader.advance(name_slice.len());
+            self.bit_reader.advance(name_slice.len());
 
-                if self.bit_reader.bytes_remaining() == 0 {
-                    return self.inflate_leave(ReturnCode::Ok);
-                }
+            if self.bit_reader.bytes_remaining() == 0 {
+                return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
             head.name = std::ptr::null_mut();
@@ -759,20 +759,20 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
 
+            // the comment string will always be null-terminated, but might be longer than we have
+            // space for in the header struct. Nonetheless, we read the whole thing.
+            let slice = self.bit_reader.as_slice();
+            let null_terminator_index = slice.iter().position(|c| *c == 0);
+
+            // we include the null terminator if it exists
+            let comment_slice = match null_terminator_index {
+                Some(i) => &slice[..=i],
+                None => slice,
+            };
+
+            // if the header has space, store as much as possible in there
             if let Some(head) = self.head.as_mut() {
                 let remaining_comment_bytes = (head.comm_max as usize).saturating_sub(self.length);
-                let slice = self.bit_reader.as_slice();
-
-                // the comment string will always be null-terminated, but might be longer than we have
-                // space for in the header struct. Nonetheless, we read the whole thing.
-                let null_terminator_index = slice.iter().position(|c| *c == 0);
-
-                // we include the null terminator if it exists
-                let comment_slice = match null_terminator_index {
-                    Some(i) => &slice[..=i],
-                    None => slice,
-                };
-
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         comment_slice.as_ptr(),
@@ -780,16 +780,16 @@ impl<'a> State<'a> {
                         Ord::min(slice.len(), remaining_comment_bytes),
                     )
                 };
+            }
 
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(comment_slice, self.checksum);
-                }
+            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                self.checksum = crc32(comment_slice, self.checksum);
+            }
 
-                self.bit_reader.advance(comment_slice.len());
+            self.bit_reader.advance(comment_slice.len());
 
-                if self.bit_reader.bytes_remaining() == 0 {
-                    return self.inflate_leave(ReturnCode::Ok);
-                }
+            if self.bit_reader.bytes_remaining() == 0 {
+                return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
             head.comment = std::ptr::null_mut();
