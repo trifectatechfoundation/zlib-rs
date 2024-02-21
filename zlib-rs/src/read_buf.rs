@@ -42,6 +42,9 @@ impl<'a> ReadBuf<'a> {
         }
     }
 
+    /// # Safety
+    ///
+    /// The `ptr` and `len` must for a valid `&mut [MaybeUninit<u8>]`
     pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
         let buf = std::slice::from_raw_parts_mut(ptr as _, len);
 

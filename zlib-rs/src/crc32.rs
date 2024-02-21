@@ -1,4 +1,6 @@
-use crate::CRC32_INITIAL_VALUE;
+use std::mem::MaybeUninit;
+
+use crate::{read_buf::ReadBuf, CRC32_INITIAL_VALUE};
 
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub(crate) mod acle;
@@ -23,16 +25,20 @@ pub fn crc32_braid(buf: &[u8], start: u32) -> u32 {
 }
 
 #[allow(unused)]
-pub fn crc32_copy(dst: &mut [u8], buf: &[u8]) -> u32 {
+pub fn crc32_copy(dst: &mut ReadBuf, buf: &[u8]) -> u32 {
     /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
      * these short lengths might also prove to be effective */
     if buf.len() < 64 {
-        dst.copy_from_slice(buf);
+        dst.extend(buf);
         return braid::crc32_braid::<5>(buf, CRC32_INITIAL_VALUE);
     }
 
     let mut crc_state = Crc32Fold::new();
-    crc_state.fold_copy(dst, buf);
+
+    crc_state.fold_copy(unsafe { dst.inner_mut() }, buf);
+    unsafe { dst.assume_init(buf.len()) };
+    dst.set_filled(buf.len());
+
     crc_state.finish()
 }
 
@@ -91,14 +97,14 @@ impl Crc32Fold {
         self.value = braid::crc32_braid::<5>(src, self.value);
     }
 
-    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
+    pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq() {
             return self.fold.fold_copy(dst, src);
         }
 
         self.fold(src, 0);
-        dst[..src.len()].copy_from_slice(src);
+        dst[..src.len()].copy_from_slice(slice_to_uninit(src));
     }
 
     pub fn finish(self) -> u32 {
@@ -109,6 +115,12 @@ impl Crc32Fold {
 
         self.value
     }
+}
+
+// when stable, use MaybeUninit::write_slice
+fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
+    // safety: &[T] and &[MaybeUninit<T>] have the same layout
+    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
 }
 
 #[cfg(test)]
@@ -158,10 +170,11 @@ mod test {
         let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
         h.update(&INPUT);
         let mut dst = [0; INPUT.len()];
+        let mut dst = ReadBuf::new(&mut dst);
 
         assert_eq!(crc32_copy(&mut dst, &INPUT), h.finalize());
 
-        assert_eq!(INPUT, dst);
+        assert_eq!(INPUT, dst.filled());
     }
 
     quickcheck::quickcheck! {
@@ -180,13 +193,14 @@ mod test {
             h.update(&v);
 
             let mut dst = vec![0; v.len()];
+            let mut dst = ReadBuf::new(&mut dst);
 
             let a = crc32_copy(&mut dst, &v) ;
             let b = h.finalize();
 
             assert_eq!(a,b);
 
-            v == dst
+            v == dst.filled()
         }
     }
 
