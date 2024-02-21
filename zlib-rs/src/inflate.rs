@@ -641,9 +641,10 @@ impl<'a> State<'a> {
         if (self.flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
+            // self.length (and head.extra_len) represent the length of the extra field
             self.length = self.bit_reader.hold() as usize;
             if let Some(head) = self.head.as_mut() {
-                head.extra_len = self.bit_reader.hold() as u32;
+                head.extra_len = self.length as u32;
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
@@ -661,36 +662,36 @@ impl<'a> State<'a> {
 
     fn extra(&mut self) -> ReturnCode {
         if (self.flags & 0x0400) != 0 {
-            let copy = Ord::min(self.length, self.bit_reader.bytes_remaining());
-            if copy != 0 {
+            // self.length is the number of remaining `extra` bytes. But they may not all be available
+            let extra_available = Ord::min(self.length, self.bit_reader.bytes_remaining());
+            let extra_slice = &self.bit_reader.as_slice()[..extra_available];
+
+            if !extra_slice.is_empty() {
                 if let Some(head) = self.head.as_mut() {
-                    // If extra is not empty, and extra_len and extra_max are set
-                    if !head.extra.is_null() && head.extra_len != 0 && head.extra_max != 0 {
-                        debug_assert!(head.extra_len >= self.length as u32);
-                        let len = head.extra_len.saturating_sub(self.length as u32);
+                    if !head.extra.is_null() {
+                        let written_so_far = head.extra_len as usize - self.length;
 
-                        if len < head.extra_max {
-                            let count = Ord::min(copy as u32, head.extra_max - len);
+                        let count =
+                            Ord::min(head.extra_max as usize - written_so_far, extra_slice.len());
 
-                            unsafe {
-                                std::ptr::copy_nonoverlapping(
-                                    self.bit_reader.as_ptr(),
-                                    head.extra.add(len as usize),
-                                    count as usize,
-                                );
-                            }
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                self.bit_reader.as_ptr(),
+                                head.extra.add(written_so_far),
+                                count as usize,
+                            );
                         }
                     }
                 }
 
                 // Checksum
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(&self.bit_reader.as_slice()[..copy], self.checksum)
+                    self.checksum = crc32(extra_slice, self.checksum)
                 }
 
-                self.in_available -= copy;
-                self.bit_reader.advance(copy);
-                self.length -= copy;
+                self.in_available -= extra_available;
+                self.bit_reader.advance(extra_available);
+                self.length -= extra_available;
             }
 
             // Checks for errors occur after returning
