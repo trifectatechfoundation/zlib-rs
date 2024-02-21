@@ -830,7 +830,12 @@ impl<'a> State<'a> {
             head.done = 1;
         }
 
-        self.checksum = crate::CRC32_INITIAL_VALUE;
+        // compute crc32 checksum if not in raw mode
+        if (self.wrap & 4 != 0) && self.flags != 0 {
+            self.crc_fold = Crc32Fold::new();
+            self.checksum = crate::CRC32_INITIAL_VALUE;
+        }
+
         self.mode = Mode::Type;
         self.type_()
     }
@@ -843,9 +848,10 @@ impl<'a> State<'a> {
         if self.wrap != 0 {
             need_bits!(self, 32);
 
-            if self.wrap & 4 != 0 && !self.writer.filled().is_empty() {
+            if self.wrap & 4 != 0 {
                 if self.flags != 0 {
-                    self.checksum = crc32(self.writer.filled(), self.checksum);
+                    self.crc_fold.fold(self.writer.filled(), self.checksum);
+                    self.checksum = self.crc_fold.finish();
                 } else {
                     self.checksum = adler32(self.checksum, self.writer.filled());
                 }
