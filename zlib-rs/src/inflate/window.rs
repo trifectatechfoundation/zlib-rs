@@ -1,4 +1,7 @@
-use crate::adler32::{adler32, adler32_fold_copy};
+use crate::{
+    adler32::{adler32, adler32_fold_copy},
+    crc32::Crc32Fold,
+};
 use std::mem::MaybeUninit;
 
 // translation guide:
@@ -78,7 +81,19 @@ impl<'a> Window<'a> {
         unsafe { slice_assume_init(&self.buf[start..self.have]) }
     }
 
-    pub fn extend(&mut self, slice: &[u8], mut checksum: u32) -> u32 {
+    #[cfg(test)]
+    fn extend_adler32(&mut self, slice: &[u8], checksum: &mut u32) {
+        self.extend(slice, 0, true, checksum, &mut Crc32Fold::new());
+    }
+
+    pub fn extend(
+        &mut self,
+        slice: &[u8],
+        flags: i32,
+        update_checksum: bool,
+        checksum: &mut u32,
+        crc_fold: &mut Crc32Fold,
+    ) {
         let len = slice.len();
         let wsize = self.size();
 
@@ -87,9 +102,14 @@ impl<'a> Window<'a> {
             let pos = len.saturating_sub(self.size());
             let (non_window_slice, window_slice) = slice.split_at(pos);
 
-            if checksum != 0 {
-                checksum = adler32(checksum, non_window_slice);
-                checksum = adler32_fold_copy(checksum, self.buf, window_slice);
+            if update_checksum {
+                if flags != 0 {
+                    crc_fold.fold(non_window_slice, 0);
+                    crc_fold.fold_copy(self.buf, window_slice);
+                } else {
+                    *checksum = adler32(*checksum, non_window_slice);
+                    *checksum = adler32_fold_copy(*checksum, self.buf, window_slice);
+                }
             } else {
                 self.buf
                     .copy_from_slice(unsafe { slice_to_uninit(window_slice) });
@@ -104,18 +124,26 @@ impl<'a> Window<'a> {
             // written to the start of the window.
             let (end_part, start_part) = slice.split_at(dist);
 
-            if checksum != 0 {
+            if update_checksum {
                 let dst = &mut self.buf[self.next..][..end_part.len()];
-                checksum = adler32_fold_copy(checksum, dst, end_part);
+                if flags != 0 {
+                    crc_fold.fold_copy(dst, end_part);
+                } else {
+                    *checksum = adler32_fold_copy(*checksum, dst, end_part);
+                }
             } else {
                 let end_part = unsafe { slice_to_uninit(end_part) };
                 self.buf[self.next..][..end_part.len()].copy_from_slice(end_part);
             }
 
             if !start_part.is_empty() {
-                if checksum != 0 {
+                if update_checksum {
                     let dst = &mut self.buf[..start_part.len()];
-                    checksum = adler32_fold_copy(checksum, dst, start_part);
+                    if flags != 0 {
+                        crc_fold.fold_copy(dst, start_part);
+                    } else {
+                        *checksum = adler32_fold_copy(*checksum, dst, start_part);
+                    }
                 } else {
                     let start_part = unsafe { slice_to_uninit(start_part) };
                     self.buf[..start_part.len()].copy_from_slice(start_part);
@@ -133,8 +161,6 @@ impl<'a> Window<'a> {
                 }
             }
         }
-
-        checksum
     }
 }
 
@@ -162,21 +188,21 @@ mod test {
         let mut buf = [0; 12];
         let mut window = Window::from_slice(&mut buf);
 
-        checksum = window.extend(&[1; 5], checksum);
+        window.extend_adler32(&[1; 5], &mut checksum);
         assert_eq!(window.have, 5);
         assert_eq!(window.next, 5);
 
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0], slice);
 
-        checksum = window.extend(&[2; 7], checksum);
+        window.extend_adler32(&[2; 7], &mut checksum);
         assert_eq!(window.have, 12);
         assert_eq!(window.next, 0);
 
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], slice);
 
-        assert_eq!(checksum, 0);
+        assert_eq!(checksum, 6946835);
     }
 
     #[test]
@@ -186,21 +212,21 @@ mod test {
         let mut buf = [0; 5];
         let mut window = Window::from_slice(&mut buf);
 
-        checksum = window.extend(&[1; 3], checksum);
+        window.extend_adler32(&[1; 3], &mut checksum);
         assert_eq!(window.have, 3);
         assert_eq!(window.next, 3);
 
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[1, 1, 1, 0, 0], slice);
 
-        checksum = window.extend(&[2; 4], checksum);
+        window.extend_adler32(&[2; 4], &mut checksum);
         assert_eq!(window.have, 5);
         assert_eq!(window.next, 2);
 
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[2, 2, 1, 2, 2], slice);
 
-        assert_eq!(checksum, 0);
+        assert_eq!(checksum, 2490379);
     }
 
     #[test]
@@ -210,13 +236,13 @@ mod test {
         let mut buf = [0; 5];
         let mut window = Window::from_slice(&mut buf);
 
-        checksum = window.extend(&[1, 2, 3, 4, 5, 6, 7], checksum);
+        window.extend_adler32(&[1, 2, 3, 4, 5, 6, 7], &mut checksum);
         assert_eq!(window.have, 5);
         assert_eq!(window.next, 0);
 
         let slice = unsafe { slice_assume_init(window.buf) };
         assert_eq!(&[3, 4, 5, 6, 7], slice);
 
-        assert_eq!(checksum, 0);
+        assert_eq!(checksum, 5505052);
     }
 }

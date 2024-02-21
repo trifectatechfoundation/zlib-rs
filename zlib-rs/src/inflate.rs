@@ -1811,7 +1811,9 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
             && valid_mode(state.mode)
             && (not_done(state.mode) || !matches!(state.flush, Flush::Finish)));
 
-    if must_update_window && update_window(stream, out_written) != ReturnCode::Ok {
+    let update_checksum = state.wrap & 4 != 0;
+
+    if must_update_window && update_window(stream, out_written, update_checksum) != ReturnCode::Ok {
         stream.state.mode = Mode::Mem;
         err = ReturnCode::MemError;
     }
@@ -2066,10 +2068,13 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
             }
         }
 
-        stream.state.checksum = stream
-            .state
-            .window
-            .extend(dictionary, stream.state.checksum);
+        stream.state.window.extend(
+            dictionary,
+            stream.state.flags,
+            false,
+            &mut stream.state.checksum,
+            &mut stream.state.crc_fold,
+        );
 
         ReturnCode::Ok
     };
@@ -2112,7 +2117,11 @@ pub unsafe extern "C" fn end(strm: *mut z_stream) -> i32 {
     ReturnCode::Ok as _
 }
 
-fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode {
+fn update_window(
+    stream: &mut InflateStream,
+    bytes_written: usize,
+    update_checksum: bool,
+) -> ReturnCode {
     // initialize the window if needed
     if stream.state.window.size() == 0 {
         match init_window(
@@ -2125,9 +2134,12 @@ fn update_window(stream: &mut InflateStream, bytes_written: usize) -> ReturnCode
         }
     }
 
-    stream.state.checksum = stream.state.window.extend(
+    stream.state.window.extend(
         &stream.state.writer.filled()[..bytes_written],
-        stream.state.checksum,
+        stream.state.flags,
+        update_checksum,
+        &mut stream.state.checksum,
+        &mut stream.state.crc_fold,
     );
 
     ReturnCode::Ok
