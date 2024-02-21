@@ -1344,9 +1344,6 @@ fn gzip_chunked() {
 
         let stream = unsafe { stream.assume_init_mut() };
 
-        stream.next_in = output_rs.as_mut_ptr() as _;
-        stream.avail_in = output_rs.len() as _;
-
         let mut output = [0u8; 64];
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = output.len() as _;
@@ -1374,8 +1371,18 @@ fn gzip_chunked() {
         let err = unsafe { libz_rs_sys::inflateGetHeader(stream, &mut header) };
         assert_eq!(err, 0);
 
-        let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
-        assert_eq!(err, ReturnCode::StreamEnd as i32);
+        for chunk in output_rs.chunks_mut(32) {
+            stream.next_in = chunk.as_mut_ptr();
+            stream.avail_in = chunk.len() as _;
+
+            let err = unsafe { libz_rs_sys::inflate(stream, Flush::NoFlush as _) };
+
+            if err == ReturnCode::StreamEnd as i32 {
+                break;
+            }
+
+            assert_eq!(err, ReturnCode::Ok as i32);
+        }
 
         let err = unsafe { libz_rs_sys::inflateEnd(stream) };
         assert_eq!(err, ReturnCode::Ok as i32);
