@@ -172,33 +172,31 @@ fn mem_done(stream: &mut z_stream) {
 
 #[test]
 fn gzip_header_check() {
-    let input = &[
+    let input: &[u8] = &[
         0x1f, 0x8b, 0x08, 0x1f, 0x44, 0x0a, 0x45, 0x65, 0x00, 0x03, 0x0e, 0x00, 0x54, 0x47, 0x0a,
         0x00, 0x45, 0x58, 0x54, 0x52, 0x41, 0x20, 0x44, 0x41, 0x54, 0x41, 0x74, 0x65, 0x73, 0x74,
         0x2e, 0x74, 0x78, 0x74, 0x00, 0x41, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x74, 0x00,
-        0x3b, 0x92, 0x2b, 0x49, 0x2d, 0x2e, 0xe1, 0x02, 0x00, 0xc6, 0x35, 0xb9, 0x3b, 0x05, 0x00,
-        0x00, 0x00,
+        0x3b, 0x92,
     ];
+
     let _what = "gzip header parsing";
     let step = 0;
-    let win = 47;
     let len = 1;
-    let err = Z_DATA_ERROR;
+    let err = Z_OK;
 
-    let mut err = Some(err);
+    let err = Some(err);
     let mut stream = mem_setup();
 
-    let init_err = unsafe { inflateInit2_(&mut stream, win, VERSION, STREAM_SIZE) };
+    let init_err = unsafe { inflateInit2_(&mut stream, 47, VERSION, STREAM_SIZE) };
     if init_err != Z_OK {
         mem_done(&mut stream);
         return;
     }
 
     let mut out = vec![0u8; len];
-
-    let extra: [u8; 64] = [0; 64];
-    let name: [u8; 64] = [0; 64];
-    let comment: [u8; 64] = [0; 64];
+    let extra: [u8; 14] = [0; 14];
+    let name: [u8; 9] = [0; 9];
+    let comment: [u8; 10] = [0; 10];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -209,67 +207,58 @@ fn gzip_header_check() {
         os: 0,
         extra: extra.as_ptr() as *mut u8,
         extra_len: 0,
-        extra_max: 1024,
+        extra_max: 14,
         name: name.as_ptr() as *mut u8,
-        name_max: 64, // How / where should this be set?
+        name_max: 9, // How / where should this be set?
         comment: comment.as_ptr() as *mut u8,
-        comm_max: 64,
+        comm_max: 10,
         hcrc: 0,
         done: 0,
     };
 
-    let err = unsafe { inflateGetHeader(&mut stream, &mut header) };
-    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+    let ret = unsafe { inflateGetHeader(&mut stream, &mut header) };
+    assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
 
     let mut have = input.len();
     let step = if step == 0 || step > have { have } else { step };
 
     stream.avail_in = step as _;
-    have -= step;
     stream.next_in = input.as_ptr() as *mut _;
 
-    loop {
-        stream.avail_out = len as _;
-        stream.next_out = out.as_mut_ptr();
+    stream.avail_out = len as _;
+    stream.next_out = out.as_mut_ptr();
 
-        let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
-        if let Some(err) = err {
+    let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+
+    if let Some(err) = err {
+        if err != 9 {
             assert_eq!(ret, err)
         }
-
-        println!("{:?}", header);
-        assert_eq!(header.text, 1);
-
-        if !matches!(ret, Z_OK | Z_BUF_ERROR | Z_NEED_DICT) {
-            break;
-        }
-
-        let mut copy = z_stream::default();
-        let ret = unsafe { inflateCopy(&mut copy, &stream) };
-        assert_eq!(ret, Z_OK);
-
-        let ret = unsafe { inflateEnd(&mut copy) };
-        assert_eq!(ret, Z_OK);
-
-        // only care about this error on the first iteration
-        err = None;
-
-        have += stream.avail_in as usize;
-        stream.avail_in = if step > have { have } else { step } as _;
-        have -= stream.avail_in as usize;
-
-        if stream.avail_in == 0 {
-            break;
-        }
     }
 
-    /*
-    unsafe {
-    //    println!("name {:?}", *header.name);
-          assert_eq!(*header.name, "test.txt");
-    }
-    */
-    //assert_eq!(true, false);
+    assert_eq!(header.text, 1);
+    assert_eq!(header.time, 1699023428);
+    assert_eq!(header.os, 3);
+    assert_eq!(header.hcrc, 1);
+    assert_eq!(header.done, 1);
+
+    // Check the header comment
+    let comment_string = match std::str::from_utf8(&comment) {
+        Ok(s) => s,
+        Err(_) => panic!("Invalid string found in comment"),
+    };
+    assert_eq!("A comment\0", comment_string);
+
+    // Check header original filename
+    let name_string = match std::str::from_utf8(&name) {
+        Ok(s) => s,
+        Err(_) => panic!("Invalid string found in name"),
+    };
+    assert_eq!("test.txt\0", name_string);
+
+    // Check header extra
+    let extra_bytes = [84, 71, 10, 0, 69, 88, 84, 82, 65, 32, 68, 65, 84, 65];
+    assert_eq!(extra_bytes, extra);
 
     let ret = unsafe { inflateReset2(&mut stream, -8) };
     assert_eq!(ret, Z_OK);
@@ -576,6 +565,23 @@ fn bad_zlib_header_check() {
         47,
         0,
         Z_DATA_ERROR,
+    )
+}
+
+#[test]
+fn good_zlib_header_check() {
+    inf(
+        &[
+            0x1f, 0x8b, 0x08, 0x1f, 0x44, 0x0a, 0x45, 0x65, 0x00, 0x03, 0x0e, 0x00, 0x54, 0x47,
+            0x0a, 0x00, 0x45, 0x58, 0x54, 0x52, 0x41, 0x20, 0x44, 0x41, 0x54, 0x41, 0x74, 0x65,
+            0x73, 0x74, 0x2e, 0x74, 0x78, 0x74, 0x00, 0x41, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x65,
+            0x6e, 0x74, 0x00, 0x3b, 0x92,
+        ],
+        "good zlib header check",
+        0,
+        47,
+        0,
+        Z_OK,
     )
 }
 

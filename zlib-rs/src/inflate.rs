@@ -730,7 +730,7 @@ impl<'a> State<'a> {
                         std::ptr::copy_nonoverlapping(
                             name_slice.as_ptr(),
                             head.name,
-                            Ord::min(slice.len(), remaining_name_bytes),
+                            Ord::min(name_slice.len(), remaining_name_bytes),
                         )
                     };
                 }
@@ -781,7 +781,7 @@ impl<'a> State<'a> {
                         std::ptr::copy_nonoverlapping(
                             comment_slice.as_ptr(),
                             head.comment,
-                            Ord::min(slice.len(), remaining_comm_bytes),
+                            Ord::min(comment_slice.len(), remaining_comm_bytes),
                         )
                     };
                 }
