@@ -730,13 +730,17 @@ impl<'a> State<'a> {
             if let Some(head) = self.head.as_mut() {
                 if !head.name.is_null() {
                     let remaining_name_bytes = (head.name_max as usize).saturating_sub(self.length);
+                    let copy = Ord::min(name_slice.len(), remaining_name_bytes);
+
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             name_slice.as_ptr(),
-                            head.name,
-                            Ord::min(name_slice.len(), remaining_name_bytes),
+                            head.name.add(self.length),
+                            copy,
                         )
                     };
+
+                    self.length += copy;
                 }
             }
 
@@ -759,8 +763,6 @@ impl<'a> State<'a> {
     }
 
     fn comment(&mut self) -> ReturnCode {
-        assert_eq!(self.length, 0);
-
         if (self.flags & 0x01000) != 0 {
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
@@ -781,13 +783,16 @@ impl<'a> State<'a> {
             if let Some(head) = self.head.as_mut() {
                 if !head.comment.is_null() {
                     let remaining_comm_bytes = (head.comm_max as usize).saturating_sub(self.length);
+                    let copy = Ord::min(comment_slice.len(), remaining_comm_bytes);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             comment_slice.as_ptr(),
-                            head.comment,
-                            Ord::min(comment_slice.len(), remaining_comm_bytes),
+                            head.comment.add(self.length),
+                            copy,
                         )
                     };
+
+                    self.length += copy;
                 }
             }
 
