@@ -36,16 +36,13 @@ pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: 
 pub fn adler32_combine(adler1: u32, adler2: u32, len2: u64) -> u32 {
     const BASE: u64 = self::BASE as u64;
 
-    /* for negative len, return invalid adler32 as a clue for debugging */
-    let Some(rem) = len2.checked_rem(BASE) else {
-        return 0xffffffff;
-    };
+    let rem = len2 % BASE;
 
     let adler1 = adler1 as u64;
     let adler2 = adler2 as u64;
 
     /* the derivation of this formula is left as an exercise for the reader */
-    let mut sum1 = (adler1 & 0xffff) as u64;
+    let mut sum1 = adler1 & 0xffff;
     let mut sum2 = rem * sum1;
     sum2 %= BASE;
     sum1 += (adler2 & 0xffff) + BASE - 1;
