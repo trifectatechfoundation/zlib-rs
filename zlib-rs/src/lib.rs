@@ -6,8 +6,8 @@ pub mod deflate;
 pub mod inflate;
 pub mod read_buf;
 
-pub use adler32::adler32;
-pub use crc32::crc32;
+pub use adler32::{adler32, adler32_combine};
+pub use crc32::{crc32, crc32_combine};
 
 #[macro_export]
 macro_rules! trace {
