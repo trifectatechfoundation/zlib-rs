@@ -5,12 +5,6 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use zlib_rs::deflate::DeflateConfig;
-use zlib_rs::inflate::InflateConfig;
-use zlib_rs::{Flush, ReturnCode};
-
-use std::ffi::{c_char, c_int, c_uint};
-
 fuzz_target!(|input: (Vec<u8>, u32)| {
     let (input, start) = input;
 
