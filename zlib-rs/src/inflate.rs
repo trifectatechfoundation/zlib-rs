@@ -532,7 +532,7 @@ impl<'a> State<'a> {
 
             let b0 = self.bit_reader.bits(8) as u8;
             let b1 = (self.bit_reader.hold() >> 8) as u8;
-            self.checksum = crc32(&[b0, b1], crate::CRC32_INITIAL_VALUE);
+            self.checksum = crc32(crate::CRC32_INITIAL_VALUE, &[b0, b1]);
             self.bit_reader.init_bits();
 
             self.mode = Mode::Flags;
@@ -603,7 +603,7 @@ impl<'a> State<'a> {
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
             let b0 = self.bit_reader.bits(8) as u8;
             let b1 = (self.bit_reader.hold() >> 8) as u8;
-            self.checksum = crc32(&[b0, b1], self.checksum);
+            self.checksum = crc32(self.checksum, &[b0, b1]);
         }
 
         self.bit_reader.init_bits();
@@ -618,10 +618,8 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            self.checksum = crc32(
-                &(self.bit_reader.hold() as u32).to_ne_bytes(),
-                self.checksum,
-            );
+            let bytes = (self.bit_reader.hold() as u32).to_ne_bytes();
+            self.checksum = crc32(self.checksum, &bytes);
         }
 
         self.bit_reader.init_bits();
@@ -638,7 +636,7 @@ impl<'a> State<'a> {
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
             let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
-            self.checksum = crc32(&bytes, self.checksum);
+            self.checksum = crc32(self.checksum, &bytes);
         }
 
         self.bit_reader.init_bits();
@@ -658,7 +656,7 @@ impl<'a> State<'a> {
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
                 let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
-                self.checksum = crc32(&bytes, self.checksum);
+                self.checksum = crc32(self.checksum, &bytes);
             }
             self.bit_reader.init_bits();
         } else if let Some(head) = self.head.as_mut() {
@@ -697,7 +695,7 @@ impl<'a> State<'a> {
 
                 // Checksum
                 if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                    self.checksum = crc32(extra_slice, self.checksum)
+                    self.checksum = crc32(self.checksum, extra_slice)
                 }
 
                 self.in_available -= extra_available;
@@ -752,7 +750,7 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(name_slice, self.checksum);
+                self.checksum = crc32(self.checksum, name_slice);
             }
 
             let reached_end = name_slice.last() == Some(&0);
@@ -805,7 +803,7 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                self.checksum = crc32(comment_slice, self.checksum);
+                self.checksum = crc32(self.checksum, comment_slice);
             }
 
             let reached_end = comment_slice.last() == Some(&0);

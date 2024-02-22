@@ -62,9 +62,7 @@ const fn x2nmodp(mut n: u64, mut k: u32) -> u32 {
 mod test {
     use super::*;
 
-    fn crc32(start: u32, data: &[u8]) -> u32 {
-        crate::crc32(data, start)
-    }
+    use crate::crc32;
 
     #[test]
     fn test_crc32_combine() {
