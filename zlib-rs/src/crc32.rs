@@ -5,8 +5,11 @@ use crate::{read_buf::ReadBuf, CRC32_INITIAL_VALUE};
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub(crate) mod acle;
 mod braid;
+mod combine;
 #[cfg(target_arch = "x86_64")]
 mod pclmulqdq;
+
+pub use combine::crc32_combine;
 
 pub fn crc32(buf: &[u8], start: u32) -> u32 {
     /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for

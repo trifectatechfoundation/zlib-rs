@@ -9,7 +9,7 @@
 // We are assuming little-endianness so we process the input
 // LSB-first. We need to use the "reversed" value from e.g
 // https://en.wikipedia.org/wiki/Cyclic_redundancy_check#Polynomial_representations.
-const CRC32_LSB_POLY: usize = 0xedb8_8320usize;
+pub(crate) const CRC32_LSB_POLY: usize = 0xedb8_8320usize;
 
 const W: usize = core::mem::size_of::<usize>();
 

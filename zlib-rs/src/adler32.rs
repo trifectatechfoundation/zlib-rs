@@ -33,6 +33,40 @@ pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: 
     adler
 }
 
+pub fn adler32_combine(adler1: u32, adler2: u32, len2: u64) -> u32 {
+    const BASE: u64 = self::BASE as u64;
+
+    /* for negative len, return invalid adler32 as a clue for debugging */
+    let Some(rem) = len2.checked_rem(BASE) else {
+        return 0xffffffff;
+    };
+
+    let adler1 = adler1 as u64;
+    let adler2 = adler2 as u64;
+
+    /* the derivation of this formula is left as an exercise for the reader */
+    let mut sum1 = (adler1 & 0xffff) as u64;
+    let mut sum2 = rem * sum1;
+    sum2 %= BASE;
+    sum1 += (adler2 & 0xffff) + BASE - 1;
+    sum2 += ((adler1 >> 16) & 0xffff) + ((adler2 >> 16) & 0xffff) + BASE - rem;
+
+    if sum1 >= BASE {
+        sum1 -= BASE;
+    }
+    if sum1 >= BASE {
+        sum1 -= BASE;
+    }
+    if sum2 >= (BASE << 1) {
+        sum2 -= BASE << 1;
+    }
+    if sum2 >= BASE {
+        sum2 -= BASE;
+    }
+
+    (sum1 | (sum2 << 16)) as u32
+}
+
 // when stable, use MaybeUninit::write_slice
 fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
     // safety: &[T] and &[MaybeUninit<T>] have the same layout
@@ -67,6 +101,36 @@ mod test {
         for i in 0..128 {
             let v = (0u8..i).collect::<Vec<_>>();
             assert_eq!(naive_adler32(1, &v), generic::adler32_rust(1, &v));
+        }
+    }
+
+    #[test]
+    fn test_adler32_combine() {
+        ::quickcheck::quickcheck(test as fn(_) -> _);
+
+        fn test(data: Vec<u8>) -> bool {
+            let Some(buf_len) = data.first().copied() else {
+                return true;
+            };
+
+            let buf_size = Ord::max(buf_len, 1) as usize;
+
+            let mut adler1 = 1;
+            let mut adler2 = 1;
+
+            for chunk in data.chunks(buf_size) {
+                adler1 = adler32(adler1, chunk);
+            }
+
+            adler2 = adler32(adler2, &data);
+
+            assert_eq!(adler1, adler2);
+
+            let combine1 = adler32_combine(adler1, adler2, data.len() as _);
+            let combine2 = adler32_combine(adler1, adler1, data.len() as _);
+            assert_eq!(combine1, combine2);
+
+            true
         }
     }
 }

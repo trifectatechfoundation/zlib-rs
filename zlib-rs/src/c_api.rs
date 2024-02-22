@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
+use std::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type Bytef = u8;
@@ -85,6 +85,12 @@ impl z_stream {
 // // zlib stores Adler-32 and CRC-32 checksums in unsigned long; zlib-ng uses uint32_t.
 pub(crate) type z_size = c_ulong;
 pub(crate) type z_checksum = c_ulong;
+
+#[cfg(all(not(all(target_family = "wasm", target_os = "unknown"))))]
+pub type z_off_t = libc::off_t;
+
+#[cfg(all(all(target_family = "wasm", target_os = "unknown")))]
+pub type z_off_t = c_long;
 
 // opaque to the user
 pub enum internal_state {}

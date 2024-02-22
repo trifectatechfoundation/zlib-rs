@@ -17,6 +17,28 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
+    let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    zlib_rs::crc32(buf, crc as u32) as c_ulong
+}
+
+pub unsafe extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
+    zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
+}
+
+pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
+    let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    zlib_rs::adler32(adler as u32, buf) as c_ulong
+}
+
+pub unsafe extern "C" fn adler32_combine(
+    adler1: c_ulong,
+    adler2: c_ulong,
+    len2: z_off_t,
+) -> c_ulong {
+    zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2 as u64) as c_ulong
+}
+
 /// Inflates `source` into `dest`, and writes the final inflated size into `destLen`.
 ///
 /// # Safety
