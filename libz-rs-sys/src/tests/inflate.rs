@@ -1330,20 +1330,26 @@ fn gzip_chunked(chunk_size: usize) {
     let err = unsafe { libz_rs_sys::deflateSetHeader(stream, &mut header) };
     assert_eq!(err, 0);
 
-    stream.next_in = input.as_ptr() as *mut _;
-    stream.avail_in = input.len() as _;
-
     let mut output_rs = [0u8; 512];
     stream.next_out = output_rs.as_mut_ptr();
     stream.avail_out = output_rs.len() as _;
 
+    for chunk in input.chunks(chunk_size) {
+        stream.next_in = chunk.as_ptr() as *mut u8;
+        stream.avail_in = chunk.len() as _;
+
+        let err = unsafe { deflate(stream, Flush::NoFlush as _) };
+
+        assert_eq!(err, ReturnCode::Ok as i32, "{:?}", stream.msg);
+    }
+
     let err = unsafe { libz_rs_sys::deflate(stream, Flush::Finish as _) };
-    assert_eq!(err, ReturnCode::StreamEnd as i32);
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
     let output_rs = &mut output_rs[..stream.total_out as usize];
 
     let err = unsafe { libz_rs_sys::deflateEnd(stream) };
-    assert_eq!(err, 0);
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
     {
         #[allow(unused_imports)] // to switch to libz_ng_sys easily
