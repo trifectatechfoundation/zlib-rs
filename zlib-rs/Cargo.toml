@@ -15,17 +15,17 @@ rust-version.workspace = true
 [features]
 default = []
 __internal-fuzz = ["libz-ng-sys", "arbitrary"]
-__internal-test = []
+__internal-test = ["quickcheck"]
 
 
 [dependencies]
 arbitrary = { workspace = true, optional = true, features = ["derive"] }
 libz-ng-sys = { workspace = true, optional = true }
 libc.workspace = true
+quickcheck = { version = "1.0.3", optional = true }
 
 [dev-dependencies]
 libloading = "0.8.1"
 libz-ng-sys = "1.1.12"
 crc32fast = "1.3.2"
-quickcheck = "1.0.3"
 load-dynamic-libz-ng.workspace = true

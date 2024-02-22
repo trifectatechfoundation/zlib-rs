@@ -1,3 +1,5 @@
+use std::{ffi::CString, mem::MaybeUninit};
+
 use crate as libz_rs_sys;
 
 use libc::{c_char, c_int};
@@ -6,7 +8,10 @@ use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
     Z_NO_FLUSH,
 };
-use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
+use zlib_rs::{
+    deflate::DeflateConfig,
+    Flush, ReturnCode,
+};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -452,4 +457,148 @@ fn deflate_medium_fizzle_bug() {
     assert_eq!(err, ReturnCode::Ok);
 
     assert_eq!(output, EXPECTED);
+}
+
+#[test]
+fn deflate_bound_correct() {
+    ::quickcheck::quickcheck(test as fn(_) -> _);
+
+    fn test((config, source_len): (DeflateConfig, u64)) -> bool {
+        let rs_bound = unsafe {
+            let mut strm = MaybeUninit::zeroed();
+
+            // first validate the config
+            let err = libz_rs_sys::deflateInit2_(
+                strm.as_mut_ptr(),
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                VERSION,
+                STREAM_SIZE,
+            );
+
+            if err != 0 {
+                return true;
+            }
+
+            libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
+        };
+
+        let ng_bound = unsafe {
+            let mut strm = MaybeUninit::zeroed();
+
+            // first validate the config
+            let err = libz_ng_sys::deflateInit2_(
+                strm.as_mut_ptr(),
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                VERSION,
+                core::mem::size_of::<libz_ng_sys::z_stream>() as _,
+            );
+
+            assert_eq!(err, 0);
+
+            libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
+        };
+
+        rs_bound == ng_bound
+    }
+}
+
+fn deflate_bound_gzip_header_help(
+    (config, source_len, extra, name, comment): (DeflateConfig, u64, CString, CString, CString),
+) -> bool {
+    let rs_bound = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+
+        if err != 0 {
+            return true;
+        }
+
+        let mut header = libz_rs_sys::gz_header {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra.as_ptr() as *mut _,
+            extra_len: extra.as_bytes().len() as _,
+            extra_max: 0,
+            name: name.as_ptr() as *mut _,
+            name_max: 0,
+            comment: comment.as_ptr() as *mut _,
+            comm_max: 0,
+            hcrc: 1,
+            done: 0,
+        };
+
+        // this may fail if the config is not set up for gzip
+        let _err = libz_rs_sys::deflateSetHeader(strm.as_mut_ptr(), &mut header);
+
+        libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
+    };
+
+    let ng_bound = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_ng_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
+        );
+
+        assert_eq!(err, 0);
+
+        let mut header = libz_ng_sys::gz_header {
+            text: 0,
+            time: 0,
+            xflags: 0,
+            os: 0,
+            extra: extra.as_ptr() as *mut _,
+            extra_len: extra.as_bytes().len() as _,
+            extra_max: 0,
+            name: name.as_ptr() as *mut _,
+            name_max: 0,
+            comment: comment.as_ptr() as *mut _,
+            comm_max: 0,
+            hcrc: 1,
+            done: 0,
+        };
+
+        // this may fail if the config is not set up for gzip
+        let _err = libz_ng_sys::deflateSetHeader(strm.as_mut_ptr(), &mut header);
+
+        libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
+    };
+
+    assert_eq!(rs_bound, ng_bound);
+
+    rs_bound == ng_bound
+}
+
+#[test]
+fn deflate_bound_gzip_header() {
+    ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
 }
