@@ -350,6 +350,17 @@ pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: c_int) -> c_int {
+    let Ok(strategy) = Strategy::try_from(strategy) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::params(stream, level, strategy) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,

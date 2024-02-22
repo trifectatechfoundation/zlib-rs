@@ -8,7 +8,10 @@ use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
     Z_NO_FLUSH,
 };
-use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
+use zlib_rs::{
+    deflate::{DeflateConfig, Strategy},
+    Flush, ReturnCode,
+};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -612,4 +615,116 @@ fn test_compress_bound() {
 
         rs_bound == ng_bound as _
     }
+}
+
+#[test]
+fn test_compress_param() {
+    let mut output_rs = [0; 1024];
+    let mut output_ng = [0; 1024];
+
+    let config = DeflateConfig::new(2);
+
+    let input =
+        "Scheduling and executing async tasks is a job handled by an async runtime, such as\0";
+
+    let n_rs = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let stream = strm.assume_init_mut();
+
+        stream.next_out = output_rs.as_mut_ptr();
+        stream.avail_out = output_rs.len() as _;
+
+        let offset = input.len() / 2;
+
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = offset as _;
+
+        let err = libz_rs_sys::deflate(stream, Flush::NoFlush as i32);
+        assert_eq!(err, 0);
+
+        let err = libz_rs_sys::deflateParams(stream, 8, Strategy::Rle as i32);
+        assert_eq!(err, 0);
+
+        assert_eq!(stream.next_in as usize - input.as_ptr() as usize, offset);
+
+        stream.avail_in = (input.len() - offset) as _;
+
+        let err = libz_rs_sys::deflate(stream, Flush::Finish as i32);
+        assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+        let err = libz_rs_sys::deflateEnd(stream);
+        assert_eq!(err, 0);
+
+        stream.total_out as usize
+    };
+
+    let n_ng = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), 8, Strategy::Rle as i32);
+        assert_eq!(err, ReturnCode::StreamError as i32);
+
+        // first validate the config
+        let err = libz_ng_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), -1, 100);
+        assert_eq!(err, ReturnCode::StreamError as i32);
+
+        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), 100, Strategy::Rle as i32);
+        assert_eq!(err, ReturnCode::StreamError as i32);
+
+        let stream = strm.assume_init_mut();
+
+        stream.next_out = output_ng.as_mut_ptr();
+        stream.avail_out = output_ng.len() as _;
+
+        let offset = input.len() / 2;
+
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = offset as _;
+
+        let err = libz_ng_sys::deflate(stream, Flush::NoFlush as i32);
+        assert_eq!(err, 0);
+
+        let err = libz_ng_sys::deflateParams(stream, 8, Strategy::Rle as i32);
+        assert_eq!(err, 0);
+
+        assert_eq!(stream.next_in as usize - input.as_ptr() as usize, offset);
+
+        stream.avail_in = (input.len() - offset) as _;
+
+        let err = libz_ng_sys::deflate(stream, Flush::Finish as i32);
+        assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+        let err = libz_ng_sys::deflateEnd(stream);
+        assert_eq!(err, 0);
+
+        stream.total_out
+    };
+
+    assert_eq!(&output_rs[..n_rs], &output_ng[..n_ng]);
 }
