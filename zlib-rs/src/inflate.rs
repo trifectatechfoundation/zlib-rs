@@ -25,7 +25,6 @@ use self::{
     window::Window,
 };
 
-// TODO should only be used by tests; only export when running tests
 #[repr(C)]
 pub struct InflateStream<'a> {
     pub(crate) next_in: *mut crate::c_api::Bytef,
@@ -44,8 +43,17 @@ pub struct InflateStream<'a> {
     pub(crate) reserved: crate::c_api::uLong,
 }
 
-// TODO should only be used by tests; only export when running tests
+#[cfg(feature = "__internal-test")]
+#[doc(hidden)]
 pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
+
+#[cfg(feature = "__internal-test")]
+#[doc(hidden)]
+pub unsafe fn set_mode_dict(strm: &mut z_stream) {
+    unsafe {
+        (*(strm.state as *mut State)).mode = Mode::Dict;
+    }
+}
 
 impl<'a> InflateStream<'a> {
     const _S: () = assert!(core::mem::size_of::<z_stream>() == core::mem::size_of::<Self>());
@@ -2206,11 +2214,4 @@ pub fn get_header<'a>(
         head
     });
     ReturnCode::Ok
-}
-
-// TODO should only be used by tests; hide with feature flags
-pub unsafe fn set_mode_dict(strm: &mut z_stream) {
-    unsafe {
-        (*(strm.state as *mut State)).mode = Mode::Dict;
-    }
 }
