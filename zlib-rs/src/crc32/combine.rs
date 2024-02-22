@@ -48,6 +48,7 @@ const fn multmodp(a: u32, mut b: u32) -> u32 {
 // Return x^(n * 2^k) modulo p(x).
 const fn x2nmodp(mut n: u64, mut k: u32) -> u32 {
     let mut p: u32 = 1 << 31; /* x^0 == 1 */
+
     while n > 0 {
         if (n & 1) != 0 {
             p = multmodp(X2N_TABLE[k as usize & 31], p);
@@ -55,7 +56,8 @@ const fn x2nmodp(mut n: u64, mut k: u32) -> u32 {
         n >>= 1;
         k += 1;
     }
-    return p;
+
+    p
 }
 
 #[cfg(test)]

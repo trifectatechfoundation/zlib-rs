@@ -36,7 +36,12 @@ pub unsafe extern "C" fn adler32_combine(
     adler2: c_ulong,
     len2: z_off_t,
 ) -> c_ulong {
-    zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2 as u64) as c_ulong
+    if let Ok(len2) = u64::try_from(len2) {
+        zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong
+    } else {
+        // for negative len, return invalid adler32 as a clue for debugging
+        0xffffffff
+    }
 }
 
 /// Inflates `source` into `dest`, and writes the final inflated size into `destLen`.
