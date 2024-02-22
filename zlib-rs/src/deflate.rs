@@ -363,7 +363,7 @@ pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     }
 }
 
-fn reset(stream: &mut DeflateStream) -> ReturnCode {
+pub fn reset(stream: &mut DeflateStream) -> ReturnCode {
     let ret = reset_keep(stream);
 
     if ret == ReturnCode::Ok {
