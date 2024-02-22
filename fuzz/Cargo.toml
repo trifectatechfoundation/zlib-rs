@@ -63,7 +63,7 @@ test = false
 doc = false
 
 [[bin]]
-name = "crc32"
-path = "fuzz_targets/crc32.rs"
+name = "checksum"
+path = "fuzz_targets/checksum.rs"
 test = false
 doc = false
