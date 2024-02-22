@@ -406,3 +406,22 @@ pub unsafe extern "C" fn deflateInit2_(
         zlib_rs::deflate::init(&mut *strm, config) as _
     }
 }
+
+pub unsafe extern "C" fn deflateTune(
+    strm: z_streamp,
+    good_length: c_int,
+    max_lazy: c_int,
+    nice_length: c_int,
+    max_chain: c_int,
+) -> c_int {
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::tune(
+            stream,
+            good_length as usize,
+            max_lazy as usize,
+            nice_length as usize,
+            max_chain as usize,
+        ) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
