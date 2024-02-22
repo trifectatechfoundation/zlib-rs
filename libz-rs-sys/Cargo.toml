@@ -7,7 +7,7 @@ edition = "2021"
 crate-type=["rlib", "cdylib"]
 
 [dependencies]
-zlib-rs.workspace = true
+zlib-rs = { workspace = true, features = [ "__internal-test" ] }
 
 
 [dev-dependencies]
