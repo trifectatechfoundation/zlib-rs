@@ -300,6 +300,22 @@ pub unsafe extern "C" fn compress(
     source: *const Bytef,
     sourceLen: c_ulong,
 ) -> c_int {
+    compress2(
+        dest,
+        destLen,
+        source,
+        sourceLen,
+        DeflateConfig::default().level,
+    )
+}
+
+pub unsafe extern "C" fn compress2(
+    dest: *mut Bytef,
+    destLen: *mut c_ulong,
+    source: *const Bytef,
+    sourceLen: c_ulong,
+    level: c_int,
+) -> c_int {
     let data = dest;
     let len = std::ptr::read(destLen) as usize;
     let output = std::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
@@ -308,11 +324,16 @@ pub unsafe extern "C" fn compress(
     let len = sourceLen as usize;
     let input = std::slice::from_raw_parts(data, len);
 
-    let (output, err) = zlib_rs::deflate::compress(output, input, DeflateConfig::default());
+    let config = DeflateConfig::new(level);
+    let (output, err) = zlib_rs::deflate::compress(output, input, config);
 
     std::ptr::write(destLen, output.len() as _);
 
     err as c_int
+}
+
+pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
+    zlib_rs::deflate::compress_bound(sourceLen as usize) as c_ulong
 }
 
 pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {

@@ -8,10 +8,7 @@ use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
     Z_NO_FLUSH,
 };
-use zlib_rs::{
-    deflate::DeflateConfig,
-    Flush, ReturnCode,
-};
+use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -112,7 +109,7 @@ pub mod quick {
     }
 
     #[rustfmt::skip]
-    const BLOCK_OPEN_INPUT: [u8; 495] = [ 
+    const BLOCK_OPEN_INPUT: [u8; 495] = [
         0x1d, 0x1d, 0x00, 0x00, 0x00, 0x4a, 0x4a, 0x4a, 0xaf, 0xaf, 0xaf, 0xaf, 0x4a, 0x4a, 0x4a, 0x4a,
         0x3f, 0x3e, 0xaf, 0xff, 0xff, 0xff, 0x11, 0xff, 0xff, 0xff, 0xff, 0xdf, 0x00, 0x00, 0x00, 0x01,
         0x3f, 0x7d, 0x00, 0x50, 0x00, 0x00, 0xc8, 0x01, 0x2b, 0x60, 0xc8, 0x00, 0x24, 0x06, 0xff, 0xff,
@@ -601,4 +598,18 @@ fn deflate_bound_gzip_header_help(
 #[test]
 fn deflate_bound_gzip_header() {
     ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
+}
+
+#[test]
+fn test_compress_bound() {
+    ::quickcheck::quickcheck(test as fn(_) -> _);
+
+    fn test(source_len: usize) -> bool {
+        let rs_bound = libz_rs_sys::compressBound(source_len as _);
+        let ng_bound = unsafe { libz_ng_sys::compressBound(source_len) };
+
+        assert_eq!(rs_bound, ng_bound as _);
+
+        rs_bound == ng_bound as _
+    }
 }

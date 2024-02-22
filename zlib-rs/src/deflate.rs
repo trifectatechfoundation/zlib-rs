@@ -2348,6 +2348,24 @@ pub fn compress<'a>(
     (output_slice, ReturnCode::Ok)
 }
 
+pub fn compress_bound(source_len: usize) -> usize {
+    compress_bound_help(source_len, ZLIB_WRAPLEN)
+}
+
+fn compress_bound_help(source_len: usize, wrap_len: usize) -> usize {
+    source_len // The source size itself */
+        // Always at least one byte for any input
+        .wrapping_add(if source_len == 0 { 1 } else { 0 })
+        // One extra byte for lengths less than 9
+        .wrapping_add(if source_len < 9 { 1 } else { 0 })
+        // Source encoding overhead, padded to next full byte
+        .wrapping_add(deflate_quick_overhead(source_len))
+        // Deflate block overhead bytes
+        .wrapping_add(DEFLATE_BLOCK_OVERHEAD)
+        // none, zlib or gzip wrapper
+        .wrapping_add(wrap_len)
+}
+
 ///  heap used to build the Huffman trees
 
 /// The sons of heap[n] are heap[2*n] and heap[2*n+1]. heap[0] is not used.
@@ -2500,6 +2518,24 @@ pub fn set_header<'a>(
     }
 }
 
+// zlib format overhead
+const ZLIB_WRAPLEN: usize = 6;
+// gzip format overhead
+const GZIP_WRAPLEN: usize = 18;
+
+const DEFLATE_HEADER_BITS: usize = 3;
+const DEFLATE_EOBS_BITS: usize = 15;
+const DEFLATE_PAD_BITS: usize = 6;
+const DEFLATE_BLOCK_OVERHEAD: usize =
+    (DEFLATE_HEADER_BITS + DEFLATE_EOBS_BITS + DEFLATE_PAD_BITS) >> 3;
+
+const DEFLATE_QUICK_LIT_MAX_BITS: usize = 9;
+const fn deflate_quick_overhead(x: usize) -> usize {
+    (x.wrapping_mul(DEFLATE_QUICK_LIT_MAX_BITS - 8)
+        .wrapping_add(7))
+        >> 3
+}
+
 /// For the default windowBits of 15 and memLevel of 8, this function returns
 /// a close to exact, as well as small, upper bound on the compressed size.
 /// They are coded as constants here for a reason--if the #define's are
@@ -2526,11 +2562,6 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
         // return conservative bound plus zlib wrapper
         return comp_len.wrapping_add(6);
     };
-
-    // zlib format overhead
-    const ZLIB_WRAPLEN: usize = 6;
-    // gzip format overhead
-    const GZIP_WRAPLEN: usize = 18;
 
     /* compute wrapper length */
     let wrap_len = match stream.state.wrap {
@@ -2597,41 +2628,18 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
     if stream.state.w_bits != MAX_WBITS as usize || HASH_BITS < 15 {
         if stream.state.level == 0 {
             /* upper bound for stored blocks with length 127 (memLevel == 1) ~4% overhead plus a small constant */
-            return source_len
+            source_len
                 .wrapping_add(source_len >> 5)
                 .wrapping_add(source_len >> 7)
                 .wrapping_add(source_len >> 11)
                 .wrapping_add(7)
-                .wrapping_add(wrap_len);
+                .wrapping_add(wrap_len)
         } else {
-            return comp_len.wrapping_add(wrap_len);
+            comp_len.wrapping_add(wrap_len)
         }
+    } else {
+        compress_bound_help(source_len, wrap_len)
     }
-
-    const DEFLATE_HEADER_BITS: usize = 3;
-    const DEFLATE_EOBS_BITS: usize = 15;
-    const DEFLATE_PAD_BITS: usize = 6;
-    const DEFLATE_BLOCK_OVERHEAD: usize =
-        (DEFLATE_HEADER_BITS + DEFLATE_EOBS_BITS + DEFLATE_PAD_BITS) >> 3;
-
-    const DEFLATE_QUICK_LIT_MAX_BITS: usize = 9;
-    const fn deflate_quick_overhead(x: usize) -> usize {
-        (x.wrapping_mul(DEFLATE_QUICK_LIT_MAX_BITS - 8)
-            .wrapping_add(7))
-            >> 3
-    }
-
-    source_len // The source size itself */
-        // Always at least one byte for any input
-        .wrapping_add(if source_len == 0 { 1 } else { 0 })
-        // One extra byte for lengths less than 9
-        .wrapping_add(if source_len < 9 { 1 } else { 0 })
-        // Source encoding overhead, padded to next full byte
-        .wrapping_add(deflate_quick_overhead(source_len))
-        // Deflate block overhead bytes
-        .wrapping_add(DEFLATE_BLOCK_OVERHEAD)
-        // none, zlib or gzip wrapper
-        .wrapping_add(wrap_len)
 }
 
 #[cfg(test)]
