@@ -19,7 +19,7 @@ pub use zlib_rs::c_api::*;
 
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
-    zlib_rs::crc32(buf, crc as u32) as c_ulong
+    zlib_rs::crc32(crc as u32, buf) as c_ulong
 }
 
 pub unsafe extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {

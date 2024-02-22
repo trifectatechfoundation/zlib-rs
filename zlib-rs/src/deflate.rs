@@ -1904,7 +1904,7 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
         stream.state.pending.extend(&bytes[..copy]);
 
-        stream.adler = crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+        stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as u64;
 
         stream.state.gzindex += copy;
         flush_pending(stream);
@@ -1921,7 +1921,7 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
     stream.state.pending.extend(bytes);
 
-    stream.adler = crc32(&stream.state.pending.pending()[beg..], stream.adler as u32) as u64;
+    stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as u64;
     stream.state.gzindex = 0;
 
     ControlFlow::Continue(())
@@ -2047,7 +2047,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                 }
 
                 if gzhead.hcrc > 0 {
-                    stream.adler = crc32(stream.state.pending.pending(), stream.adler as u32) as u64
+                    stream.adler = crc32(stream.adler as u32, stream.state.pending.pending()) as u64
                 }
 
                 stream.state.gzindex = 0;

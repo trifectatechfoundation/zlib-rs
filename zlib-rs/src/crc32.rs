@@ -11,11 +11,11 @@ mod pclmulqdq;
 
 pub use combine::crc32_combine;
 
-pub fn crc32(buf: &[u8], start: u32) -> u32 {
+pub fn crc32(start: u32, buf: &[u8]) -> u32 {
     /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
      * these short lengths might also prove to be effective */
     if buf.len() < 64 {
-        return crc32_braid(buf, start);
+        return crc32_braid(start, buf);
     }
 
     let mut crc_state = Crc32Fold::new_with_initial(start);
@@ -23,8 +23,8 @@ pub fn crc32(buf: &[u8], start: u32) -> u32 {
     crc_state.finish()
 }
 
-pub fn crc32_braid(buf: &[u8], start: u32) -> u32 {
-    braid::crc32_braid::<5>(buf, start)
+pub fn crc32_braid(start: u32, buf: &[u8]) -> u32 {
+    braid::crc32_braid::<5>(start, buf)
 }
 
 #[allow(unused)]
@@ -33,7 +33,7 @@ pub fn crc32_copy(dst: &mut ReadBuf, buf: &[u8]) -> u32 {
      * these short lengths might also prove to be effective */
     if buf.len() < 64 {
         dst.extend(buf);
-        return braid::crc32_braid::<5>(buf, CRC32_INITIAL_VALUE);
+        return braid::crc32_braid::<5>(CRC32_INITIAL_VALUE, buf);
     }
 
     let mut crc_state = Crc32Fold::new();
@@ -97,7 +97,7 @@ impl Crc32Fold {
         }
 
         // in this case the start value is ignored
-        self.value = braid::crc32_braid::<5>(src, self.value);
+        self.value = braid::crc32_braid::<5>(self.value, src);
     }
 
     pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
@@ -148,7 +148,7 @@ mod test {
         // input large enough to trigger the SIMD
         let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
         h.update(&INPUT);
-        assert_eq!(crc32(&INPUT, CRC32_INITIAL_VALUE), h.finalize());
+        assert_eq!(crc32(CRC32_INITIAL_VALUE, &INPUT), h.finalize());
     }
 
     #[test]
@@ -159,7 +159,7 @@ mod test {
                 let mut h = crc32fast::Hasher::new_with_initial(start);
                 h.update(&INPUT[i..]);
                 assert_eq!(
-                    crc32(&INPUT[i..], start),
+                    crc32(start, &INPUT[i..]),
                     h.finalize(),
                     "offset = {i}, start = {start}"
                 );
@@ -185,7 +185,7 @@ mod test {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v);
 
-            let a = crc32(&v, start) ;
+            let a = crc32(start, &v) ;
             let b = h.finalize();
 
             a == b
@@ -229,11 +229,11 @@ mod test {
 
         let mut in_chunks = START;
         for chunk in INPUT {
-            in_chunks = crc32(chunk, in_chunks);
+            in_chunks = crc32(in_chunks, chunk);
         }
 
         let flattened: Vec<_> = INPUT.iter().copied().flatten().copied().collect();
-        let flat = crc32(&flattened, START);
+        let flat = crc32(START, &flattened);
 
         assert_eq!(in_chunks, flat);
     }
@@ -259,7 +259,7 @@ mod test {
 
         let flat = &flat[i..];
 
-        assert_eq!(crc32_braid::<5>(flat, START), crc32(flat, START));
-        assert_eq!(crc32(flat, 2380683574), 1175758345);
+        assert_eq!(crc32_braid::<5>(START, flat), crc32(START, flat));
+        assert_eq!(crc32(2380683574, flat), 1175758345);
     }
 }

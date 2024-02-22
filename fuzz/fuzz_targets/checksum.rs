@@ -15,7 +15,7 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
             h.finalize()
         };
 
-        let actual = zlib_rs::crc32::crc32(input.as_slice(), start);
+        let actual = zlib_rs::crc32::crc32(start, input.as_slice());
 
         assert_eq!(expected, actual);
     }

@@ -79,7 +79,7 @@ fn crc32_words_inner(words: &[usize], start: u32, per_word_crcs: &[u32]) -> u32 
 }
 
 #[allow(unused)]
-pub fn crc32_braid<const N: usize>(data: &[u8], start: u32) -> u32 {
+pub fn crc32_braid<const N: usize>(start: u32, data: &[u8]) -> u32 {
     // Get a word-aligned sub-slice of the input data
     let (prefix, words, suffix) = unsafe { data.align_to::<usize>() };
     let crc = !start;
@@ -157,19 +157,19 @@ mod test {
         fn braid_4_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);
-            crc32_braid::<4>(&v[..], start) == h.finalize()
+            crc32_braid::<4>(start, &v[..]) == h.finalize()
         }
 
         fn braid_5_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);
-            crc32_braid::<5>(&v[..], start) == h.finalize()
+            crc32_braid::<5>(start, &v[..]) == h.finalize()
         }
 
         fn braid_6_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);
-            crc32_braid::<6>(&v[..], start) == h.finalize()
+            crc32_braid::<6>(start, &v[..]) == h.finalize()
         }
     }
 }
