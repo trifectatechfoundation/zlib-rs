@@ -263,6 +263,10 @@ pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp)
     }
 }
 
+pub unsafe extern "C" fn deflateBound(strm: *mut z_stream, sourceLen: c_ulong) -> c_ulong {
+    zlib_rs::deflate::bound(DeflateStream::from_stream_mut(strm), sourceLen as usize) as c_ulong
+}
+
 pub unsafe extern "C" fn compress(
     dest: *mut Bytef,
     destLen: *mut c_ulong,

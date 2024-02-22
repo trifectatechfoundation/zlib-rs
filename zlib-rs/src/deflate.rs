@@ -77,6 +77,8 @@ impl<'a> DeflateStream<'a> {
 
 /// number of elements in hash table
 pub(crate) const HASH_SIZE: usize = 65536;
+/// log2(HASH_SIZE)
+const HASH_BITS: usize = 16;
 
 /// Maximum value for memLevel in deflateInit2
 const MAX_MEM_LEVEL: i32 = 9;
@@ -109,6 +111,31 @@ pub struct DeflateConfig {
     pub window_bits: i32,
     pub mem_level: i32,
     pub strategy: Strategy,
+}
+
+#[cfg(any(test, feature = "__internal-test"))]
+impl quickcheck::Arbitrary for DeflateConfig {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let mem_levels: Vec<_> = (0..=9).collect();
+        let levels: Vec<_> = (0..=9).collect();
+        let window_bits: Vec<_> = (-15..=31).collect();
+
+        Self {
+            level: *g.choose(&levels).unwrap(),
+            method: Method::Deflated,
+            window_bits: *g.choose(&window_bits).unwrap(),
+            mem_level: *g.choose(&mem_levels).unwrap(),
+            strategy: *g
+                .choose(&[
+                    Strategy::Default,
+                    Strategy::Filtered,
+                    Strategy::HuffmanOnly,
+                    Strategy::Rle,
+                    Strategy::Fixed,
+                ])
+                .unwrap(),
+        }
+    }
 }
 
 impl DeflateConfig {
@@ -2471,6 +2498,140 @@ pub fn set_header<'a>(
         stream.state.gzhead = head;
         ReturnCode::Ok as _
     }
+}
+
+/// For the default windowBits of 15 and memLevel of 8, this function returns
+/// a close to exact, as well as small, upper bound on the compressed size.
+/// They are coded as constants here for a reason--if the #define's are
+/// changed, then this function needs to be changed as well.  The return
+/// value for 15 and 8 only works for those exact settings.
+///
+/// For any setting other than those defaults for windowBits and memLevel,
+/// the value returned is a conservative worst case for the maximum expansion
+/// resulting from using fixed blocks instead of stored blocks, which deflate
+/// can emit on compressed data for some combinations of the parameters.
+///
+/// This function could be more sophisticated to provide closer upper bounds for
+/// every combination of windowBits and memLevel.  But even the conservative
+/// upper bound of about 14% expansion does not seem onerous for output buffer
+/// allocation.
+pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
+    // conservative upper bound for compressed data
+    let comp_len = source_len
+        .wrapping_add((source_len.wrapping_add(7)) >> 3)
+        .wrapping_add((source_len.wrapping_add(63)) >> 6)
+        .wrapping_add(5);
+
+    let Some(stream) = stream else {
+        // return conservative bound plus zlib wrapper
+        return comp_len.wrapping_add(6);
+    };
+
+    // zlib format overhead
+    const ZLIB_WRAPLEN: usize = 6;
+    // gzip format overhead
+    const GZIP_WRAPLEN: usize = 18;
+
+    /* compute wrapper length */
+    let wrap_len = match stream.state.wrap {
+        0 => {
+            // raw deflate
+            0
+        }
+        1 => {
+            // zlib wrapper
+            if stream.state.strstart != 0 {
+                ZLIB_WRAPLEN + 4
+            } else {
+                ZLIB_WRAPLEN
+            }
+        }
+        2 => {
+            // gzip wrapper
+            let mut gz_wrap_len = GZIP_WRAPLEN;
+
+            if let Some(header) = &stream.state.gzhead {
+                if !header.extra.is_null() {
+                    gz_wrap_len += 2 + header.extra_len as usize;
+                }
+
+                let mut c_string = header.name;
+                if !c_string.is_null() {
+                    loop {
+                        gz_wrap_len += 1;
+                        unsafe {
+                            if *c_string == 0 {
+                                break;
+                            }
+                            c_string = c_string.add(1);
+                        }
+                    }
+                }
+
+                let mut c_string = header.comment;
+                if !c_string.is_null() {
+                    loop {
+                        gz_wrap_len += 1;
+                        unsafe {
+                            if *c_string == 0 {
+                                break;
+                            }
+                            c_string = c_string.add(1);
+                        }
+                    }
+                }
+
+                if header.hcrc != 0 {
+                    gz_wrap_len += 2;
+                }
+            }
+
+            gz_wrap_len
+        }
+        _ => {
+            // default
+            ZLIB_WRAPLEN
+        }
+    };
+
+    if stream.state.w_bits != MAX_WBITS as usize || HASH_BITS < 15 {
+        if stream.state.level == 0 {
+            /* upper bound for stored blocks with length 127 (memLevel == 1) ~4% overhead plus a small constant */
+            return source_len
+                .wrapping_add(source_len >> 5)
+                .wrapping_add(source_len >> 7)
+                .wrapping_add(source_len >> 11)
+                .wrapping_add(7)
+                .wrapping_add(wrap_len);
+        } else {
+            return comp_len.wrapping_add(wrap_len);
+        }
+    }
+
+    const DEFLATE_HEADER_BITS: usize = 3;
+    const DEFLATE_EOBS_BITS: usize = 15;
+    const DEFLATE_PAD_BITS: usize = 6;
+    const DEFLATE_BLOCK_OVERHEAD: usize =
+        (DEFLATE_HEADER_BITS + DEFLATE_EOBS_BITS + DEFLATE_PAD_BITS) >> 3;
+
+    const DEFLATE_QUICK_LIT_MAX_BITS: usize = 9;
+    const fn deflate_quick_overhead(x: usize) -> usize {
+        (x.wrapping_mul(DEFLATE_QUICK_LIT_MAX_BITS - 8)
+            .wrapping_add(7))
+            >> 3
+    }
+
+    source_len // The source size itself */
+        // Always at least one byte for any input
+        .wrapping_add(if source_len == 0 { 1 } else { 0 })
+        // One extra byte for lengths less than 9
+        .wrapping_add(if source_len < 9 { 1 } else { 0 })
+        // Source encoding overhead, padded to next full byte
+        .wrapping_add(deflate_quick_overhead(source_len))
+        // Deflate block overhead bytes
+        .wrapping_add(DEFLATE_BLOCK_OVERHEAD)
+        // none, zlib or gzip wrapper
+        .wrapping_add(wrap_len)
 }
 
 #[cfg(test)]
