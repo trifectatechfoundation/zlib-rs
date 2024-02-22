@@ -533,6 +533,21 @@ fn lm_set_level(state: &mut State, level: i8) {
     state.level = level;
 }
 
+pub fn tune(
+    stream: &mut DeflateStream,
+    good_length: usize,
+    max_lazy: usize,
+    nice_length: usize,
+    max_chain: usize,
+) -> ReturnCode {
+    stream.state.good_match = good_length;
+    stream.state.max_lazy_match = max_lazy;
+    stream.state.nice_match = nice_length;
+    stream.state.max_chain_length = max_chain;
+
+    ReturnCode::Ok
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Value {
