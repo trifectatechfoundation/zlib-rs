@@ -343,6 +343,13 @@ pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     }
 }
 
+pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::reset(stream) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
