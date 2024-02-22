@@ -7,6 +7,7 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use libz_rs_sys::*;
 use zlib_rs::deflate::compress_slice;
 use zlib_rs::inflate::{uncompress_slice, INFLATE_STATE_SIZE};
+use zlib_rs::inflate::{Mode, State};
 use zlib_rs::{Flush, MAX_WBITS};
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
@@ -323,9 +324,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
 
         if let Some(err) = err {
-            if err != 9 {
-                assert_eq!(ret, err)
-            }
+            assert_eq!(ret, err)
         }
 
         if !matches!(ret, Z_OK | Z_BUF_ERROR | Z_NEED_DICT) {
@@ -333,7 +332,23 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         }
 
         if matches!(ret, Z_NEED_DICT) {
-            todo!("need dict");
+            let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 1) };
+            println!("{:?}", ret);
+            assert_eq!(ret, Z_DATA_ERROR);
+
+            mem_limit(&mut stream, 1);
+            let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 0) };
+            assert_eq!(ret, Z_MEM_ERROR);
+            mem_limit(&mut stream, 0);
+
+            unsafe {
+                (*(stream.state as *mut State)).mode = Mode::Dict;
+            }
+            let ret = unsafe { inflateSetDictionary(&mut stream, out.as_ptr(), 0) };
+            assert_eq!(ret, Z_OK);
+
+            let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+            assert_eq!(ret, Z_BUF_ERROR);
         }
 
         let mut copy = z_stream::default();
@@ -586,7 +601,6 @@ fn good_zlib_header_check() {
 }
 
 #[test]
-#[ignore = "gzip"]
 fn need_dictionary() {
     inf(
         &[0x08, 0xb8, 0x0, 0x0, 0x0, 0x1],
@@ -1330,20 +1344,26 @@ fn gzip_chunked(chunk_size: usize) {
     let err = unsafe { libz_rs_sys::deflateSetHeader(stream, &mut header) };
     assert_eq!(err, 0);
 
-    stream.next_in = input.as_ptr() as *mut _;
-    stream.avail_in = input.len() as _;
-
     let mut output_rs = [0u8; 512];
     stream.next_out = output_rs.as_mut_ptr();
     stream.avail_out = output_rs.len() as _;
 
+    for chunk in input.chunks(chunk_size) {
+        stream.next_in = chunk.as_ptr() as *mut u8;
+        stream.avail_in = chunk.len() as _;
+
+        let err = unsafe { deflate(stream, Flush::NoFlush as _) };
+
+        assert_eq!(err, ReturnCode::Ok as i32, "{:?}", stream.msg);
+    }
+
     let err = unsafe { libz_rs_sys::deflate(stream, Flush::Finish as _) };
-    assert_eq!(err, ReturnCode::StreamEnd as i32);
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
     let output_rs = &mut output_rs[..stream.total_out as usize];
 
     let err = unsafe { libz_rs_sys::deflateEnd(stream) };
-    assert_eq!(err, 0);
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
     {
         #[allow(unused_imports)] // to switch to libz_ng_sys easily
