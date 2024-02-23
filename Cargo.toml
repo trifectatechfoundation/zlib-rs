@@ -12,12 +12,15 @@ resolver = "2"
 
 # Global settings for our crates
 [workspace.package]
+version = "0.0.1"
 edition = "2021"
-repository = "https://github.com/memory-safety/zlib-rs"
+license = "Zlib"
+repository = "https://github.com/memorysafety/zlib-rs"
+homepage = "https://github.com/memorysafety/zlib-rs"
 readme = "./README.md"
 description = "A memory-safe zlib implementation written in rust"
 publish = true
-# rust-version = "1.67" # MSRV
+rust-version = "1.70" # MSRV
 
 [profile.release]
 debug = true
