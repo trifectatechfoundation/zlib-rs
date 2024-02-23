@@ -32,6 +32,6 @@ arbitrary = { version = "1.0" }
 
 libc = "0.2.153" # TODO remove
 
-zlib-rs = { path = "./zlib-rs" }
+zlib-rs = { version = "0.0.1", path = "./zlib-rs" }
 load-dynamic-libz-ng = { path = "./load-dynamic-libz-ng" }
 

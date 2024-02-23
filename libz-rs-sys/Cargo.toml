@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [lib]
@@ -8,7 +8,6 @@ crate-type=["rlib", "cdylib"]
 
 [dependencies]
 zlib-rs = { workspace = true, features = [ "__internal-test" ] }
-
 
 [dev-dependencies]
 libz-ng-sys.workspace = true
