@@ -11,6 +11,7 @@ use libz_rs_sys::{
 use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,
     deflate::{DeflateConfig, Strategy},
+    inflate::InflateConfig,
     Flush, ReturnCode,
 };
 
@@ -890,4 +891,172 @@ fn test_dict_deflate() {
 
     assert_eq!(output_rs.0, output_ng.0 as u64);
     assert_eq!(output_rs.1, output_ng.1);
+}
+
+#[test]
+fn small_window() {
+    let deflate_config = DeflateConfig {
+        level: Z_BEST_COMPRESSION,
+        method: zlib_rs::deflate::Method::Deflated,
+        window_bits: -9,
+        mem_level: 8,
+        strategy: Strategy::Default,
+    };
+
+    let inflate_config = InflateConfig {
+        window_bits: deflate_config.window_bits,
+    };
+
+    let plain: [u8; 128] = std::array::from_fn(|i| i as u8);
+    let dictionary1 = vec![b'a'; (1 << 9) - plain.len() / 2];
+
+    let output_rs = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            deflate_config.level,
+            deflate_config.method as i32,
+            deflate_config.window_bits,
+            deflate_config.mem_level,
+            deflate_config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_rs_sys::deflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let err = libz_rs_sys::deflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        strm.next_in = plain.as_ptr() as *mut u8;
+        strm.avail_in = plain.len() as _;
+
+        let mut compr = [0; 32];
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_out = compr.len() as _;
+
+        let err = deflate(strm, Flush::Finish as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = deflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        // now inflate it again
+        let mut strm = MaybeUninit::zeroed();
+
+        let err = libz_rs_sys::inflateInit2_(
+            strm.as_mut_ptr(),
+            inflate_config.window_bits,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_rs_sys::inflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let err = libz_rs_sys::inflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        strm.next_in = compr.as_mut_ptr();
+        strm.avail_in = compr.len() as _;
+
+        let mut plain_again = vec![0; plain.len()];
+        strm.next_out = plain_again.as_mut_ptr();
+        strm.avail_out = plain_again.len() as _;
+
+        let err = libz_rs_sys::inflate(strm, Flush::NoFlush as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = libz_rs_sys::inflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        compr
+    };
+
+    let output_ng = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_ng_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            deflate_config.level,
+            deflate_config.method as i32,
+            deflate_config.window_bits,
+            deflate_config.mem_level,
+            deflate_config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_ng_sys::deflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let err = libz_ng_sys::deflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        strm.next_in = plain.as_ptr() as *mut u8;
+        strm.avail_in = plain.len() as _;
+
+        let mut compr = [0; 32];
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_out = compr.len() as _;
+
+        let err = libz_ng_sys::deflate(strm, Flush::Finish as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = libz_ng_sys::deflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        // now inflate it again
+        let mut strm = MaybeUninit::zeroed();
+
+        let err = libz_ng_sys::inflateInit2_(
+            strm.as_mut_ptr(),
+            inflate_config.window_bits,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_ng_sys::inflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let err = libz_ng_sys::inflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        strm.next_in = compr.as_mut_ptr();
+        strm.avail_in = compr.len() as _;
+
+        let mut plain_again = vec![0; plain.len()];
+        strm.next_out = plain_again.as_mut_ptr();
+        strm.avail_out = plain_again.len() as _;
+
+        let err = libz_ng_sys::inflate(strm, Flush::NoFlush as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = libz_ng_sys::inflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        compr
+    };
+
+    assert_eq!(output_rs, output_ng);
 }
