@@ -173,7 +173,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     } = config;
 
     /* Todo: ignore strm->next_in if we use it as window */
-    let window_padding = 0;
+    let window_padding = Window::padding();
 
     stream.msg = std::ptr::null_mut();
 
@@ -518,6 +518,160 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
             break;
         }
     }
+
+    ReturnCode::Ok
+}
+
+pub fn copy<'a>(
+    dest: &mut MaybeUninit<DeflateStream<'a>>,
+    source: &mut DeflateStream<'a>,
+) -> ReturnCode {
+    // Safety: source and dest are both mutable references, so guaranteed not to overlap.
+    // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
+    unsafe {
+        core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
+    }
+
+    // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
+    let alloc_layout = |layout: std::alloc::Layout| unsafe {
+        (source.zalloc)(source.opaque, layout.size() as u32, 1)
+    };
+
+    // allocated here to have the same order as zlib
+    let state_ptr: *mut State = alloc_layout(std::alloc::Layout::new::<State>()).cast();
+
+    if state_ptr.is_null() {
+        return ReturnCode::MemError;
+    }
+
+    let source_state = &source.state;
+
+    let window_padding = Window::padding();
+    let window_layout = std::alloc::Layout::array::<u8>(2 * (source_state.w_size + window_padding));
+    let window_ptr = alloc_layout(window_layout.unwrap()) as *mut MaybeUninit<u8>;
+
+    let prev_layout = std::alloc::Layout::array::<u16>(source_state.w_size);
+    let prev_ptr = alloc_layout(prev_layout.unwrap()) as *mut u16;
+
+    let head_layout = std::alloc::Layout::array::<u16>(HASH_SIZE);
+    let head_ptr = alloc_layout(head_layout.unwrap()) as *mut [u16; HASH_SIZE];
+
+    let pending_layout = std::alloc::Layout::array::<u8>(4 * source_state.lit_bufsize);
+    let pending_ptr = alloc_layout(pending_layout.unwrap()) as *mut u8;
+
+    // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
+    let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * source_state.lit_bufsize);
+    let sym_buf = alloc_layout(sym_buf_layout.unwrap()) as *mut u8;
+
+    if window_ptr.is_null()
+        || prev_ptr.is_null()
+        || head_ptr.is_null()
+        || pending_ptr.is_null()
+        || sym_buf.is_null()
+    {
+        let opaque = source.opaque;
+        let free = source.zfree;
+
+        // Safety: this access is in-bounds
+        let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+        unsafe { std::ptr::write(field_ptr as *mut *mut State, std::ptr::null_mut()) };
+
+        // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
+        unsafe {
+            free(opaque, sym_buf.cast());
+            free(opaque, pending_ptr.cast());
+            free(opaque, head_ptr.cast());
+            free(opaque, prev_ptr.cast());
+            free(opaque, window_ptr.cast());
+
+            free(opaque, state_ptr.cast());
+        }
+
+        return ReturnCode::MemError;
+    }
+
+    let State {
+        w_size,
+        lit_bufsize,
+        ..
+    } = **source_state;
+
+    let window = unsafe {
+        Window::from_raw_parts(
+            window_ptr,
+            source_state.w_size + window_padding,
+            source_state.w_bits as i32,
+        )
+    };
+
+    unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
+    let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
+
+    let head = unsafe { &mut *head_ptr };
+
+    let pending = unsafe { Pending::from_raw_parts(pending_ptr, 4 * lit_bufsize) };
+
+    let sym_buf = unsafe { ReadBuf::from_raw_parts(sym_buf, 3 * lit_bufsize) };
+
+    let dest_state = State {
+        status: source_state.status,
+        pending,
+        last_flush: source_state.last_flush,
+        bi_buf: source_state.bi_buf,
+        bi_valid: source_state.bi_valid,
+        wrap: source_state.wrap,
+        strategy: source_state.strategy,
+        level: source_state.level,
+        good_match: source_state.good_match,
+        nice_match: source_state.nice_match,
+        l_desc: source_state.l_desc.clone(),
+        d_desc: source_state.d_desc.clone(),
+        bl_desc: source_state.bl_desc.clone(),
+        bl_count: source_state.bl_count,
+        match_length: source_state.match_length,
+        prev_match: source_state.prev_match,
+        match_available: source_state.match_available,
+        strstart: source_state.strstart,
+        match_start: source_state.match_start,
+        prev_length: source_state.prev_length,
+        max_chain_length: source_state.max_chain_length,
+        max_lazy_match: source_state.max_lazy_match,
+        block_start: source_state.block_start,
+        block_open: source_state.block_open,
+        window,
+        sym_buf,
+        lit_bufsize: source_state.lit_bufsize,
+        window_size: source_state.window_size,
+        matches: source_state.matches,
+        opt_len: source_state.opt_len,
+        static_len: source_state.static_len,
+        insert: source_state.insert,
+        w_size: source_state.w_size,
+        w_bits: source_state.w_bits,
+        w_mask: source_state.w_mask,
+        lookahead: source_state.lookahead,
+        prev,
+        head,
+        ins_h: source_state.ins_h,
+        heap: source_state.heap.clone(),
+        update_hash: source_state.update_hash,
+        insert_string: source_state.insert_string,
+        quick_insert_string: source_state.quick_insert_string,
+        crc_fold: source_state.crc_fold,
+        gzhead: None,
+        gzindex: source_state.gzindex,
+    };
+
+    // write the cloned state into state_ptr
+    unsafe { state_ptr.write(dest_state) };
+
+    // insert the state_ptr into `dest`
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+    unsafe { std::ptr::write(field_ptr as *mut *mut State, state_ptr) };
+
+    // update the gzhead field (it contains a mutable reference so we need to be careful
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
+    unsafe { std::ptr::copy(&source_state.gzhead, field_ptr, 1) };
 
     ReturnCode::Ok
 }
@@ -1219,6 +1373,7 @@ impl<'a> State<'a> {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Init = 1,
@@ -1518,6 +1673,7 @@ impl StaticTreeDesc {
     };
 }
 
+#[derive(Clone)]
 struct TreeDesc<const N: usize> {
     dyn_tree: [Value; N],
     max_code: usize,
@@ -2553,6 +2709,7 @@ fn compress_bound_help(source_len: usize, wrap_len: usize) -> usize {
 
 /// The sons of heap[n] are heap[2*n] and heap[2*n+1]. heap[0] is not used.
 /// The same heap array is used to build all trees.
+#[derive(Clone)]
 struct Heap {
     heap: [u32; 2 * L_CODES + 1],
 

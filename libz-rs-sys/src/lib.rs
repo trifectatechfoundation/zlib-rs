@@ -404,6 +404,19 @@ pub unsafe extern "C" fn deflatePending(
     }
 }
 
+pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
+    let dest = if dest.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        &mut *(dest as *mut MaybeUninit<_>)
+    };
+
+    match DeflateStream::from_stream_mut(source) {
+        Some(source) => zlib_rs::deflate::copy(dest, source) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
