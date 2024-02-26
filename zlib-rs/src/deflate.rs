@@ -428,6 +428,8 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     // avoid computing Adler-32 in read_buf
     state.wrap = 0;
 
+    dbg!(dictionary.len(), state.window.capacity());
+
     // if dictionary would fill window, just replace the history
     if dictionary.len() >= state.window.capacity() {
         if wrap == 0 {
