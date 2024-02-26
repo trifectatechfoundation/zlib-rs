@@ -894,6 +894,127 @@ fn test_dict_deflate() {
 }
 
 #[test]
+fn test_deflate_prime() {
+    unsafe fn deflate_prime_32(stream: &mut libz_rs_sys::z_stream, value: i32) -> i32 {
+        // zlib's deflatePrime() takes at most 16 bits
+        let err = libz_rs_sys::deflatePrime(stream, 16, value & 0xffff);
+        if err != libz_rs_sys::Z_OK {
+            return err;
+        }
+
+        libz_rs_sys::deflatePrime(stream, 16, value >> 16)
+    }
+
+    let config = DeflateConfig {
+        level: -1,
+        method: zlib_rs::deflate::Method::Deflated,
+        window_bits: -15, // deflate as raw bytes
+        mem_level: 8,
+        strategy: Strategy::Default,
+    };
+
+    unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let strm = strm.assume_init_mut();
+
+        /* Gzip magic number */
+        use libz_rs_sys::deflatePrime;
+        let mut err;
+        err = deflatePrime(strm, 16, 0x8b1f);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        /* Gzip compression method (deflate) */
+        err = deflatePrime(strm, 8, 0x08);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        /* Gzip flags (one byte, using two odd bit calls) */
+        err = deflatePrime(strm, 3, 0x0);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        err = deflatePrime(strm, 5, 0x0);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        /* Gzip modified time */
+        err = deflate_prime_32(strm, 0);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        /* Gzip extra flags */
+        err = deflatePrime(strm, 8, 0x0);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        /* Gzip operating system */
+        err = deflatePrime(strm, 8, 255);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        const HELLO: &str = "hello, hello!\0";
+
+        strm.next_in = HELLO.as_ptr() as *mut u8;
+        strm.avail_in = HELLO.len() as _;
+
+        let mut compr = [0xAA; 64];
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_out = compr.len() as _;
+
+        err = libz_rs_sys::deflate(strm, Flush::Finish as i32);
+        assert_eq!(err, ReturnCode::StreamEnd as i32);
+
+        dbg!(strm.total_out);
+
+        /* Gzip uncompressed data crc32 */
+        let crc = libz_rs_sys::crc32(0, HELLO.as_ptr(), HELLO.len() as _);
+        dbg!(crc.to_le_bytes());
+        err = deflate_prime_32(strm, crc as _);
+        assert_eq!(err, 0);
+        /* Gzip uncompressed data length */
+        err = deflate_prime_32(strm, HELLO.len() as _);
+        assert_eq!(err, 0);
+
+        let total_out = strm.total_out;
+
+        err = libz_rs_sys::deflateEnd(strm);
+        assert_eq!(err, 0); // inflate with gzip header
+
+        // now inflate it again
+        let inflate_config = InflateConfig {
+            window_bits: 15 + 32,
+        };
+
+        let mut strm = MaybeUninit::zeroed();
+
+        let err = libz_rs_sys::inflateInit2_(
+            strm.as_mut_ptr(),
+            inflate_config.window_bits,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        strm.next_in = compr.as_mut_ptr();
+        strm.avail_in = total_out as _;
+
+        let mut uncompr = vec![0; 32];
+        strm.next_out = uncompr.as_mut_ptr();
+        strm.avail_out = uncompr.len() as _;
+
+        // the crc checksum is not actually in the buffer, so the check of the checksum will error
+        // out with a BufError because there is insufficient input.
+        let err = libz_rs_sys::inflate(strm, Flush::Finish as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::BufError);
+        assert_eq!(&uncompr[..strm.total_out as usize], HELLO.as_bytes())
+    }
+}
+
+#[test]
 fn small_window() {
     let deflate_config = DeflateConfig {
         level: Z_BEST_COMPRESSION,

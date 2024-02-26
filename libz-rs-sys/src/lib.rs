@@ -374,6 +374,13 @@ pub unsafe extern "C" fn deflateSetDictionary(
     }
 }
 
+pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int) -> c_int {
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::prime(stream, bits, value) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
