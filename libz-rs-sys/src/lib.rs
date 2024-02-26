@@ -361,6 +361,19 @@ pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: 
     }
 }
 
+pub unsafe extern "C" fn deflateSetDictionary(
+    strm: z_streamp,
+    dictionary: *const Bytef,
+    dictLength: uInt,
+) -> c_int {
+    let dictionary = core::slice::from_raw_parts(dictionary, dictLength as usize);
+
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::set_dictionary(stream, dictionary) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,

@@ -45,6 +45,10 @@ impl<'a> Window<'a> {
         unsafe { slice_assume_init_mut(slice) }
     }
 
+    pub fn capacity(&self) -> usize {
+        self.buf.len()
+    }
+
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.buf.as_mut_ptr() as *mut u8
     }
