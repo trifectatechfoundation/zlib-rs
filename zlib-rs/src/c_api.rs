@@ -4,8 +4,9 @@
 use std::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
-pub type Bytef = u8;
 pub type free_func = unsafe extern "C" fn(voidpf, voidpf);
+
+pub type Bytef = u8;
 pub type in_func = unsafe extern "C" fn(*mut c_void, *mut *const c_uchar) -> c_uint;
 pub type out_func = unsafe extern "C" fn(*mut c_void, *mut c_uchar, c_uint) -> c_int;
 pub type uInt = c_uint;
