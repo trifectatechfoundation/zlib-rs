@@ -428,8 +428,6 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     // avoid computing Adler-32 in read_buf
     state.wrap = 0;
 
-    dbg!(dictionary.len(), state.window.capacity());
-
     // if dictionary would fill window, just replace the history
     if dictionary.len() >= state.window.capacity() {
         if wrap == 0 {
@@ -476,6 +474,46 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     stream.next_in = next;
     stream.avail_in = avail;
     state.wrap = wrap;
+
+    ReturnCode::Ok
+}
+
+pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCode {
+    // our logic actually supports up to 32 bits.
+    debug_assert!(bits <= 16, "zlib only supports up to 16 bits here");
+
+    let mut value64 = value as u64;
+
+    let state = &mut stream.state;
+
+    if bits < 0
+        || bits > State::BIT_BUF_SIZE as i32
+        || bits > (core::mem::size_of_val(&value) << 3) as i32
+    {
+        return ReturnCode::BufError;
+    }
+
+    let mut put;
+
+    loop {
+        put = State::BIT_BUF_SIZE - state.bi_valid;
+        let put = Ord::min(put as i32, bits);
+
+        if state.bi_valid == 0 {
+            state.bi_buf = value64;
+        } else {
+            state.bi_buf |= (value64 & ((1 << put) - 1)) << state.bi_valid;
+        }
+
+        state.bi_valid += put as u8;
+        state.flush_bits();
+        value64 >>= put;
+        bits -= put;
+
+        if bits == 0 {
+            break;
+        }
+    }
 
     ReturnCode::Ok
 }
