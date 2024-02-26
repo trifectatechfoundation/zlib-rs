@@ -73,6 +73,10 @@ impl<'a> DeflateStream<'a> {
 
         Some(stream)
     }
+
+    pub fn pending(&self) -> (usize, u8) {
+        (self.state.pending.pending, self.state.bi_valid)
+    }
 }
 
 /// number of elements in hash table
