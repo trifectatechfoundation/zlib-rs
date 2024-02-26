@@ -411,6 +411,73 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
     ReturnCode::Ok
 }
 
+pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> ReturnCode {
+    let state = &mut stream.state;
+
+    let wrap = state.wrap;
+
+    if wrap == 2 || (wrap == 1 && state.status != Status::Init) || state.lookahead != 0 {
+        return ReturnCode::StreamError;
+    }
+
+    // when using zlib wrappers, compute Adler-32 for provided dictionary
+    if wrap == 1 {
+        stream.adler = adler32(stream.adler as u32, dictionary) as u64;
+    }
+
+    // avoid computing Adler-32 in read_buf
+    state.wrap = 0;
+
+    // if dictionary would fill window, just replace the history
+    if dictionary.len() >= state.window.capacity() {
+        if wrap == 0 {
+            // clear the hash table
+            state.head.fill(0);
+
+            state.strstart = 0;
+            state.block_start = 0;
+            state.insert = 0;
+        } else {
+            /* already empty otherwise */
+        }
+
+        // use the tail
+        dictionary = &dictionary[dictionary.len() - state.w_size..];
+    }
+
+    // insert dictionary into window and hash
+    let avail = stream.avail_in;
+    let next = stream.next_in;
+    stream.avail_in = dictionary.len() as _;
+    stream.next_in = dictionary.as_ptr() as *mut u8;
+    fill_window(stream);
+
+    while stream.state.lookahead >= STD_MIN_MATCH {
+        let str = stream.state.strstart;
+        let n = stream.state.lookahead - (STD_MIN_MATCH - 1);
+        (stream.state.insert_string)(stream.state, str, n);
+        stream.state.strstart = str + n;
+        stream.state.lookahead = STD_MIN_MATCH - 1;
+        fill_window(stream);
+    }
+
+    let state = &mut stream.state;
+
+    state.strstart += state.lookahead;
+    state.block_start = state.strstart as _;
+    state.insert = state.lookahead;
+    state.lookahead = 0;
+    state.prev_length = 0;
+    state.match_available = 0;
+
+    // restore the state
+    stream.next_in = next;
+    stream.avail_in = avail;
+    state.wrap = wrap;
+
+    ReturnCode::Ok
+}
+
 pub fn end(stream: &mut DeflateStream) -> ReturnCode {
     let status = stream.state.status;
 

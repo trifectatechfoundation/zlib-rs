@@ -9,6 +9,7 @@ use libz_rs_sys::{
     Z_NO_FLUSH,
 };
 use zlib_rs::{
+    c_api::Z_BEST_COMPRESSION,
     deflate::{DeflateConfig, Strategy},
     Flush, ReturnCode,
 };
@@ -793,4 +794,100 @@ fn test_compress_param() {
     };
 
     assert_eq!(&output_rs[..n_rs], &output_ng[..n_ng]);
+}
+
+#[test]
+fn test_dict_deflate() {
+    let config = DeflateConfig {
+        level: Z_BEST_COMPRESSION,
+        ..Default::default()
+    };
+
+    const DICTIONARY: &str = "hello";
+    const HELLO: &str = "hello, hello!\0";
+
+    let output_rs = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_rs_sys::deflateSetDictionary(strm, DICTIONARY.as_ptr(), DICTIONARY.len() as _);
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let dictId = strm.adler;
+        let mut compr = [0; 32];
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_out = compr.len() as _;
+
+        strm.next_in = HELLO.as_ptr() as *mut u8;
+        strm.avail_in = HELLO.len() as _;
+
+        let err = deflate(strm, Flush::Finish as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = deflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        (dictId, compr)
+    };
+
+    let output_ng = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_ng_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let strm = strm.assume_init_mut();
+
+        let err =
+            libz_ng_sys::deflateSetDictionary(strm, DICTIONARY.as_ptr(), DICTIONARY.len() as _);
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let dictId = strm.adler;
+        let mut compr = [0; 32];
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_out = compr.len() as _;
+
+        strm.next_in = HELLO.as_ptr() as *mut u8;
+        strm.avail_in = HELLO.len() as _;
+
+        let err = libz_ng_sys::deflate(strm, Flush::Finish as i32);
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        let err = libz_ng_sys::deflateEnd(strm);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        (dictId, compr)
+    };
+
+    assert_eq!(output_rs.0, output_ng.0 as u64);
+    assert_eq!(output_rs.1, output_ng.1);
 }
