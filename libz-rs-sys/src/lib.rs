@@ -381,6 +381,29 @@ pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int
     }
 }
 
+pub unsafe extern "C" fn deflatePending(
+    strm: z_streamp,
+    pending: *mut c_uint,
+    bits: *mut c_int,
+) -> c_int {
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => {
+            let (current_pending, current_bits) = stream.pending();
+
+            if !pending.is_null() {
+                *pending = current_pending as c_uint;
+            }
+
+            if !bits.is_null() {
+                *bits = current_bits as c_int;
+            }
+
+            ReturnCode::Ok as _
+        }
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
