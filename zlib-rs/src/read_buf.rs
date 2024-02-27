@@ -4,6 +4,8 @@
 use std::fmt;
 use std::mem::MaybeUninit;
 
+use crate::allocate::Allocator;
+
 /// A wrapper around a byte buffer that is incrementally filled and initialized.
 ///
 /// This type is a sort of "double cursor". It tracks three regions in the
@@ -397,6 +399,31 @@ impl<'a> ReadBuf<'a> {
             src = src.add(core::mem::size_of::<C>());
             dst = dst.add(core::mem::size_of::<C>());
         }
+    }
+
+    pub(crate) fn new_in(alloc: &'a Allocator, len: usize) -> Option<Self> {
+        let buf = alloc.allocate_slice::<u8>(len)?;
+
+        Some(Self {
+            buf,
+            filled: 0,
+            initialized: 0,
+        })
+    }
+
+    pub(crate) fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+        let mut clone = Self::new_in(alloc, self.buf.len())?;
+
+        clone.buf.copy_from_slice(self.buf);
+        clone.filled = self.filled;
+        clone.initialized = self.initialized;
+
+        Some(clone)
+    }
+
+    pub(crate) unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
+        let buf = core::mem::take(&mut self.buf);
+        alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
     }
 }
 

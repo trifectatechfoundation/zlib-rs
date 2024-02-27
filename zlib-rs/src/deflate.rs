@@ -164,6 +164,11 @@ impl Default for DeflateConfig {
     }
 }
 
+// TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
+unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
+    &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
+}
+
 pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let DeflateConfig {
         mut level,
@@ -233,34 +238,37 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let w_size = 1 << window_bits;
     let window = Window::new_in(&alloc, window_bits);
 
-    let prev_layout = std::alloc::Layout::array::<u16>(w_size);
-    let prev_ptr = unsafe { stream.alloc_layout(prev_layout.unwrap()) } as *mut u16;
-
-    let head_layout = std::alloc::Layout::array::<u16>(HASH_SIZE);
-    let head_ptr = unsafe { stream.alloc_layout(head_layout.unwrap()) } as *mut [u16; HASH_SIZE];
+    let prev = alloc.allocate_slice::<u16>(w_size);
+    let head = alloc.allocate::<[u16; HASH_SIZE]>();
 
     let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
-    let pending_buf_layout = std::alloc::Layout::array::<u8>(4 * lit_bufsize);
-    let pending_buf = unsafe { stream.alloc_layout(pending_buf_layout.unwrap()) } as *mut u8;
+    let pending = Pending::new_in(&alloc, 4 * lit_bufsize);
 
     // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
-    let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * lit_bufsize);
-    let sym_buf = unsafe { stream.alloc_layout(sym_buf_layout.unwrap()) } as *mut u8;
+    let sym_buf = ReadBuf::new_in(&alloc, 3 * lit_bufsize);
 
     if window.is_none()
-        || prev_ptr.is_null()
-        || head_ptr.is_null()
-        || pending_buf.is_null()
-        || sym_buf.is_null()
+        || prev.is_none()
+        || head.is_none()
+        || pending.is_none()
+        || sym_buf.is_none()
     {
         let opaque = stream.opaque;
         let free = stream.zfree.unwrap();
 
         unsafe {
-            free(opaque, sym_buf.cast());
-            free(opaque, pending_buf.cast());
-            free(opaque, head_ptr.cast());
-            free(opaque, prev_ptr.cast());
+            if let Some(mut sym_buf) = sym_buf {
+                alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
+            }
+            if let Some(mut pending) = pending {
+                pending.drop_in(&alloc);
+            }
+            if let Some(head) = head {
+                alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
+            }
+            if let Some(prev) = prev {
+                alloc.deallocate(prev.as_mut_ptr(), prev.len())
+            }
             if let Some(mut window) = window {
                 window.drop_in(&alloc);
             }
@@ -273,14 +281,17 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
     let window = window.unwrap();
 
-    unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
-    let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
+    let prev = prev.unwrap();
+    prev.fill(MaybeUninit::zeroed());
+    let prev = unsafe { slice_assume_init_mut(prev) };
 
-    let head = unsafe { &mut *head_ptr };
+    let head = head.unwrap();
+    *head = MaybeUninit::zeroed();
+    let head = unsafe { head.assume_init_mut() };
 
-    let pending = unsafe { Pending::from_raw_parts(pending_buf, 4 * lit_bufsize) };
+    let pending = pending.unwrap();
 
-    let sym_buf = unsafe { ReadBuf::from_raw_parts(sym_buf, 3 * lit_bufsize) };
+    let sym_buf = sym_buf.unwrap();
 
     let state = State {
         status: Status::Init,

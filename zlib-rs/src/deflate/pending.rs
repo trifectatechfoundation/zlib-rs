@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::allocate::Allocator;
+
 pub struct Pending<'a> {
     buf: *mut u8,
     out: *mut u8,
@@ -75,5 +77,33 @@ impl<'a> Pending<'a> {
         }
 
         self.pending += buf.len();
+    }
+
+    pub(crate) fn new_in(alloc: &'a Allocator, len: usize) -> Option<Self> {
+        let range = alloc.allocate_slice::<u8>(len)?.as_mut_ptr_range();
+
+        Some(Self {
+            buf: range.start as *mut u8,
+            out: range.start as *mut u8,
+            end: range.end as *mut u8,
+            pending: 0,
+            _marker: PhantomData,
+        })
+    }
+
+    pub(crate) fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+        let len = self.end as usize - self.buf as usize;
+        let mut clone = Self::new_in(alloc, len)?;
+
+        unsafe { core::ptr::copy_nonoverlapping(self.buf, clone.buf, len) };
+        clone.out = unsafe { clone.buf.add(self.out as usize - self.buf as usize) };
+        clone.pending = self.pending;
+
+        Some(clone)
+    }
+
+    pub(crate) unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
+        let len = self.end as usize - self.buf as usize;
+        alloc.deallocate(self.buf, len);
     }
 }
