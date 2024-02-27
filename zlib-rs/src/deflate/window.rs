@@ -45,7 +45,7 @@ impl<'a> Window<'a> {
         }
     }
 
-    fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         2 * (1 << self.window_bits)
     }
 
@@ -65,14 +65,6 @@ impl<'a> Window<'a> {
         // safety: filled describes how far into the buffer that the
         // user has filled with bytes, so it's been initialized.
         unsafe { slice_assume_init_mut(slice) }
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.buf.len()
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.buf.as_mut_ptr() as *mut u8
     }
 
     /// # Safety

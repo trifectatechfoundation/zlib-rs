@@ -69,6 +69,7 @@ unsafe fn zng_free(ptr: *mut c_void) {
     unsafe { libc::free(ptr) };
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub(crate) struct Allocator<'a> {
     pub(crate) zalloc: crate::c_api::alloc_func,
