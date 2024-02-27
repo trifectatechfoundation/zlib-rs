@@ -11,16 +11,6 @@ pub struct Pending<'a> {
 }
 
 impl<'a> Pending<'a> {
-    pub unsafe fn from_raw_parts(data: *mut u8, len: usize) -> Self {
-        Self {
-            buf: data,
-            out: data,
-            pending: 0,
-            end: data.wrapping_add(len),
-            _marker: PhantomData,
-        }
-    }
-
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.buf
     }
