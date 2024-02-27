@@ -77,7 +77,14 @@ pub(crate) struct Allocator {
 
 impl Allocator {
     pub fn allocate<T>(&self) -> Option<&mut MaybeUninit<T>> {
-        todo!()
+        let layout = Layout::new::<T>();
+        let ptr = unsafe { (self.zalloc)(self.opaque, layout.size() as _, 1) };
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { &mut *(ptr as *mut MaybeUninit<T>) })
+        }
     }
 
     pub fn allocate_slice<T>(&self, len: usize) -> Option<&mut [MaybeUninit<T>]> {
