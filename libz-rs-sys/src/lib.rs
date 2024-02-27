@@ -89,7 +89,10 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
 }
 
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
-    zlib_rs::inflate::end(strm)
+    match InflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::inflate::end(stream) as _,
+        None => ReturnCode::StreamError as _,
+    }
 }
 
 pub unsafe extern "C" fn inflateBackInit_(
@@ -117,8 +120,12 @@ pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
 }
 
 pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
+    if dest.is_null() {
+        return ReturnCode::StreamError as _;
+    }
+
     if let Some(source) = InflateStream::from_stream_ref(source) {
-        zlib_rs::inflate::copy(dest, source) as _
+        zlib_rs::inflate::copy(&mut *(dest as *mut MaybeUninit<InflateStream>), source) as _
     } else {
         ReturnCode::StreamError as _
     }

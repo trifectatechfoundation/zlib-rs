@@ -401,7 +401,7 @@ impl<'a> ReadBuf<'a> {
         }
     }
 
-    pub(crate) fn new_in(alloc: &'a Allocator, len: usize) -> Option<Self> {
+    pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
         let buf = alloc.allocate_slice::<u8>(len)?;
 
         Some(Self {
@@ -411,7 +411,7 @@ impl<'a> ReadBuf<'a> {
         })
     }
 
-    pub(crate) fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+    pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
         let mut clone = Self::new_in(alloc, self.buf.len())?;
 
         clone.buf.copy_from_slice(self.buf);
@@ -421,9 +421,11 @@ impl<'a> ReadBuf<'a> {
         Some(clone)
     }
 
-    pub(crate) unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
-        let buf = core::mem::take(&mut self.buf);
-        alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+    pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator<'a>) {
+        if !self.buf.is_empty() {
+            let buf = core::mem::take(&mut self.buf);
+            alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+        }
     }
 }
 

@@ -57,32 +57,6 @@ impl Default for z_stream {
     }
 }
 
-impl z_stream {
-    pub(crate) unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut c_void {
-        match self.zalloc {
-            None => unreachable!("zalloc no initialized"),
-            Some(f) => f(self.opaque, 1, layout.size() as u32),
-        }
-    }
-
-    pub(crate) unsafe fn alloc_value<T>(&self, value: T) -> *mut T {
-        let ptr = self.alloc_layout(std::alloc::Layout::new::<T>()).cast();
-
-        if ptr as usize != 0 {
-            std::ptr::write(ptr, value);
-        }
-
-        ptr
-    }
-
-    pub(crate) unsafe fn dealloc<T>(&self, ptr: *mut T) {
-        match self.zfree {
-            None => unreachable!("zfree no initialized"),
-            Some(f) => f(self.opaque, ptr.cast()),
-        }
-    }
-}
-
 // // zlib stores Adler-32 and CRC-32 checksums in unsigned long; zlib-ng uses uint32_t.
 pub(crate) type z_size = c_ulong;
 pub(crate) type z_checksum = c_ulong;

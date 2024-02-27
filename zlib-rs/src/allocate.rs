@@ -1,6 +1,7 @@
 use std::{
     alloc::Layout,
     ffi::{c_uint, c_void},
+    marker::PhantomData,
     mem::MaybeUninit,
 };
 
@@ -69,14 +70,15 @@ unsafe fn zng_free(ptr: *mut c_void) {
 }
 
 #[repr(C)]
-pub(crate) struct Allocator {
+pub(crate) struct Allocator<'a> {
     pub(crate) zalloc: crate::c_api::alloc_func,
     pub(crate) zfree: crate::c_api::free_func,
     pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) _marker: PhantomData<&'a ()>,
 }
 
-impl Allocator {
-    pub fn allocate<T>(&self) -> Option<&mut MaybeUninit<T>> {
+impl<'a> Allocator<'a> {
+    pub fn allocate<T>(&self) -> Option<&'a mut MaybeUninit<T>> {
         let layout = Layout::new::<T>();
         let ptr = unsafe { (self.zalloc)(self.opaque, layout.size() as _, 1) };
 
@@ -87,7 +89,7 @@ impl Allocator {
         }
     }
 
-    pub fn allocate_slice<T>(&self, len: usize) -> Option<&mut [MaybeUninit<T>]> {
+    pub fn allocate_slice<T>(&self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
         let layout = Layout::array::<T>(len).ok()?;
         let ptr = unsafe { (self.zalloc)(self.opaque, layout.size() as _, 1) };
 
@@ -99,6 +101,8 @@ impl Allocator {
     }
 
     pub unsafe fn deallocate<T>(&self, ptr: *mut T, _len: usize) {
-        (self.zfree)(self.opaque, ptr.cast())
+        if !ptr.is_null() {
+            (self.zfree)(self.opaque, ptr.cast())
+        }
     }
 }
