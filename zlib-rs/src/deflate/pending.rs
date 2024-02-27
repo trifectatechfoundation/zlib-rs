@@ -69,7 +69,7 @@ impl<'a> Pending<'a> {
         self.pending += buf.len();
     }
 
-    pub(crate) fn new_in(alloc: &'a Allocator, len: usize) -> Option<Self> {
+    pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
         let range = alloc.allocate_slice::<u8>(len)?.as_mut_ptr_range();
 
         Some(Self {
@@ -81,7 +81,7 @@ impl<'a> Pending<'a> {
         })
     }
 
-    pub(crate) fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+    pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
         let len = self.end as usize - self.buf as usize;
         let mut clone = Self::new_in(alloc, len)?;
 
@@ -92,7 +92,7 @@ impl<'a> Pending<'a> {
         Some(clone)
     }
 
-    pub(crate) unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
+    pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator) {
         let len = self.end as usize - self.buf as usize;
         alloc.deallocate(self.buf, len);
     }

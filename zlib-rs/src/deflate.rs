@@ -1,4 +1,4 @@
-use std::{ffi::CStr, mem::MaybeUninit, ops::ControlFlow};
+use std::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
     adler32::adler32,
@@ -232,6 +232,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         zalloc: stream.zalloc.unwrap(),
         zfree: stream.zfree.unwrap(),
         opaque: stream.opaque,
+        _marker: PhantomData,
     };
 
     // allocated here to have the same order as zlib
@@ -548,6 +549,7 @@ pub fn copy<'a>(
         zalloc: source.zalloc,
         zfree: source.zfree,
         opaque: source.opaque,
+        _marker: PhantomData,
     };
 
     // allocated here to have the same order as zlib

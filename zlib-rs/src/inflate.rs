@@ -1,14 +1,17 @@
 #![allow(non_snake_case)] // TODO ultimately remove this
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
-use std::ffi::{c_char, c_int, c_long, c_ulong, c_void};
-use std::{alloc::Layout, mem::MaybeUninit};
+use std::ffi::{c_char, c_int, c_long, c_ulong};
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 
 mod bitreader;
 mod inffixed_tbl;
 mod inftrees;
 mod window;
 
+use crate::allocate::Allocator;
+use crate::c_api::internal_state;
 use crate::{
     adler32::adler32,
     allocate,
@@ -35,9 +38,7 @@ pub struct InflateStream<'a> {
     pub(crate) total_out: crate::c_api::z_size,
     pub(crate) msg: *mut c_char,
     pub(crate) state: &'a mut State<'a>,
-    pub(crate) zalloc: crate::c_api::alloc_func,
-    pub(crate) zfree: crate::c_api::free_func,
-    pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) alloc: Allocator<'a>,
     pub(crate) data_type: c_int,
     pub(crate) adler: crate::c_api::z_checksum,
     pub(crate) reserved: crate::c_api::uLong,
@@ -114,14 +115,6 @@ impl<'a> InflateStream<'a> {
 
         Some(stream)
     }
-
-    unsafe fn alloc_layout(&self, layout: std::alloc::Layout) -> *mut c_void {
-        (self.zalloc)(self.opaque, 1, layout.size() as u32)
-    }
-
-    unsafe fn dealloc<T>(&self, ptr: *mut T) {
-        (self.zfree)(self.opaque, ptr.cast())
-    }
 }
 
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
@@ -189,6 +182,10 @@ pub fn uncompress<'a>(
     stream.next_out = dest;
     stream.avail_out = 0;
 
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(&mut stream) }) else {
+        return (&mut [], ReturnCode::StreamError);
+    };
+
     let err = loop {
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, u32::MAX as u64) as u32;
@@ -200,11 +197,7 @@ pub fn uncompress<'a>(
             len -= stream.avail_in as u64;
         }
 
-        let err = if let Some(stream) = unsafe { InflateStream::from_stream_mut(&mut stream) } {
-            unsafe { inflate(stream, Flush::NoFlush) }
-        } else {
-            ReturnCode::StreamError
-        };
+        let err = unsafe { inflate(stream, Flush::NoFlush) };
 
         if err != ReturnCode::Ok as _ {
             break err;
@@ -217,12 +210,14 @@ pub fn uncompress<'a>(
         left = 1;
     }
 
-    unsafe { end(&mut stream) };
+    let avail_out = stream.avail_out;
+
+    unsafe { end(stream) };
 
     let ret = match err {
         ReturnCode::StreamEnd => ReturnCode::Ok,
         ReturnCode::NeedDict => ReturnCode::DataError,
-        ReturnCode::BufError if (left + stream.avail_out as u64) != 0 => ReturnCode::DataError,
+        ReturnCode::BufError if (left + avail_out as u64) != 0 => ReturnCode::DataError,
         _ => err,
     };
 
@@ -1686,18 +1681,22 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
 
     let mut state = State::new(&[], ReadBuf::new(&mut []));
 
-    // state.window = None;
-    // state.mode = Mode::Head;
-
     // TODO this can change depending on the used/supported SIMD instructions
     state.chunksize = 32;
 
-    // SAFETY: we assume allocation does not cause UB
-    stream.state = unsafe { stream.alloc_value(state).cast() };
+    let alloc = Allocator {
+        zalloc: stream.zalloc.unwrap(),
+        zfree: stream.zfree.unwrap(),
+        opaque: stream.opaque,
+        _marker: PhantomData,
+    };
 
-    if stream.state.is_null() {
-        return ReturnCode::MemError as _;
-    }
+    // allocated here to have the same order as zlib
+    let Some(state_allocation) = alloc.allocate::<State>() else {
+        return ReturnCode::MemError;
+    };
+
+    stream.state = state_allocation.write(state) as *mut _ as *mut internal_state;
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
     let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
@@ -1710,7 +1709,7 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         let ptr = stream.state;
         stream.state = std::ptr::null_mut();
         // SAFETY: we assume deallocation does not cause UB
-        unsafe { stream.dealloc(ptr) };
+        unsafe { alloc.deallocate(ptr, 1) };
     }
 
     ret
@@ -1745,9 +1744,7 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
         let mut window = Window::empty();
         std::mem::swap(&mut window, &mut stream.state.window);
 
-        if window.size() != 0 {
-            unsafe { stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8) };
-        }
+        unsafe { window.drop_in(&stream.alloc) };
     }
 
     stream.state.wrap = wrap as usize;
@@ -1847,9 +1844,28 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
 
     let update_checksum = state.wrap & 4 != 0;
 
-    if must_update_window && update_window(stream, out_written, update_checksum) != ReturnCode::Ok {
-        stream.state.mode = Mode::Mem;
-        err = ReturnCode::MemError;
+    if must_update_window {
+        'blk: {
+            // initialize the window if needed
+            if stream.state.window.size() == 0 {
+                match Window::new_in(&stream.alloc, stream.state.wbits) {
+                    Some(window) => stream.state.window = window,
+                    None => {
+                        stream.state.mode = Mode::Mem;
+                        err = ReturnCode::MemError;
+                        break 'blk;
+                    }
+                }
+            }
+
+            stream.state.window.extend(
+                &stream.state.writer.filled()[..out_written],
+                stream.state.flags,
+                update_checksum,
+                &mut stream.state.checksum,
+                &mut stream.state.crc_fold,
+            );
+        }
     }
 
     if let Some(msg) = stream.state.error_message {
@@ -1946,37 +1962,26 @@ pub fn sync_point(stream: &mut InflateStream) -> bool {
     matches!(stream.state.mode, Mode::Stored) && stream.state.bit_reader.bits_in_buffer() == 0
 }
 
-pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
-    let stream = source;
-
-    if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
+pub unsafe fn copy<'a>(
+    dest: &mut MaybeUninit<InflateStream<'a>>,
+    source: &InflateStream<'a>,
+) -> ReturnCode {
+    if source.next_out.is_null() || (source.next_in.is_null() && source.avail_in != 0) {
         return ReturnCode::StreamError;
     }
 
-    let layout = std::alloc::Layout::array::<State>(1).unwrap();
-
-    let destination = z_stream {
-        next_in: stream.next_in,
-        avail_in: stream.avail_in,
-        total_in: stream.total_in,
-        next_out: stream.next_out,
-        avail_out: stream.avail_out,
-        total_out: stream.total_out,
-        msg: stream.msg,
-        state: stream.alloc_layout(layout) as *mut crate::c_api::internal_state,
-        zalloc: Some(stream.zalloc),
-        zfree: Some(stream.zfree),
-        opaque: stream.opaque,
-        data_type: stream.data_type,
-        adler: stream.adler,
-        reserved: stream.reserved,
-    };
-
-    if destination.state.is_null() {
-        return ReturnCode::MemError;
+    // Safety: source and dest are both mutable references, so guaranteed not to overlap.
+    // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
+    unsafe {
+        core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
     }
 
-    let state = &stream.state;
+    // allocated here to have the same order as zlib
+    let Some(state_allocation) = source.alloc.allocate::<State>() else {
+        return ReturnCode::MemError;
+    };
+
+    let state = &source.state;
 
     let writer: MaybeUninit<ReadBuf> =
         unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
@@ -2021,35 +2026,29 @@ pub unsafe fn copy(dest: *mut z_stream, source: &InflateStream) -> ReturnCode {
         dist_codes: state.dist_codes,
     };
 
-    // TODO make sure the codes point to the right thing
-
     if !state.window.is_empty() {
-        let source = state.window.as_slice();
-
-        let layout = std::alloc::Layout::array::<MaybeUninit<u8>>(source.len()).unwrap();
-        let dst = stream.alloc_layout(layout) as *mut MaybeUninit<u8>;
-
-        if dst.is_null() {
-            stream.dealloc(destination.state);
+        let Some(window) = state.window.clone_in(&source.alloc) else {
+            source.alloc.deallocate(state_allocation.as_mut_ptr(), 1);
             return ReturnCode::MemError;
-        }
+        };
 
-        unsafe { std::ptr::copy_nonoverlapping(source.as_ptr(), dst, source.len()) }
-
-        copy.window = Window::from_raw_parts(dst, source.len())
+        copy.window = window;
     }
 
-    unsafe { std::ptr::write(destination.state.cast(), copy) };
+    // write the cloned state into state_ptr
+    let state_ptr = state_allocation.write(copy);
+
+    // insert the state_ptr into `dest`
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+    unsafe { std::ptr::write(field_ptr as *mut *mut State, state_ptr) };
 
     // update the writer; it cannot be cloned so we need to use some shennanigans
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).writer) };
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };
     unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
 
-    // similarly update the gzip header
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*(destination.state as *mut State)).head) };
-    unsafe { std::ptr::copy(&state.head, field_ptr, 1) };
-
-    unsafe { std::ptr::write(dest, destination) };
+    // update the gzhead field (it contains a mutable reference so we need to be careful
+    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.head) };
+    unsafe { std::ptr::copy(&source.state.head, field_ptr, 1) };
 
     ReturnCode::Ok
 }
@@ -2093,13 +2092,9 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
     let err = 'blk: {
         // initialize the window if needed
         if stream.state.window.size() == 0 {
-            match init_window(
-                |layout| unsafe { stream.alloc_layout(layout) },
-                stream.state.wbits,
-                stream.state.chunksize,
-            ) {
-                Err(e) => break 'blk e,
-                Ok(window) => stream.state.window = window,
+            match Window::new_in(&stream.alloc, stream.state.wbits) {
+                None => break 'blk ReturnCode::MemError,
+                Some(window) => stream.state.window = window,
             }
         }
 
@@ -2128,75 +2123,29 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
 ///
 /// The `strm` must be either NULL or a valid mutable reference to a z_stream value where the state
 /// has been initialized with `inflateInit_` or `inflateInit2_`.
-pub unsafe extern "C" fn end(strm: *mut z_stream) -> i32 {
-    let Some(stream) = InflateStream::from_stream_mut(strm) else {
-        return ReturnCode::StreamError as _;
-    };
-
+pub unsafe extern "C" fn end(stream: &mut InflateStream) -> i32 {
     let mut state = State::new(&[], ReadBuf::new(&mut []));
     std::mem::swap(&mut state, stream.state);
 
     let mut window = Window::empty();
     std::mem::swap(&mut window, &mut state.window);
 
-    if window.size() != 0 {
-        stream.dealloc(window.as_mut_slice().as_mut_ptr() as *mut u8);
-    }
+    window.drop_in(&stream.alloc);
+
+    let alloc = Allocator {
+        zalloc: stream.alloc.zalloc,
+        zfree: stream.alloc.zfree,
+        opaque: stream.alloc.opaque,
+        _marker: PhantomData,
+    };
 
     // safety: a valid &mut InflateStream is also a valid &mut z_stream
-    let stream = unsafe { &mut *strm };
+    let stream = unsafe { &mut *(stream as *mut _ as *mut z_stream) };
 
     let state_ptr = std::mem::replace(&mut stream.state, std::ptr::null_mut());
-    stream.dealloc(state_ptr);
+    alloc.deallocate(state_ptr, 1);
 
     ReturnCode::Ok as _
-}
-
-fn update_window(
-    stream: &mut InflateStream,
-    bytes_written: usize,
-    update_checksum: bool,
-) -> ReturnCode {
-    // initialize the window if needed
-    if stream.state.window.size() == 0 {
-        match init_window(
-            |layout| unsafe { stream.alloc_layout(layout) },
-            stream.state.wbits,
-            stream.state.chunksize,
-        ) {
-            Err(e) => return e,
-            Ok(window) => stream.state.window = window,
-        }
-    }
-
-    stream.state.window.extend(
-        &stream.state.writer.filled()[..bytes_written],
-        stream.state.flags,
-        update_checksum,
-        &mut stream.state.checksum,
-        &mut stream.state.crc_fold,
-    );
-
-    ReturnCode::Ok
-}
-
-fn init_window<'a>(
-    alloc_layout: impl FnOnce(Layout) -> *mut c_void,
-    wbits: usize,
-    chunk_size: usize,
-) -> Result<Window<'a>, ReturnCode> {
-    // TODO check whether not including the chunk_size bytes in Window causes UB
-    let wsize = (1 << wbits) as usize;
-    let layout = Layout::from_size_align(wsize + chunk_size, 1).unwrap();
-    let ptr = alloc_layout(layout) as *mut u8;
-
-    if ptr.is_null() {
-        return Err(ReturnCode::MemError);
-    }
-
-    let window = unsafe { Window::from_raw_parts(ptr as *mut MaybeUninit<u8>, wsize) };
-
-    Ok(window)
 }
 
 pub fn get_header<'a>(

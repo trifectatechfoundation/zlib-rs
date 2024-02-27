@@ -17,7 +17,7 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
-    pub fn new_in(alloc: &'a Allocator, window_bits: usize) -> Option<Self> {
+    pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
         let buf = alloc.allocate_slice::<u8>(2 * ((1 << window_bits) + Self::padding()))?;
 
         Some(Self {
@@ -28,7 +28,7 @@ impl<'a> Window<'a> {
         })
     }
 
-    pub fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+    pub fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
         let mut clone = Self::new_in(alloc, self.window_bits)?;
 
         clone.buf.copy_from_slice(self.buf);
@@ -38,9 +38,11 @@ impl<'a> Window<'a> {
         Some(clone)
     }
 
-    pub unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
-        let buf = core::mem::take(&mut self.buf);
-        alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+    pub unsafe fn drop_in(&mut self, alloc: &Allocator) {
+        if !self.buf.is_empty() {
+            let buf = core::mem::take(&mut self.buf);
+            alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+        }
     }
 
     fn capacity(&self) -> usize {

@@ -1,5 +1,6 @@
 use crate::{
     adler32::{adler32, adler32_fold_copy},
+    allocate::Allocator,
     crc32::Crc32Fold,
 };
 use std::mem::MaybeUninit;
@@ -19,22 +20,6 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
-    pub fn as_mut_slice(&mut self) -> &mut [MaybeUninit<u8>] {
-        self.buf
-    }
-
-    pub fn as_slice(&self) -> &[MaybeUninit<u8>] {
-        self.buf
-    }
-
-    pub unsafe fn from_raw_parts(ptr: *mut MaybeUninit<u8>, len: usize) -> Self {
-        Self {
-            buf: std::slice::from_raw_parts_mut(ptr, len),
-            have: 0,
-            next: 0,
-        }
-    }
-
     pub fn from_slice(slice: &'a mut [u8]) -> Self {
         Self {
             buf: unsafe { slice_to_uninit_mut(slice) },
@@ -161,6 +146,38 @@ impl<'a> Window<'a> {
                 }
             }
         }
+    }
+
+    pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
+        let buf = alloc.allocate_slice::<u8>((1 << window_bits) + Self::padding())?;
+
+        Some(Self {
+            buf,
+            have: 0,
+            next: 0,
+        })
+    }
+
+    pub fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
+        let buf = alloc.allocate_slice::<u8>(self.buf.len())?;
+
+        Some(Self {
+            buf,
+            have: self.have,
+            next: self.next,
+        })
+    }
+
+    pub unsafe fn drop_in(&mut self, alloc: &Allocator) {
+        if !self.buf.is_empty() {
+            let buf = core::mem::take(&mut self.buf);
+            alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+        }
+    }
+
+    // padding required so that SIMD operations going out-of-bounds are not a problem
+    pub fn padding() -> usize {
+        64 // very conservative
     }
 }
 
