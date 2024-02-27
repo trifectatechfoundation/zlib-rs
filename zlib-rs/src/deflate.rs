@@ -2364,19 +2364,21 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                     todo!()
                 } else if flush != Flush::Block {
                     /* FULL_FLUSH or SYNC_FLUSH */
-                    // zng_tr_stored_block(s, (char*)0, 0L, 0);
+
+                    zng_tr_stored_block(state, 0..0, false);
+
                     /* For a full flush, this empty block will be recognized
                      * as a special marker by inflate_sync().
                      */
-                    todo!()
-                    //                    if flush == Flush::FullFlush {
-                    //                        CLEAR_HASH(state); /* forget history */
-                    //                        if (state.lookahead == 0) {
-                    //                            state.strstart = 0;
-                    //                            state.block_start = 0;
-                    //                            state.insert = 0;
-                    //                        }
-                    //                    }
+                    if flush == Flush::FullFlush {
+                        state.head.fill(0); // forget history
+
+                        if state.lookahead == 0 {
+                            state.strstart = 0;
+                            state.block_start = 0;
+                            state.insert = 0;
+                        }
+                    }
                 }
 
                 flush_pending(stream);
