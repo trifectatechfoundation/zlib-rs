@@ -2,6 +2,7 @@ use std::{ffi::CStr, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
     adler32::adler32,
+    allocate::Allocator,
     c_api::{gz_header, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
@@ -173,8 +174,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     } = config;
 
     /* Todo: ignore strm->next_in if we use it as window */
-    let window_padding = Window::padding();
-
     stream.msg = std::ptr::null_mut();
 
     if stream.zalloc.is_none() {
@@ -212,9 +211,11 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         return ReturnCode::StreamError;
     }
 
-    if window_bits == 8 {
-        window_bits = 9; /* until 256-byte window bug fixed */
-    }
+    let window_bits = if window_bits == 8 {
+        9 /* until 256-byte window bug fixed */
+    } else {
+        window_bits as usize
+    };
 
     // allocated here to have the same order as zlib
     let state_ptr = unsafe { stream.alloc_layout(std::alloc::Layout::new::<State>()) };
@@ -223,9 +224,14 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         return ReturnCode::MemError;
     }
 
+    let alloc = Allocator {
+        zalloc: stream.zalloc.unwrap(),
+        zfree: stream.zfree.unwrap(),
+        opaque: stream.opaque,
+    };
+
     let w_size = 1 << window_bits;
-    let window_layout = std::alloc::Layout::array::<u16>(2 * (w_size + window_padding));
-    let window_ptr = unsafe { stream.alloc_layout(window_layout.unwrap()) } as *mut MaybeUninit<u8>;
+    let window = Window::new_in(&alloc, window_bits);
 
     let prev_layout = std::alloc::Layout::array::<u16>(w_size);
     let prev_ptr = unsafe { stream.alloc_layout(prev_layout.unwrap()) } as *mut u16;
@@ -241,7 +247,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * lit_bufsize);
     let sym_buf = unsafe { stream.alloc_layout(sym_buf_layout.unwrap()) } as *mut u8;
 
-    if window_ptr.is_null()
+    if window.is_none()
         || prev_ptr.is_null()
         || head_ptr.is_null()
         || pending_buf.is_null()
@@ -255,7 +261,9 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
             free(opaque, pending_buf.cast());
             free(opaque, head_ptr.cast());
             free(opaque, prev_ptr.cast());
-            free(opaque, window_ptr.cast());
+            if let Some(mut window) = window {
+                window.drop_in(&alloc);
+            }
 
             free(opaque, state_ptr.cast());
         }
@@ -263,8 +271,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         return ReturnCode::MemError;
     }
 
-    let window =
-        unsafe { Window::from_raw_parts(window_ptr, 2 * (w_size + window_padding), window_bits) };
+    let window = window.unwrap();
 
     unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
     let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
@@ -600,7 +607,7 @@ pub fn copy<'a>(
         Window::from_raw_parts(
             window_ptr,
             source_state.w_size + window_padding,
-            source_state.w_bits as i32,
+            source_state.w_bits,
         )
     };
 
