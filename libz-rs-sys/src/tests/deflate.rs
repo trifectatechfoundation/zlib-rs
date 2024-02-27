@@ -1341,3 +1341,98 @@ fn test_sync(compr: &[u8]) {
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
     }
 }
+
+#[test]
+fn test_deflate_hash_head_0() {
+    use libz_rs_sys::{
+        deflate, deflateEnd, deflateInit2_, deflateParams, Z_DEFLATED, Z_FINISH, Z_FULL_FLUSH,
+        Z_HUFFMAN_ONLY, Z_SYNC_FLUSH,
+    };
+
+    const MAX_WBITS: i32 = 15;
+
+    let mut strm = MaybeUninit::zeroed();
+    let mut err;
+
+    err = unsafe {
+        deflateInit2_(
+            strm.as_mut_ptr(),
+            1,
+            Z_DEFLATED,
+            -15,
+            4,
+            Z_HUFFMAN_ONLY,
+            VERSION,
+            STREAM_SIZE,
+        )
+    };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let strm = unsafe { strm.assume_init_mut() };
+
+    let mut next_in = [0x30; 9698];
+
+    next_in[8193] = 0x00;
+    next_in[8194] = 0x00;
+    next_in[8195] = 0x00;
+    next_in[8199] = 0x8a;
+
+    strm.next_in = next_in.as_mut_ptr();
+    let mut next_out = [0u8; 21572];
+    strm.next_out = next_out.as_mut_ptr();
+
+    strm.avail_in = 0;
+    strm.avail_out = 1348;
+    err = unsafe { deflateParams(strm, 3, Z_FILTERED) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    strm.avail_in = 6728;
+    strm.avail_out = 2696;
+    err = unsafe { deflate(strm, Z_SYNC_FLUSH) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    strm.avail_in = 15;
+    strm.avail_out = 1348;
+    err = unsafe { deflateParams(strm, 9, Z_FILTERED) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    strm.avail_in = 1453;
+    strm.avail_out = 1348;
+    err = unsafe { deflate(strm, Z_FULL_FLUSH) };
+
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    strm.avail_in = (next_in.as_mut_ptr() as usize + next_in.len() - strm.next_in as usize) as _;
+    strm.avail_out = (next_out.as_ptr() as usize + next_out.len() - strm.next_out as usize) as _;
+    err = unsafe { deflate(strm, Z_FINISH) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+    let compressed_size = strm.next_out as usize - next_out.as_ptr() as usize;
+
+    err = unsafe { deflateEnd(strm) };
+
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let mut strm = MaybeUninit::zeroed();
+
+    err = unsafe { inflateInit2_(strm.as_mut_ptr(), -MAX_WBITS, VERSION, STREAM_SIZE) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let strm = unsafe { strm.assume_init_mut() };
+
+    strm.next_in = next_out.as_mut_ptr();
+    strm.avail_in = compressed_size as _;
+    let mut uncompressed = [0; 9698];
+    assert_eq!(next_in.len(), uncompressed.len());
+
+    strm.next_out = uncompressed.as_mut_ptr();
+    strm.avail_out = uncompressed.len() as _;
+
+    err = unsafe { inflate(strm, Z_NO_FLUSH) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+    err = unsafe { inflateEnd(strm) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    assert_eq!(uncompressed, next_in);
+}
