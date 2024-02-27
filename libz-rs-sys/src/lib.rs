@@ -90,7 +90,10 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
 
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     match InflateStream::from_stream_mut(strm) {
-        Some(stream) => zlib_rs::inflate::end(stream) as _,
+        Some(stream) => {
+            zlib_rs::inflate::end(stream);
+            ReturnCode::Ok as _
+        }
         None => ReturnCode::StreamError as _,
     }
 }
@@ -345,7 +348,10 @@ pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
 
 pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
-        Some(stream) => zlib_rs::deflate::end(stream) as _,
+        Some(stream) => match zlib_rs::deflate::end(stream) {
+            Ok(_) => ReturnCode::Ok as _,
+            Err(_) => ReturnCode::DataError as _,
+        },
         None => ReturnCode::StreamError as _,
     }
 }

@@ -35,9 +35,7 @@ pub struct DeflateStream<'a> {
     pub(crate) total_out: crate::c_api::z_size,
     pub(crate) msg: *const libc::c_char,
     pub(crate) state: &'a mut State<'a>,
-    pub(crate) zalloc: crate::c_api::alloc_func,
-    pub(crate) zfree: crate::c_api::free_func,
-    pub(crate) opaque: crate::c_api::voidpf,
+    pub(crate) alloc: Allocator<'a>,
     pub(crate) data_type: libc::c_int,
     pub(crate) adler: crate::c_api::z_checksum,
     pub(crate) reserved: crate::c_api::uLong,
@@ -73,6 +71,11 @@ impl<'a> DeflateStream<'a> {
         let stream = unsafe { &mut *(strm as *mut DeflateStream) };
 
         Some(stream)
+    }
+
+    fn as_z_stream_mut(&mut self) -> &mut z_stream {
+        // safety: a valid &mut DeflateStream is also a valid &mut z_stream
+        unsafe { &mut *(self as *mut DeflateStream as *mut z_stream) }
     }
 
     pub fn pending(&self) -> (usize, u8) {
@@ -262,11 +265,11 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
                 }
-                if let Some(mut pending) = pending {
+                if let Some(pending) = pending {
                     pending.drop_in(&alloc);
                 }
                 if let Some(head) = head {
-                    alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
+                    alloc.deallocate(head.as_mut_ptr(), 1)
                 }
                 if let Some(prev) = prev {
                     alloc.deallocate(prev.as_mut_ptr(), prev.len())
@@ -545,12 +548,7 @@ pub fn copy<'a>(
         core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
     }
 
-    let alloc = Allocator {
-        zalloc: source.zalloc,
-        zfree: source.zfree,
-        opaque: source.opaque,
-        _marker: PhantomData,
-    };
+    let alloc = &source.alloc;
 
     // allocated here to have the same order as zlib
     let Some(state_allocation) = alloc.allocate::<State>() else {
@@ -559,13 +557,13 @@ pub fn copy<'a>(
 
     let source_state = &source.state;
 
-    let window = source_state.window.clone_in(&alloc);
+    let window = source_state.window.clone_in(alloc);
 
     let prev = alloc.allocate_slice::<u16>(source_state.w_size);
     let head = alloc.allocate::<[u16; HASH_SIZE]>();
 
-    let pending = source_state.pending.clone_in(&alloc);
-    let sym_buf = source_state.sym_buf.clone_in(&alloc);
+    let pending = source_state.pending.clone_in(alloc);
+    let sym_buf = source_state.sym_buf.clone_in(alloc);
 
     // if any allocation failed, clean up allocations that did succeed
     let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
@@ -582,8 +580,8 @@ pub fn copy<'a>(
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
                 }
-                if let Some(mut pending) = pending {
-                    pending.drop_in(&alloc);
+                if let Some(pending) = pending {
+                    pending.drop_in(alloc);
                 }
                 if let Some(head) = head {
                     alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
@@ -592,7 +590,7 @@ pub fn copy<'a>(
                     alloc.deallocate(prev.as_mut_ptr(), prev.len())
                 }
                 if let Some(mut window) = window {
-                    window.drop_in(&alloc);
+                    window.drop_in(alloc);
                 }
 
                 alloc.deallocate(state_allocation.as_mut_ptr(), 1);
@@ -669,37 +667,37 @@ pub fn copy<'a>(
     ReturnCode::Ok
 }
 
-pub fn end(stream: &mut DeflateStream) -> ReturnCode {
+/// # Returns
+///
+/// - Err when deflate is not done. A common cause is insufficient output space
+/// - Ok otherwise
+pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mut z_stream> {
     let status = stream.state.status;
 
-    let sym_buf = stream.state.sym_buf.as_mut_ptr();
-    let pending = stream.state.pending.as_mut_ptr();
-    let head = stream.state.head.as_mut_ptr();
-    let prev = stream.state.prev.as_mut_ptr();
-    let window = stream.state.window.as_mut_ptr();
-    let state = stream.state as *mut State;
-
-    let opaque = stream.opaque;
-    let free = stream.zfree;
-
-    // safety: a valid &mut DeflateStream is also a valid &mut z_stream
-    let stream = unsafe { &mut *(stream as *mut DeflateStream as *mut z_stream) };
-    stream.state = std::ptr::null_mut();
+    let alloc = stream.alloc;
 
     // deallocate in reverse order of allocations
     unsafe {
-        free(opaque, sym_buf.cast());
-        free(opaque, pending.cast());
-        free(opaque, head.cast());
-        free(opaque, prev.cast());
-        free(opaque, window.cast());
+        // safety: we make sure that these fields are not used (by invalidating the state pointer)
+        stream.state.sym_buf.drop_in(&alloc);
+        stream.state.pending.drop_in(&alloc);
+        alloc.deallocate(stream.state.head, 1);
+        alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
+        stream.state.window.drop_in(&alloc);
+    }
 
-        free(opaque, state.cast());
+    let state = stream.state as *mut State;
+    let stream = stream.as_z_stream_mut();
+    stream.state = std::ptr::null_mut();
+
+    // safety: `state` is not used later
+    unsafe {
+        alloc.deallocate(state, 1);
     }
 
     match status {
-        Status::Busy => ReturnCode::DataError,
-        _ => ReturnCode::Ok,
+        Status::Busy => Err(stream),
+        _ => Ok(stream),
     }
 }
 
@@ -2674,7 +2672,8 @@ pub fn compress<'a>(
     };
 
     if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
-        end(stream);
+        // error gets ignored here
+        let _ = end(stream);
     }
 
     (output_slice, ReturnCode::Ok)
@@ -3154,7 +3153,7 @@ mod test {
         assert_eq!(deflate(stream, Flush::NoFlush), ReturnCode::Ok);
 
         // but end is not
-        assert_eq!(end(stream), ReturnCode::DataError);
+        assert!(end(stream).is_err());
     }
 
     #[test]
@@ -3625,7 +3624,7 @@ mod test {
 
         let n = stream.total_out as usize;
 
-        assert_eq!(end(stream), ReturnCode::Ok);
+        assert!(end(stream).is_ok());
 
         let output_rs = &mut output[..n];
 
@@ -3680,7 +3679,7 @@ mod test {
 
         let n = stream.total_out as usize;
 
-        assert_eq!(end(stream), ReturnCode::Ok);
+        assert!(end(stream).is_ok());
 
         let output_rs = &mut output[..n];
 

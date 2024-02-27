@@ -115,6 +115,11 @@ impl<'a> InflateStream<'a> {
 
         Some(stream)
     }
+
+    fn as_z_stream_mut(&mut self) -> &mut z_stream {
+        // safety: a valid &mut InflateStream is also a valid &mut z_stream
+        unsafe { &mut *(self as *mut _ as *mut z_stream) }
+    }
 }
 
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
@@ -212,7 +217,7 @@ pub fn uncompress<'a>(
 
     let avail_out = stream.avail_out;
 
-    unsafe { end(stream) };
+    end(stream);
 
     let ret = match err {
         ReturnCode::StreamEnd => ReturnCode::Ok,
@@ -2119,33 +2124,26 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
     ReturnCode::Ok
 }
 
-/// # Safety
-///
-/// The `strm` must be either NULL or a valid mutable reference to a z_stream value where the state
-/// has been initialized with `inflateInit_` or `inflateInit2_`.
-pub unsafe extern "C" fn end(stream: &mut InflateStream) -> i32 {
+pub fn end<'a>(stream: &'a mut InflateStream) -> &'a mut z_stream {
     let mut state = State::new(&[], ReadBuf::new(&mut []));
     std::mem::swap(&mut state, stream.state);
 
     let mut window = Window::empty();
     std::mem::swap(&mut window, &mut state.window);
 
-    window.drop_in(&stream.alloc);
+    let alloc = stream.alloc;
 
-    let alloc = Allocator {
-        zalloc: stream.alloc.zalloc,
-        zfree: stream.alloc.zfree,
-        opaque: stream.alloc.opaque,
-        _marker: PhantomData,
-    };
+    // safety: window is not used again
+    unsafe { window.drop_in(&stream.alloc) };
 
-    // safety: a valid &mut InflateStream is also a valid &mut z_stream
-    let stream = unsafe { &mut *(stream as *mut _ as *mut z_stream) };
+    let stream = stream.as_z_stream_mut();
 
     let state_ptr = std::mem::replace(&mut stream.state, std::ptr::null_mut());
-    alloc.deallocate(state_ptr, 1);
 
-    ReturnCode::Ok as _
+    // safety: state_ptr is not used again
+    unsafe { alloc.deallocate(state_ptr as *mut State, 1) };
+
+    stream
 }
 
 pub fn get_header<'a>(

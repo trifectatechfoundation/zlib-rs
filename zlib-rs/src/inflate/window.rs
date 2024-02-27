@@ -168,7 +168,7 @@ impl<'a> Window<'a> {
         })
     }
 
-    pub unsafe fn drop_in(&mut self, alloc: &Allocator) {
+    pub unsafe fn drop_in(mut self, alloc: &Allocator) {
         if !self.buf.is_empty() {
             let buf = core::mem::take(&mut self.buf);
             alloc.deallocate(buf.as_mut_ptr(), self.buf.len());

@@ -11,10 +11,6 @@ pub struct Pending<'a> {
 }
 
 impl<'a> Pending<'a> {
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.buf
-    }
-
     pub fn reset_keep(&mut self) {
         // keep the buffer as it is
         self.pending = 0;
@@ -92,7 +88,7 @@ impl<'a> Pending<'a> {
         Some(clone)
     }
 
-    pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator) {
+    pub(crate) unsafe fn drop_in(&self, alloc: &Allocator) {
         let len = self.end as usize - self.buf as usize;
         alloc.deallocate(self.buf, len);
     }
