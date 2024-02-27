@@ -47,21 +47,6 @@ impl<'a> Window<'a> {
         2 * (1 << self.window_bits)
     }
 
-    pub unsafe fn from_raw_parts(
-        data: *mut MaybeUninit<u8>,
-        len: usize,
-        window_bits: usize,
-    ) -> Self {
-        let buf = std::slice::from_raw_parts_mut(data, len);
-
-        Self {
-            buf,
-            filled: 0,
-            window_bits,
-            high_water: 0,
-        }
-    }
-
     /// Returns a shared reference to the filled portion of the buffer.
     #[inline]
     pub fn filled(&self) -> &[u8] {

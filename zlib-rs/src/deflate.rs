@@ -3,7 +3,7 @@ use std::{ffi::CStr, mem::MaybeUninit, ops::ControlFlow};
 use crate::{
     adler32::adler32,
     allocate::Allocator,
-    c_api::{gz_header, z_stream},
+    c_api::{gz_header, internal_state, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
     trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
@@ -169,6 +169,12 @@ unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
     &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
 }
 
+// when stable, use MaybeUninit::write_slice
+fn slice_to_uninit<T>(slice: &[T]) -> &[MaybeUninit<T>] {
+    // safety: &[T] and &[MaybeUninit<T>] have the same layout
+    unsafe { &*(slice as *const [T] as *const [MaybeUninit<T>]) }
+}
+
 pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let DeflateConfig {
         mut level,
@@ -222,17 +228,15 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         window_bits as usize
     };
 
-    // allocated here to have the same order as zlib
-    let state_ptr = unsafe { stream.alloc_layout(std::alloc::Layout::new::<State>()) };
-
-    if state_ptr.is_null() {
-        return ReturnCode::MemError;
-    }
-
     let alloc = Allocator {
         zalloc: stream.zalloc.unwrap(),
         zfree: stream.zfree.unwrap(),
         opaque: stream.opaque,
+    };
+
+    // allocated here to have the same order as zlib
+    let Some(state_allocation) = alloc.allocate::<State>() else {
+        return ReturnCode::MemError;
     };
 
     let w_size = 1 << window_bits;
@@ -247,57 +251,47 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
     let sym_buf = ReadBuf::new_in(&alloc, 3 * lit_bufsize);
 
-    if window.is_none()
-        || prev.is_none()
-        || head.is_none()
-        || pending.is_none()
-        || sym_buf.is_none()
-    {
-        let opaque = stream.opaque;
-        let free = stream.zfree.unwrap();
-
-        unsafe {
-            if let Some(mut sym_buf) = sym_buf {
-                alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
-            }
-            if let Some(mut pending) = pending {
-                pending.drop_in(&alloc);
-            }
-            if let Some(head) = head {
-                alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
-            }
-            if let Some(prev) = prev {
-                alloc.deallocate(prev.as_mut_ptr(), prev.len())
-            }
-            if let Some(mut window) = window {
-                window.drop_in(&alloc);
-            }
-
-            free(opaque, state_ptr.cast());
+    // if any allocation failed, clean up allocations that did succeed
+    let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
+        (Some(window), Some(prev), Some(head), Some(pending), Some(sym_buf)) => {
+            (window, prev, head, pending, sym_buf)
         }
+        (window, prev, head, pending, sym_buf) => {
+            unsafe {
+                if let Some(mut sym_buf) = sym_buf {
+                    alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
+                }
+                if let Some(mut pending) = pending {
+                    pending.drop_in(&alloc);
+                }
+                if let Some(head) = head {
+                    alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
+                }
+                if let Some(prev) = prev {
+                    alloc.deallocate(prev.as_mut_ptr(), prev.len())
+                }
+                if let Some(mut window) = window {
+                    window.drop_in(&alloc);
+                }
 
-        return ReturnCode::MemError;
-    }
+                alloc.deallocate(state_allocation.as_mut_ptr(), 1);
+            }
 
-    let window = window.unwrap();
+            return ReturnCode::MemError;
+        }
+    };
 
-    let prev = prev.unwrap();
     prev.fill(MaybeUninit::zeroed());
     let prev = unsafe { slice_assume_init_mut(prev) };
 
-    let head = head.unwrap();
     *head = MaybeUninit::zeroed();
     let head = unsafe { head.assume_init_mut() };
-
-    let pending = pending.unwrap();
-
-    let sym_buf = sym_buf.unwrap();
 
     let state = State {
         status: Status::Init,
 
         // window
-        w_bits: window_bits as usize,
+        w_bits: window_bits,
         w_size,
         w_mask: w_size - 1,
 
@@ -365,8 +359,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         quick_insert_string: StandardHashCalc::quick_insert_string,
     };
 
-    unsafe { *(state_ptr as *mut State) = state };
-    stream.state = state_ptr.cast();
+    let state = state_allocation.write(state);
+    stream.state = state as *mut _ as *mut internal_state;
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
         if cfg!(debug_assertions) {
@@ -550,86 +544,65 @@ pub fn copy<'a>(
         core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
     }
 
-    // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
-    let alloc_layout = |layout: std::alloc::Layout| unsafe {
-        (source.zalloc)(source.opaque, layout.size() as u32, 1)
+    let alloc = Allocator {
+        zalloc: source.zalloc,
+        zfree: source.zfree,
+        opaque: source.opaque,
     };
 
     // allocated here to have the same order as zlib
-    let state_ptr: *mut State = alloc_layout(std::alloc::Layout::new::<State>()).cast();
-
-    if state_ptr.is_null() {
+    let Some(state_allocation) = alloc.allocate::<State>() else {
         return ReturnCode::MemError;
-    }
+    };
 
     let source_state = &source.state;
 
-    let window_padding = Window::padding();
-    let window_layout = std::alloc::Layout::array::<u8>(2 * (source_state.w_size + window_padding));
-    let window_ptr = alloc_layout(window_layout.unwrap()) as *mut MaybeUninit<u8>;
+    let window = source_state.window.clone_in(&alloc);
 
-    let prev_layout = std::alloc::Layout::array::<u16>(source_state.w_size);
-    let prev_ptr = alloc_layout(prev_layout.unwrap()) as *mut u16;
+    let prev = alloc.allocate_slice::<u16>(source_state.w_size);
+    let head = alloc.allocate::<[u16; HASH_SIZE]>();
 
-    let head_layout = std::alloc::Layout::array::<u16>(HASH_SIZE);
-    let head_ptr = alloc_layout(head_layout.unwrap()) as *mut [u16; HASH_SIZE];
+    let pending = source_state.pending.clone_in(&alloc);
+    let sym_buf = source_state.sym_buf.clone_in(&alloc);
 
-    let pending_layout = std::alloc::Layout::array::<u8>(4 * source_state.lit_bufsize);
-    let pending_ptr = alloc_layout(pending_layout.unwrap()) as *mut u8;
-
-    // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
-    let sym_buf_layout = std::alloc::Layout::array::<u8>(3 * source_state.lit_bufsize);
-    let sym_buf = alloc_layout(sym_buf_layout.unwrap()) as *mut u8;
-
-    if window_ptr.is_null()
-        || prev_ptr.is_null()
-        || head_ptr.is_null()
-        || pending_ptr.is_null()
-        || sym_buf.is_null()
-    {
-        let opaque = source.opaque;
-        let free = source.zfree;
-
-        // Safety: this access is in-bounds
-        let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-        unsafe { std::ptr::write(field_ptr as *mut *mut State, std::ptr::null_mut()) };
-
-        // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
-        unsafe {
-            free(opaque, sym_buf.cast());
-            free(opaque, pending_ptr.cast());
-            free(opaque, head_ptr.cast());
-            free(opaque, prev_ptr.cast());
-            free(opaque, window_ptr.cast());
-
-            free(opaque, state_ptr.cast());
+    // if any allocation failed, clean up allocations that did succeed
+    let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
+        (Some(window), Some(prev), Some(head), Some(pending), Some(sym_buf)) => {
+            (window, prev, head, pending, sym_buf)
         }
+        (window, prev, head, pending, sym_buf) => {
+            // Safety: this access is in-bounds
+            let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+            unsafe { std::ptr::write(field_ptr as *mut *mut State, std::ptr::null_mut()) };
 
-        return ReturnCode::MemError;
-    }
+            // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
+            unsafe {
+                if let Some(mut sym_buf) = sym_buf {
+                    alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
+                }
+                if let Some(mut pending) = pending {
+                    pending.drop_in(&alloc);
+                }
+                if let Some(head) = head {
+                    alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
+                }
+                if let Some(prev) = prev {
+                    alloc.deallocate(prev.as_mut_ptr(), prev.len())
+                }
+                if let Some(mut window) = window {
+                    window.drop_in(&alloc);
+                }
 
-    let State {
-        w_size,
-        lit_bufsize,
-        ..
-    } = **source_state;
+                alloc.deallocate(state_allocation.as_mut_ptr(), 1);
+            }
 
-    let window = unsafe {
-        Window::from_raw_parts(
-            window_ptr,
-            source_state.w_size + window_padding,
-            source_state.w_bits,
-        )
+            return ReturnCode::MemError;
+        }
     };
 
-    unsafe { std::ptr::write_bytes(prev_ptr, 0, w_size) }; // initialize!
-    let prev = unsafe { std::slice::from_raw_parts_mut(prev_ptr, w_size) };
-
-    let head = unsafe { &mut *head_ptr };
-
-    let pending = unsafe { Pending::from_raw_parts(pending_ptr, 4 * lit_bufsize) };
-
-    let sym_buf = unsafe { ReadBuf::from_raw_parts(sym_buf, 3 * lit_bufsize) };
+    prev.copy_from_slice(slice_to_uninit(source_state.prev));
+    let prev = unsafe { core::slice::from_raw_parts_mut(prev.as_mut_ptr().cast(), prev.len()) };
+    let head = head.write(*source_state.head);
 
     let dest_state = State {
         status: source_state.status,
@@ -681,7 +654,7 @@ pub fn copy<'a>(
     };
 
     // write the cloned state into state_ptr
-    unsafe { state_ptr.write(dest_state) };
+    let state_ptr = state_allocation.write(dest_state);
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
