@@ -1,5 +1,7 @@
 use std::mem::MaybeUninit;
 
+use crate::allocate::Allocator;
+
 #[derive(Debug)]
 pub struct Window<'a> {
     // the full window allocation. This is longer than w_size so that operations don't need to
@@ -9,20 +11,53 @@ pub struct Window<'a> {
     // number of initialized bytes
     filled: usize,
 
-    // same as 2 * (1 << window_bits)
-    capacity: usize,
+    window_bits: usize,
 
     high_water: usize,
 }
 
 impl<'a> Window<'a> {
-    pub unsafe fn from_raw_parts(data: *mut MaybeUninit<u8>, len: usize, window_bits: i32) -> Self {
+    pub fn new_in(alloc: &'a Allocator, window_bits: usize) -> Option<Self> {
+        let buf = alloc.allocate_slice::<u8>(2 * ((1 << window_bits) + Self::padding()))?;
+
+        Some(Self {
+            buf,
+            filled: 0,
+            window_bits,
+            high_water: 0,
+        })
+    }
+
+    pub fn clone_in(&self, alloc: &'a Allocator) -> Option<Self> {
+        let mut clone = Self::new_in(alloc, self.window_bits)?;
+
+        clone.buf.copy_from_slice(self.buf);
+        clone.filled = self.filled;
+        clone.high_water = self.high_water;
+
+        Some(clone)
+    }
+
+    pub unsafe fn drop_in(&mut self, alloc: &'a Allocator) {
+        let buf = core::mem::take(&mut self.buf);
+        alloc.deallocate(buf.as_mut_ptr(), self.buf.len());
+    }
+
+    fn capacity(&self) -> usize {
+        2 * (1 << self.window_bits)
+    }
+
+    pub unsafe fn from_raw_parts(
+        data: *mut MaybeUninit<u8>,
+        len: usize,
+        window_bits: usize,
+    ) -> Self {
         let buf = std::slice::from_raw_parts_mut(data, len);
 
         Self {
             buf,
             filled: 0,
-            capacity: 2 * (1 << window_bits),
+            window_bits,
             high_water: 0,
         }
     }
@@ -83,13 +118,13 @@ impl<'a> Window<'a> {
         // the longest match routines.  Update the high water mark for the next
         // time through here.  WIN_INIT is set to STD_MAX_MATCH since the longest match
         // routines allow scanning to strstart + STD_MAX_MATCH, ignoring lookahead.
-        if self.high_water < self.capacity {
+        if self.high_water < self.capacity() {
             let curr = self.filled().len();
 
             if self.high_water < curr {
                 // Previous high water mark below current data -- zero WIN_INIT
                 // bytes or up to end of window, whichever is less.
-                let init = Ord::min(self.capacity - curr, WIN_INIT);
+                let init = Ord::min(self.capacity() - curr, WIN_INIT);
 
                 self.buf[curr..][..init].fill(MaybeUninit::new(0));
 
@@ -102,7 +137,7 @@ impl<'a> Window<'a> {
                 // to end of window, whichever is less.
                 let init = Ord::min(
                     curr + WIN_INIT - self.high_water,
-                    self.capacity - self.high_water,
+                    self.capacity() - self.high_water,
                 );
 
                 self.buf[self.high_water..][..init].fill(MaybeUninit::new(0));

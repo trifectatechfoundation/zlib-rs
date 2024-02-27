@@ -1,4 +1,8 @@
-use std::ffi::{c_uint, c_void};
+use std::{
+    alloc::Layout,
+    ffi::{c_uint, c_void},
+    mem::MaybeUninit,
+};
 
 use libc::size_t;
 
@@ -62,4 +66,32 @@ unsafe fn zng_alloc(size: libc::size_t) -> *mut c_void {
 unsafe fn zng_free(ptr: *mut c_void) {
     // TODO based on the zlig-ng code this may need to use _aligned_free on (32-bit?) windows
     unsafe { libc::free(ptr) };
+}
+
+#[repr(C)]
+pub(crate) struct Allocator {
+    pub(crate) zalloc: crate::c_api::alloc_func,
+    pub(crate) zfree: crate::c_api::free_func,
+    pub(crate) opaque: crate::c_api::voidpf,
+}
+
+impl Allocator {
+    pub fn allocate<T>(&self) -> Option<&mut MaybeUninit<T>> {
+        todo!()
+    }
+
+    pub fn allocate_slice<T>(&self, len: usize) -> Option<&mut [MaybeUninit<T>]> {
+        let layout = Layout::array::<T>(len).ok()?;
+        let ptr = unsafe { (self.zalloc)(self.opaque, layout.size() as _, 1) };
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { core::slice::from_raw_parts_mut(ptr.cast(), len) })
+        }
+    }
+
+    pub unsafe fn deallocate<T>(&self, ptr: *mut T, _len: usize) {
+        (self.zfree)(self.opaque, ptr.cast())
+    }
 }
