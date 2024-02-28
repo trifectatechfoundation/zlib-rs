@@ -3,6 +3,8 @@
 
 use std::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
+use crate::allocate::Allocator;
+
 pub type alloc_func = unsafe extern "C" fn(voidpf, uInt, uInt) -> voidpf;
 pub type free_func = unsafe extern "C" fn(voidpf, voidpf);
 
@@ -54,6 +56,22 @@ impl Default for z_stream {
             adler: 0,
             reserved: 0,
         }
+    }
+}
+
+impl z_stream {
+    fn configure_allocator(&mut self, alloc: Allocator) {
+        self.zalloc = Some(alloc.zalloc);
+        self.zfree = Some(alloc.zfree);
+        self.opaque = alloc.opaque;
+    }
+
+    pub fn configure_default_rust_allocator(&mut self) {
+        self.configure_allocator(Allocator::RUST)
+    }
+
+    pub fn configure_default_c_allocator(&mut self) {
+        self.configure_allocator(Allocator::C)
     }
 }
 

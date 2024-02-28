@@ -187,7 +187,19 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
         let config = InflateConfig {
             window_bits: windowBits,
         };
-        zlib_rs::inflate::init(&mut *strm, config) as _
+
+        let stream = &mut *strm;
+
+        if stream.zalloc.is_none() {
+            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.opaque = std::ptr::null_mut();
+        }
+
+        if stream.zfree.is_none() {
+            stream.zfree = Some(zlib_rs::allocate::zcfree);
+        }
+
+        zlib_rs::inflate::init(stream, config) as _
     }
 }
 
@@ -439,7 +451,18 @@ pub unsafe extern "C" fn deflateInit_(
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
-        zlib_rs::deflate::init(&mut *strm, DeflateConfig::new(level)) as _
+        let stream = &mut *strm;
+
+        if stream.zalloc.is_none() {
+            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.opaque = std::ptr::null_mut();
+        }
+
+        if stream.zfree.is_none() {
+            stream.zfree = Some(zlib_rs::allocate::zcfree);
+        }
+
+        zlib_rs::deflate::init(stream, DeflateConfig::new(level)) as _
     }
 }
 
@@ -472,7 +495,18 @@ pub unsafe extern "C" fn deflateInit2_(
             strategy,
         };
 
-        zlib_rs::deflate::init(&mut *strm, config) as _
+        let stream = &mut *strm;
+
+        if stream.zalloc.is_none() {
+            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.opaque = std::ptr::null_mut();
+        }
+
+        if stream.zfree.is_none() {
+            stream.zfree = Some(zlib_rs::allocate::zcfree);
+        }
+
+        zlib_rs::deflate::init(stream, config) as _
     }
 }
 
