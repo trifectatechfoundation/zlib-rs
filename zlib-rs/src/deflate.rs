@@ -2976,7 +2976,7 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
 
 #[cfg(test)]
 mod test {
-    use crate::inflate::{InflateConfig, InflateStream};
+    use crate::inflate::{uncompress_slice, InflateConfig, InflateStream};
 
     use super::*;
 
@@ -3973,5 +3973,44 @@ mod test {
 
             true
         }
+    }
+
+    #[test]
+    fn insufficient_compress_space() {
+        const DATA: &[u8] = include_bytes!("deflate/test-data/inflate_buf_error.dat");
+
+        fn helper(deflate_buf: &mut [u8]) -> ReturnCode {
+            let config = DeflateConfig {
+                level: 0,
+                method: Method::Deflated,
+                window_bits: 10,
+                mem_level: 6,
+                strategy: Strategy::Default,
+            };
+
+            let (output, err) = compress_slice(deflate_buf, DATA, config);
+            assert_eq!(err, ReturnCode::Ok);
+
+            let config = InflateConfig {
+                window_bits: config.window_bits,
+            };
+
+            let mut uncompr = [0; 1 << 17];
+            let (uncompr, err) = uncompress_slice(&mut uncompr, output, config);
+
+            if err == ReturnCode::Ok {
+                assert_eq!(DATA, uncompr);
+            }
+
+            err
+        }
+
+        let mut output = [0; 1 << 17];
+
+        // this is too little space
+        assert_eq!(helper(&mut output[..1 << 16]), ReturnCode::DataError);
+
+        // this is sufficient space
+        assert_eq!(helper(&mut output), ReturnCode::Ok);
     }
 }
