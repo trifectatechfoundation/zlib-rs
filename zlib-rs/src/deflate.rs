@@ -190,13 +190,11 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     /* Todo: ignore strm->next_in if we use it as window */
     stream.msg = std::ptr::null_mut();
 
-    if stream.zalloc.is_none() {
-        stream.zalloc = Some(crate::allocate::zcalloc);
-        stream.opaque = std::ptr::null_mut();
-    }
-
-    if stream.zfree.is_none() {
-        stream.zfree = Some(crate::allocate::zcfree);
+    // for safety we  must really make sure that alloc and free are consistent
+    // this is a (slight) deviation from stock zlib. In this crate we pick the rust
+    // allocator as the default, but `libz-rs-sys` configures the C allocator
+    if stream.zalloc.is_none() || stream.zfree.is_none() {
+        stream.configure_default_rust_allocator()
     }
 
     if level == crate::c_api::Z_DEFAULT_COMPRESSION {

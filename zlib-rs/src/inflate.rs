@@ -14,7 +14,6 @@ use crate::allocate::Allocator;
 use crate::c_api::internal_state;
 use crate::{
     adler32::adler32,
-    allocate,
     c_api::{gz_header, z_stream, Z_DEFLATED},
     read_buf::ReadBuf,
     Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
@@ -1675,13 +1674,11 @@ impl Default for InflateConfig {
 pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     stream.msg = std::ptr::null_mut();
 
-    if stream.zalloc.is_none() {
-        stream.zalloc = Some(allocate::zcalloc);
-        stream.opaque = std::ptr::null_mut();
-    }
-
-    if stream.zfree.is_none() {
-        stream.zfree = Some(allocate::zcfree);
+    // for safety we must really make sure that alloc and free are consistent
+    // this is a (slight) deviation from stock zlib. In this crate we pick the rust
+    // allocator as the default, but `libz-rs-sys` configures the C allocator
+    if stream.zalloc.is_none() || stream.zfree.is_none() {
+        stream.configure_default_rust_allocator()
     }
 
     let mut state = State::new(&[], ReadBuf::new(&mut []));

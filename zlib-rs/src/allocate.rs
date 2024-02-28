@@ -1,5 +1,5 @@
 use std::{
-    alloc::Layout,
+    alloc::{GlobalAlloc, Layout},
     ffi::{c_uint, c_void},
     marker::PhantomData,
     mem::MaybeUninit,
@@ -69,6 +69,39 @@ unsafe fn zng_free(ptr: *mut c_void) {
     unsafe { libc::free(ptr) };
 }
 
+unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
+    let align = 64;
+    let size = align + count as usize * size as usize;
+
+    // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
+    let layout = Layout::from_size_align(size, align).unwrap();
+
+    let mut ptr = std::alloc::System.alloc(layout);
+
+    if !ptr.is_null() {
+        ptr.add(align - core::mem::size_of::<usize>())
+            .cast::<usize>()
+            .write(size);
+
+        ptr = ptr.add(align);
+    }
+
+    ptr as *mut c_void
+}
+
+unsafe extern "C" fn zfree_rust(_opaque: *mut c_void, ptr: *mut c_void) {
+    let align = 64;
+    let size = (ptr as *mut usize).offset(-1).read();
+    let layout = Layout::from_size_align(align + size, align);
+    let layout = layout.unwrap();
+
+    if ptr.is_null() {
+        return;
+    }
+
+    std::alloc::System.dealloc(ptr.sub(align).cast(), layout);
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub(crate) struct Allocator<'a> {
@@ -76,6 +109,22 @@ pub(crate) struct Allocator<'a> {
     pub(crate) zfree: crate::c_api::free_func,
     pub(crate) opaque: crate::c_api::voidpf,
     pub(crate) _marker: PhantomData<&'a ()>,
+}
+
+impl Allocator<'static> {
+    pub const RUST: Self = Self {
+        zalloc: zalloc_rust,
+        zfree: zfree_rust,
+        opaque: core::ptr::null_mut(),
+        _marker: PhantomData,
+    };
+
+    pub const C: Self = Self {
+        zalloc: zcalloc,
+        zfree: zcfree,
+        opaque: core::ptr::null_mut(),
+        _marker: PhantomData,
+    };
 }
 
 impl<'a> Allocator<'a> {
