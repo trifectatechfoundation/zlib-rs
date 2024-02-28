@@ -2529,11 +2529,11 @@ pub fn compress<'a>(
     (output_slice, ReturnCode::Ok)
 }
 
-pub fn compress_bound(source_len: usize) -> usize {
+pub const fn compress_bound(source_len: usize) -> usize {
     compress_bound_help(source_len, ZLIB_WRAPLEN)
 }
 
-fn compress_bound_help(source_len: usize, wrap_len: usize) -> usize {
+const fn compress_bound_help(source_len: usize, wrap_len: usize) -> usize {
     source_len // The source size itself */
         // Always at least one byte for any input
         .wrapping_add(if source_len == 0 { 1 } else { 0 })
