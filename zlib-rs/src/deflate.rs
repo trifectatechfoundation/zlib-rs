@@ -2980,7 +2980,10 @@ mod test {
 
     use super::*;
 
-    use std::ffi::{c_char, c_int, c_uint, CStr};
+    use std::{
+        ffi::{c_char, c_int, c_uint, CStr},
+        sync::atomic::AtomicUsize,
+    };
 
     const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
     const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
@@ -3053,62 +3056,67 @@ mod test {
         }
     }
 
-    #[test]
-    fn init_invalid_allocator() {
-        use crate::c_api::{uInt, voidpf};
+    unsafe extern "C" fn fail_nth_allocation<const N: usize>(
+        opaque: crate::c_api::voidpf,
+        items: crate::c_api::uInt,
+        size: crate::c_api::uInt,
+    ) -> crate::c_api::voidpf {
+        let count = unsafe { &*(opaque as *const AtomicUsize) };
 
-        unsafe extern "C" fn failing_allocator(_: voidpf, _: uInt, _: uInt) -> voidpf {
+        if count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) != N {
+            crate::allocate::zcalloc(opaque, items, size)
+        } else {
             std::ptr::null_mut()
         }
+    }
 
-        let mut stream = z_stream {
-            zalloc: Some(failing_allocator),
-            ..z_stream::default()
-        };
-        assert_eq!(
-            init(&mut stream, DeflateConfig::default()),
-            ReturnCode::MemError
-        );
-
-        unsafe extern "C" fn unreliable_allocator(
-            opaque: voidpf,
-            items: uInt,
-            size: uInt,
-        ) -> voidpf {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-
-            static X: AtomicUsize = AtomicUsize::new(0);
-
-            if X.fetch_add(1, Ordering::Relaxed) < 4 {
-                crate::allocate::zcalloc(opaque, items, size)
-            } else {
-                std::ptr::null_mut()
-            }
+    #[test]
+    fn init_invalid_allocator() {
+        {
+            let mut stream = z_stream {
+                zalloc: Some(fail_nth_allocation::<0>),
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                ..z_stream::default()
+            };
+            assert_eq!(
+                init(&mut stream, DeflateConfig::default()),
+                ReturnCode::MemError
+            );
         }
 
-        let mut stream = z_stream {
-            zalloc: Some(unreliable_allocator),
-            ..z_stream::default()
-        };
-        assert_eq!(
-            init(&mut stream, DeflateConfig::default()),
-            ReturnCode::MemError
-        );
+        {
+            let mut stream = z_stream {
+                zalloc: Some(fail_nth_allocation::<3>),
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                ..z_stream::default()
+            };
+            assert_eq!(
+                init(&mut stream, DeflateConfig::default()),
+                ReturnCode::MemError
+            );
+        }
+
+        {
+            let mut stream = z_stream {
+                zalloc: Some(fail_nth_allocation::<5>),
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                ..z_stream::default()
+            };
+            assert_eq!(
+                init(&mut stream, DeflateConfig::default()),
+                ReturnCode::MemError
+            );
+        }
     }
 
     #[test]
     fn copy_invalid_allocator() {
-        use crate::c_api::{uInt, voidpf};
-
         {
-            unsafe extern "C" fn failing_allocator(_: voidpf, _: uInt, _: uInt) -> voidpf {
-                std::ptr::null_mut()
-            }
-
             let mut stream = z_stream::default();
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-            stream.zalloc = Some(failing_allocator);
+            stream.zalloc = Some(fail_nth_allocation::<0>);
+            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
                 unreachable!()
             };
@@ -3119,26 +3127,26 @@ mod test {
         }
 
         {
-            unsafe extern "C" fn unreliable_allocator(
-                opaque: voidpf,
-                items: uInt,
-                size: uInt,
-            ) -> voidpf {
-                use std::sync::atomic::{AtomicUsize, Ordering};
-
-                static X: AtomicUsize = AtomicUsize::new(0);
-
-                if X.fetch_add(1, Ordering::Relaxed) < 4 {
-                    crate::allocate::zcalloc(opaque, items, size)
-                } else {
-                    std::ptr::null_mut()
-                }
-            }
-
             let mut stream = z_stream::default();
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-            stream.zalloc = Some(unreliable_allocator);
+            stream.zalloc = Some(fail_nth_allocation::<3>);
+            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
+            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+                unreachable!()
+            };
+
+            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+
+            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+        }
+
+        {
+            let mut stream = z_stream::default();
+            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+            stream.zalloc = Some(fail_nth_allocation::<5>);
+            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
                 unreachable!()
             };
