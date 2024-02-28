@@ -2,12 +2,11 @@ use std::mem::ManuallyDrop;
 
 use crate as libz_rs_sys;
 
-use std::ffi::{c_char, c_int, c_void, CStr};
-
+use std::ffi::CStr;
 use libz_rs_sys::*;
 use zlib_rs::deflate::compress_slice;
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, INFLATE_STATE_SIZE};
-use zlib_rs::{Flush, MAX_WBITS};
+use zlib_rs::MAX_WBITS;
 
 const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
