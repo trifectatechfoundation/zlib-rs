@@ -23,7 +23,7 @@ fuzz_target!(|input: (String, DeflateConfig)| {
     }
     unsafe { libz_rs_sys::deflateEnd(&mut stream) };
 
-    const LENGTH: usize = 1 << 16;
+    const LENGTH: usize = 1 << 17;
 
     // first, deflate the data using the standard zlib
     let mut deflated_rs = [0; LENGTH];
