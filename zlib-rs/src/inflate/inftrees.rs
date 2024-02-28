@@ -272,8 +272,6 @@ pub(crate) fn inflate_table(
 
 #[cfg(test)]
 mod test {
-    use crate::Code;
-
     use super::*;
 
     #[test]
