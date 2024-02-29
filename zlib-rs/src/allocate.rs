@@ -71,35 +71,38 @@ unsafe fn zng_free(ptr: *mut c_void) {
 
 unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
     let align = 64;
-    let size = align + count as usize * size as usize;
+    let size = count as usize * size as usize;
 
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
     let layout = Layout::from_size_align(size, align).unwrap();
 
-    let mut ptr = std::alloc::System.alloc(layout);
-
-    if !ptr.is_null() {
-        ptr.add(align - core::mem::size_of::<usize>())
-            .cast::<usize>()
-            .write(size);
-
-        ptr = ptr.add(align);
-    }
+    let ptr = std::alloc::System.alloc(layout);
 
     ptr as *mut c_void
 }
 
-unsafe extern "C" fn zfree_rust(_opaque: *mut c_void, ptr: *mut c_void) {
-    let align = 64;
-    let size = (ptr as *mut usize).offset(-1).read();
-    let layout = Layout::from_size_align(align + size, align);
-    let layout = layout.unwrap();
-
+/// # Safety
+///
+/// - `ptr` must be allocated with the rust `alloc::System` allocator
+/// - `opaque` is a `&usize` that represents the size of the allocation
+unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
 
-    std::alloc::System.dealloc(ptr.sub(align).cast(), layout);
+    // we can't really do much else. Deallocating with an invalid layout is UB.
+    debug_assert!(!opaque.is_null());
+    if opaque.is_null() {
+        return;
+    }
+
+    let size = *(opaque as *mut usize);
+    let align = 64;
+
+    let layout = Layout::from_size_align(size, align);
+    let layout = layout.unwrap();
+
+    std::alloc::System.dealloc(ptr.cast(), layout);
 }
 
 #[derive(Clone, Copy)]
@@ -150,9 +153,23 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    pub unsafe fn deallocate<T>(&self, ptr: *mut T, _len: usize) {
+    /// # Panics
+    ///
+    /// - when `len` is 0
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must be allocated with this allocator
+    /// - `len` must be the number of `T`s that are in this allocation
+    pub unsafe fn deallocate<T>(&self, ptr: *mut T, len: usize) {
         if !ptr.is_null() {
-            (self.zfree)(self.opaque, ptr.cast())
+            if self.zfree == Allocator::RUST.zfree {
+                assert_ne!(len, 0, "invalid size for {:?}", ptr);
+                let mut size = core::mem::size_of::<T>() * len;
+                (Allocator::RUST.zfree)(&mut size as *mut usize as *mut c_void, ptr.cast())
+            } else {
+                (self.zfree)(self.opaque, ptr.cast())
+            }
         }
     }
 }

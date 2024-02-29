@@ -680,7 +680,9 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
         stream.state.sym_buf.drop_in(&alloc);
         stream.state.pending.drop_in(&alloc);
         alloc.deallocate(stream.state.head, 1);
-        alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
+        if !stream.state.prev.is_empty() {
+            alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
+        }
         stream.state.window.drop_in(&alloc);
     }
 
