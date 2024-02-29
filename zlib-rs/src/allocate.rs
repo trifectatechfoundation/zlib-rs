@@ -5,7 +5,10 @@ use std::{
     mem::MaybeUninit,
 };
 
-use libc::size_t;
+use std::ffi::c_int;
+
+#[allow(non_camel_case_types)]
+type size_t = usize;
 
 /// # Safety
 ///
@@ -46,27 +49,43 @@ pub unsafe extern "C" fn zcfree(opaque: *mut c_void, ptr: *mut c_void) {
 
 #[cfg(unix)]
 unsafe fn zng_alloc(size: size_t) -> *mut c_void {
+    extern "C" {
+        fn posix_memalign(memptr: *mut *mut c_void, align: size_t, size: size_t) -> c_int;
+    }
+
     let mut ptr = std::ptr::null_mut();
-    match libc::posix_memalign(&mut ptr, 64, size) {
+    match posix_memalign(&mut ptr, 64, size) {
         0 => ptr,
         _ => std::ptr::null_mut(),
     }
 }
 
 #[cfg(windows)]
-unsafe fn zng_alloc(size: libc::size_t) -> *mut c_void {
-    libc::aligned_malloc(size, 64)
+unsafe fn zng_alloc(size: size_t) -> *mut c_void {
+    extern "C" {
+        fn aligned_malloc(size: size_t, alignment: size_t) -> *mut c_void;
+
+    }
+
+    aligned_malloc(size, 64)
 }
 
 #[cfg(not(any(unix, windows)))]
-unsafe fn zng_alloc(size: libc::size_t) -> *mut c_void {
+unsafe fn zng_alloc(size: size_t) -> *mut c_void {
+    extern "C" {
+        fn memalign(align: size_t, size: size_t) -> *mut c_void;
+    }
+
     // just sort of hope that this function exists
-    libc::memalign(64, size)
+    memalign(64, size)
 }
 
 unsafe fn zng_free(ptr: *mut c_void) {
-    // TODO based on the zlig-ng code this may need to use _aligned_free on (32-bit?) windows
-    unsafe { libc::free(ptr) };
+    extern "C" {
+        fn free(p: *mut c_void);
+    }
+
+    unsafe { free(ptr) }
 }
 
 unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {

@@ -33,10 +33,10 @@ pub struct DeflateStream<'a> {
     pub(crate) next_out: *mut crate::c_api::Bytef,
     pub(crate) avail_out: crate::c_api::uInt,
     pub(crate) total_out: crate::c_api::z_size,
-    pub(crate) msg: *const libc::c_char,
+    pub(crate) msg: *const std::ffi::c_char,
     pub(crate) state: &'a mut State<'a>,
     pub(crate) alloc: Allocator<'a>,
-    pub(crate) data_type: libc::c_int,
+    pub(crate) data_type: std::ffi::c_int,
     pub(crate) adler: crate::c_api::z_checksum,
     pub(crate) reserved: crate::c_api::uLong,
 }
@@ -2631,7 +2631,7 @@ pub fn compress<'a>(
         return (&mut [], err);
     }
 
-    let max = libc::c_uint::MAX as usize;
+    let max = core::ffi::c_uint::MAX as usize;
 
     let mut left = output.len();
     let mut source_len = input.len();

@@ -79,12 +79,6 @@ impl z_stream {
 pub(crate) type z_size = c_ulong;
 pub(crate) type z_checksum = c_ulong;
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub type z_off_t = libc::off_t;
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-pub type z_off_t = c_long;
-
 // opaque to the user
 pub enum internal_state {}
 
