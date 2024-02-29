@@ -17,6 +17,12 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub type z_off_t = libc::off_t;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub type z_off_t = c_long;
+
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
     zlib_rs::crc32(crc as u32, buf) as c_ulong
