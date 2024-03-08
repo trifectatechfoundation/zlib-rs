@@ -1325,8 +1325,6 @@ fn gzip_chunked(chunk_size: usize) {
 
 #[test]
 fn chunked_output_rs() {
-    // use load_dynamic_libz_ng::{inflate, inflateInit2_, z_stream, STREAM_SIZE, VERSION};
-
     let input = [99u8, 96, 192, 11, 24, 25, 0];
 
     let mut stream = MaybeUninit::<z_stream>::zeroed();

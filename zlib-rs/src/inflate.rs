@@ -516,7 +516,7 @@ impl<'a> State<'a> {
             Mode::CodeLens => self.code_lens(),
             Mode::Dict => self.dict(),
             Mode::DictId => self.dict_id(),
-            Mode::Bad => todo!(),
+            Mode::Bad => self.bad("repeated call with bad state\0"),
             Mode::Mem => self.mem(),
             Mode::Length => self.length(),
         }
