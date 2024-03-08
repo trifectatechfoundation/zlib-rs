@@ -253,6 +253,7 @@ pub enum Mode {
     CopyBlock,
     Check,
     Len,
+    Lit,
     LenExt,
     Dist,
     DistExt,
@@ -505,6 +506,7 @@ impl<'a> State<'a> {
             Mode::Check => self.check(),
             Mode::Len => self.len(),
             Mode::LenExt => self.len_ext(),
+            Mode::Lit => self.lit(),
             Mode::Dist => self.dist(),
             Mode::DistExt => self.dist_ext(),
             Mode::Match => self.match_(),
@@ -859,6 +861,19 @@ impl<'a> State<'a> {
         ReturnCode::StreamError
     }
 
+    fn lit(&mut self) -> ReturnCode {
+        if self.writer.remaining() == 0 {
+            eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
+            return self.inflate_leave(ReturnCode::Ok);
+        }
+
+        self.writer.push(self.length as u8);
+
+        self.mode = Mode::Len;
+
+        self.len()
+    }
+
     fn check(&mut self) -> ReturnCode {
         if self.wrap != 0 {
             need_bits!(self, 32);
@@ -1079,6 +1094,7 @@ impl<'a> State<'a> {
 
         if here.op == 0 {
             if self.writer.remaining() == 0 {
+                self.mode = Mode::Lit;
                 eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
                 return self.inflate_leave(ReturnCode::Ok);
             }
