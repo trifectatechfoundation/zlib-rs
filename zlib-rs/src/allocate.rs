@@ -251,3 +251,64 @@ impl<'a> Allocator<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicPtr, Ordering};
+
+    use super::*;
+
+    static PTR: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+
+    unsafe extern "C" fn unaligned_alloc(
+        _opaque: *mut c_void,
+        _items: c_uint,
+        _size: c_uint,
+    ) -> *mut c_void {
+        PTR.load(Ordering::Relaxed)
+    }
+
+    unsafe extern "C" fn unaligned_free(_opaque: *mut c_void, ptr: *mut c_void) {
+        let expected = PTR.load(Ordering::Relaxed);
+        assert_eq!(expected, ptr)
+    }
+
+    #[test]
+    fn unaligned_allocator() {
+        let mut buf = [0u8; 1024];
+
+        for i in 0..256 {
+            let ptr = unsafe { buf.as_mut_ptr().add(i).cast() };
+            PTR.store(ptr, Ordering::Relaxed);
+
+            let allocator = Allocator {
+                zalloc: unaligned_alloc,
+                zfree: unaligned_free,
+                opaque: core::ptr::null_mut(),
+                _marker: PhantomData,
+            };
+
+            macro_rules! test_alignments {
+                ($($ty:ty),*) => {
+                    $(
+                        let ptr = allocator.allocate::<$ty>().unwrap();
+                        assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<$ty>(), 0);
+                        unsafe { allocator.deallocate(ptr, 1) }
+
+                        let ptr = allocator.allocate_slice::<$ty>(10).unwrap();
+                        assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<$ty>(), 0);
+                        unsafe { allocator.deallocate(ptr.as_mut_ptr(), 10) }
+                    )*
+                };
+            }
+
+            #[repr(C, align(16))]
+            struct Align16<T>(T);
+
+            #[repr(C, align(64))]
+            struct Align64<T>(T);
+
+            test_alignments!((), u8, u16, u32, u64, u128, Align16<()>, Align64<()>);
+        }
+    }
+}
