@@ -31,6 +31,32 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+#[cfg(all(feature = "rust-allocator", feature = "c-allocator"))]
+const _: () =
+    compile_error!("Only one of `rust-allocator` and `c-allocator` can be enabled at a time");
+
+#[allow(unreachable_code)]
+const DEFAULT_ZALLOC: Option<alloc_func> = 'blk: {
+    #[cfg(feature = "c-allocator")]
+    break 'blk Some(zlib_rs::allocate::zalloc_c);
+
+    #[cfg(feature = "rust-allocator")]
+    break 'blk Some(zlib_rs::allocate::zalloc_rust);
+
+    None
+};
+
+#[allow(unreachable_code)]
+const DEFAULT_ZFREE: Option<free_func> = 'blk: {
+    #[cfg(feature = "c-allocator")]
+    break 'blk Some(zlib_rs::allocate::zfree_c);
+
+    #[cfg(feature = "rust-allocator")]
+    break 'blk Some(zlib_rs::allocate::zfree_rust);
+
+    None
+};
+
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub type z_off_t = libc::off_t;
 
@@ -211,12 +237,12 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
         let stream = &mut *strm;
 
         if stream.zalloc.is_none() {
-            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.zalloc = DEFAULT_ZALLOC;
             stream.opaque = std::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
-            stream.zfree = Some(zlib_rs::allocate::zcfree);
+            stream.zfree = DEFAULT_ZFREE;
         }
 
         zlib_rs::inflate::init(stream, config) as _
@@ -474,12 +500,12 @@ pub unsafe extern "C" fn deflateInit_(
         let stream = &mut *strm;
 
         if stream.zalloc.is_none() {
-            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.zalloc = DEFAULT_ZALLOC;
             stream.opaque = std::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
-            stream.zfree = Some(zlib_rs::allocate::zcfree);
+            stream.zfree = DEFAULT_ZFREE;
         }
 
         zlib_rs::deflate::init(stream, DeflateConfig::new(level)) as _
@@ -518,12 +544,12 @@ pub unsafe extern "C" fn deflateInit2_(
         let stream = &mut *strm;
 
         if stream.zalloc.is_none() {
-            stream.zalloc = Some(zlib_rs::allocate::zcalloc);
+            stream.zalloc = DEFAULT_ZALLOC;
             stream.opaque = std::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
-            stream.zfree = Some(zlib_rs::allocate::zcfree);
+            stream.zfree = DEFAULT_ZFREE;
         }
 
         zlib_rs::deflate::init(stream, config) as _

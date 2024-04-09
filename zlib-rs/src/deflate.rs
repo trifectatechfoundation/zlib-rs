@@ -3045,8 +3045,8 @@ mod test {
             let mut stream = z_stream::default();
             assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
 
-            stream.zalloc = Some(crate::allocate::zcalloc);
-            stream.zfree = Some(crate::allocate::zcfree);
+            stream.zalloc = Some(crate::allocate::zalloc_c);
+            stream.zfree = Some(crate::allocate::zfree_c);
 
             // state is still NULL
             assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
@@ -3064,7 +3064,7 @@ mod test {
         let count = unsafe { &*(opaque as *const AtomicUsize) };
 
         if count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) != N {
-            crate::allocate::zcalloc(opaque, items, size)
+            crate::allocate::zalloc_c(opaque, items, size)
         } else {
             std::ptr::null_mut()
         }
@@ -3339,8 +3339,8 @@ mod test {
             total_out: 0,
             msg: std::ptr::null_mut(),
             state: std::ptr::null_mut(),
-            zalloc: crate::allocate::zcalloc,
-            zfree: crate::allocate::zcfree,
+            zalloc: crate::allocate::zalloc_c,
+            zfree: crate::allocate::zfree_c,
             opaque: std::ptr::null_mut(),
             data_type: 0,
             adler: 0,
