@@ -11,6 +11,10 @@ cargo-fuzz = true
 [profile.release]
 debug = true
 
+[features]
+c-allocator = ["libz-rs-sys/c-allocator"]
+rust-allocator = ["libz-rs-sys/rust-allocator"]
+
 [dependencies.libfuzzer-sys]
 version = "0.4"
 features = ["arbitrary-derive"]
