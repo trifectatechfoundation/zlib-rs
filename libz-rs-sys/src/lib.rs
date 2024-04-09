@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
+#![doc = include_str!("../README.md")]
 
 #[cfg(test)]
 mod tests;
@@ -533,4 +534,9 @@ pub unsafe extern "C" fn deflateTune(
         ) as _,
         None => ReturnCode::StreamError as _,
     }
+}
+
+pub const extern "C" fn zlibVersion() -> *const c_char {
+    // this is a recent zlib-ng version
+    "2.1.4\0".as_ptr() as *const c_char
 }

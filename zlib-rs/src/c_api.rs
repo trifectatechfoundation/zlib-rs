@@ -21,7 +21,7 @@ pub type voidpf = *mut c_void;
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct z_stream {
-    pub next_in: *mut Bytef,
+    pub next_in: *const Bytef,
     pub avail_in: uInt,
     pub total_in: z_size,
     pub next_out: *mut Bytef,
