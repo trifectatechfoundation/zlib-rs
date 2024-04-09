@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod adler32;
 pub mod allocate;
 pub mod c_api;
