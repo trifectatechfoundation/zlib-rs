@@ -12,6 +12,7 @@ cargo-fuzz = true
 debug = true
 
 [features]
+default = ["libz-rs-sys/rust-allocator"]
 c-allocator = ["libz-rs-sys/c-allocator"]
 rust-allocator = ["libz-rs-sys/rust-allocator"]
 
@@ -31,6 +32,7 @@ features =  ["__internal-fuzz"]
 
 [dependencies.libz-rs-sys]
 path = "../libz-rs-sys"
+default-features = false
 
 # Prevent this from interfering with workspaces
 [workspace]

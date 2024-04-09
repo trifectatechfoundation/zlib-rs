@@ -14,10 +14,6 @@ use crate::{crc32::slice_to_uninit, CRC32_INITIAL_VALUE};
 #[repr(C, align(16))]
 struct Align16<T>(T);
 
-#[derive(Debug)]
-#[repr(C, align(32))]
-struct Align32<T>(T);
-
 #[cfg(target_arch = "x86_64")]
 const fn reg(input: [u32; 4]) -> __m128i {
     // safety: any valid [u32; 4] represents a valid __m128i
