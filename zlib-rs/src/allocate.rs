@@ -154,17 +154,34 @@ impl<'a> Allocator<'a> {
         let ptr = if self.zalloc == Allocator::RUST.zalloc {
             unsafe { (Allocator::RUST.zalloc)(self.opaque, layout.size() as _, 1) }
         } else {
-            // we cannot rely on the allocator giving properly aligned allocations and have to fix that ourselves
-
-            let align = Ord::max(core::mem::size_of::<*mut c_void>(), layout.align());
+            // We cannot rely on the allocator giving properly aligned allocations and have to fix that ourselves.
+            //
+            // The general approach is to allocate a bit more than the layout needs, so that we can
+            // give the application a properly aligned address and also store the real allocation
+            // pointer in the allocation so that `free` can free the real allocation pointer.
+            //
+            //
+            // Example: The layout represents `(u32, u32)`, with an alignment of 4 bytes and a
+            // total size of 8 bytes.
+            //
+            // Assume that the allocator will give us address `0x07`. We need that to be a multiple
+            // of the alignment, so that shifts the starting position to `0x08`. Then we also need
+            // to store the pointer to the start of the allocation so that `free` can free that
+            // pointer, bumping to `0x10`. The `0x10` pointer is then the pointer that the application
+            // deals with. When free'ing, the original allocation pointer can be read from `0x10 - size_of::<*const c_void>()`.
+            //
+            // Of course there does need to be enough space in the allocation such that when we
+            // shift the start forwards, the end is still within the allocation. Hence we allocate
+            // `extra_space` bytes: enough for a full alignment plus a pointer.
 
             // we need at least
             //
-            // - `align` space so that no matter what pointer we get, we can shift the start of our
+            // - `align` extra space so that no matter what pointer we get from zalloc, we can shift the start of the
             //      allocation by at most `align - 1` so that `ptr as usize % align == 0
-            // - `size_of::<*mut _>` so that after aligning to `align`, there is `size_of::<*mut _>` space to store
-            //      the pointer to the allocation. This pointer is then retrieved in `free`
-            let extra_space = core::mem::size_of::<*mut c_void>() + align;
+            // - `size_of::<*mut _>` extra space so that after aligning to `align`,
+            //      there is `size_of::<*mut _>` space to store the pointer to the allocation.
+            //      This pointer is then retrieved in `free`
+            let extra_space = core::mem::size_of::<*mut c_void>() + layout.align();
 
             // Safety: we assume allocating works correctly in the safety assumptions on
             // `DeflateStream` and `InflateStream`.
@@ -187,7 +204,8 @@ impl<'a> Allocator<'a> {
                 // - `return_ptr` is well-aligned, therefore `return_ptr + align` is also well-aligned
                 // - we reserve `size_of::<*mut _> + align` extra space in the allocation, so
                 //      `ptr + align_diff + align` is still valid for (at least) `layout.size` bytes
-                return_ptr = unsafe { return_ptr.add(align) };
+                let offset = Ord::max(core::mem::size_of::<*mut c_void>(), layout.align());
+                return_ptr = unsafe { return_ptr.add(offset) };
             }
 
             // Store the original pointer for free()
@@ -203,7 +221,7 @@ impl<'a> Allocator<'a> {
             return_ptr.cast::<c_void>()
         };
 
-        assert_eq!(ptr as usize % layout.align(), 0);
+        debug_assert_eq!(ptr as usize % layout.align(), 0);
 
         ptr
     }
