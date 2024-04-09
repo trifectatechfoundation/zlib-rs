@@ -14,9 +14,9 @@ type size_t = usize;
 ///
 /// The `ptr` must be allocated with the allocator that the `zfree` function belongs to.
 pub unsafe fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, ptr: *mut c_void) {
-    if zfree as usize == zcfree as usize {
+    if zfree as usize == zfree_c as usize {
         // safety: only unsafe because of the public interface
-        unsafe { zcfree(opaque, ptr) }
+        unsafe { zfree_c(opaque, ptr) }
     } else if ptr.is_null() {
         /* do nothing */
     } else {
@@ -34,7 +34,7 @@ pub unsafe fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, 
 /// # Safety
 ///
 /// This function is safe, but must have this type signature to be used elsewhere in the library
-pub unsafe extern "C" fn zcalloc(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
+pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
     zng_alloc(items as size_t * size as size_t)
 }
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn zcalloc(opaque: *mut c_void, items: c_uint, size: c_uin
 /// # Safety
 ///
 /// The `ptr` must be allocated with the allocator that is used internally by `zcfree`
-pub unsafe extern "C" fn zcfree(opaque: *mut c_void, ptr: *mut c_void) {
+pub unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
     let _ = opaque;
     zng_free(ptr)
 }
@@ -88,7 +88,14 @@ unsafe fn zng_free(ptr: *mut c_void) {
     unsafe { free(ptr) }
 }
 
-unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
+/// # Safety
+///
+/// This function is safe to call.
+pub unsafe extern "C" fn zalloc_rust(
+    _opaque: *mut c_void,
+    count: c_uint,
+    size: c_uint,
+) -> *mut c_void {
     let align = 64;
     let size = count as usize * size as usize;
 
@@ -104,7 +111,7 @@ unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_ui
 ///
 /// - `ptr` must be allocated with the rust `alloc::System` allocator
 /// - `opaque` is a `&usize` that represents the size of the allocation
-unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
+pub unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
@@ -142,8 +149,8 @@ impl Allocator<'static> {
     };
 
     pub const C: Self = Self {
-        zalloc: zcalloc,
-        zfree: zcfree,
+        zalloc: zalloc_c,
+        zfree: zfree_c,
         opaque: core::ptr::null_mut(),
         _marker: PhantomData,
     };
