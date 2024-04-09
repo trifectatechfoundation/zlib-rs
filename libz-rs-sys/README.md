@@ -56,15 +56,3 @@ let inflated = &output[..strm.total_out as usize];
 assert_eq!(inflated, input.as_bytes())
 ```
 
-# Safety of `*mut z_stream`
-
-Most functions require an argument of type `*mut z_stream`. Unless
-otherwise noted, the safety requirements on such arguments are at least that the
-pointer must be either:
-
-- A `NULL` pointer
-- A pointer to a correctly aligned, initialized value of type `z_stream`.
-
-In other words, it must be safe to cast the `*mut z_stream` to a `Option<&mut z_stream>`. It is
-always safe to provide an argument of type `&mut z_stream`: rust will automatically downcast
-the argument to `*mut z_stream`.
