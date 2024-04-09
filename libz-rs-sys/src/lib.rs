@@ -37,6 +37,9 @@ const _: () =
 
 #[allow(unreachable_code)]
 const DEFAULT_ZALLOC: Option<alloc_func> = 'blk: {
+    // this `break 'blk'` construction exists to generate just one compile error and not other
+    // warnings when multiple allocators are configured.
+
     #[cfg(feature = "c-allocator")]
     break 'blk Some(zlib_rs::allocate::zalloc_c);
 
