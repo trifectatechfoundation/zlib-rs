@@ -1,5 +1,9 @@
-# zlib-rs
-A safer zlib
+# zlib-rs: a safer zlib
+
+This repository contains 2 public crates
+
+- `zlib-rs`, a rust implementation of [zlib](https://www.zlib.net/manual.html) with a safe rust API
+- `libz-rs-sys`, an unsafe C API
 
 ## Acknowledgement
 
