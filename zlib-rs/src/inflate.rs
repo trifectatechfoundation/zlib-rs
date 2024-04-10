@@ -1503,10 +1503,12 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
 
     let mut bad = None;
 
-    'outer: loop {
+    if bit_reader.bits_in_buffer() < 10 {
         bit_reader.refill();
+    }
 
-        let mut here = lcode[(bit_reader.hold() & lmask) as usize];
+    'outer: loop {
+        let mut here = bit_reader.refill_and(|hold| lcode[(hold & lmask) as usize]);
 
         if here.op == 0 {
             writer.push(here.val as u8);
@@ -1532,6 +1534,9 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                 bit_reader.drop_bits(op as usize);
 
                 here = dcode[(bit_reader.hold() & dmask) as usize];
+
+                // we have two fast-path loads: 10+10 + 15+5 = 40,
+                // but we may need to refill here in the worst case
                 if bit_reader.bits_in_buffer() < MAX_BITS + MAX_DIST_EXTRA_BITS {
                     bit_reader.refill();
                 }
