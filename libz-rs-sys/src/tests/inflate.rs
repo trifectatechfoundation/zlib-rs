@@ -2,8 +2,8 @@ use std::mem::ManuallyDrop;
 
 use crate as libz_rs_sys;
 
-use std::ffi::CStr;
 use libz_rs_sys::*;
+use std::ffi::CStr;
 use zlib_rs::deflate::compress_slice;
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, INFLATE_STATE_SIZE};
 use zlib_rs::MAX_WBITS;
@@ -1137,6 +1137,30 @@ fn inflate_window_bits_0_is_15() {
     assert_eq!(output_15, output_0);
 
     assert_eq!(output_15, input);
+}
+
+#[test]
+fn uncompress_edge_cases() {
+    let config = InflateConfig { window_bits: 15 };
+
+    let (result, err) = uncompress_slice(&mut [], &[], config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
+
+    let mut output = [0; 1];
+    let (result, err) = uncompress_slice(&mut output, &[], config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
+
+    let input = b"Hello World!\n";
+
+    let mut compressed = [0; 64];
+    let (compressed, err) = compress_slice(&mut compressed, input, DeflateConfig::new(6));
+    assert_eq!(err, ReturnCode::Ok);
+
+    let (result, err) = uncompress_slice(&mut [], compressed, config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
 }
 
 #[test]
