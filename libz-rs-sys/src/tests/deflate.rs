@@ -2,7 +2,7 @@ use std::{ffi::CString, mem::MaybeUninit};
 
 use crate as libz_rs_sys;
 
-use libc::{c_char, c_int};
+use core::ffi::{c_char, c_int, c_ulong};
 
 use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
@@ -531,7 +531,7 @@ fn deflate_medium_fizzle_bug() {
 fn deflate_bound_correct() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
-    fn test((config, source_len): (DeflateConfig, u64)) -> bool {
+    fn test((config, source_len): (DeflateConfig, c_ulong)) -> bool {
         let rs_bound = unsafe {
             let mut strm = MaybeUninit::zeroed();
 
@@ -579,7 +579,7 @@ fn deflate_bound_correct() {
 }
 
 fn deflate_bound_gzip_header_help(
-    (config, source_len, extra, name, comment): (DeflateConfig, u64, CString, CString, CString),
+    (config, source_len, extra, name, comment): (DeflateConfig, c_ulong, CString, CString, CString),
 ) -> bool {
     let rs_bound = unsafe {
         let mut strm = MaybeUninit::zeroed();
@@ -675,9 +675,9 @@ fn deflate_bound_gzip_header() {
 fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
-    fn test(source_len: usize) -> bool {
+    fn test(source_len: core::ffi::c_ulong) -> bool {
         let rs_bound = libz_rs_sys::compressBound(source_len as _);
-        let ng_bound = unsafe { libz_ng_sys::compressBound(source_len) };
+        let ng_bound = unsafe { libz_ng_sys::compressBound(source_len as _) };
 
         assert_eq!(rs_bound, ng_bound as _);
 
@@ -889,7 +889,7 @@ fn test_dict_deflate() {
         (dictId, compr)
     };
 
-    assert_eq!(output_rs.0, output_ng.0 as u64);
+    assert_eq!(output_rs.0, output_ng.0 as c_ulong);
     assert_eq!(output_rs.1, output_ng.1);
 }
 
