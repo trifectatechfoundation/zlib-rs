@@ -74,7 +74,7 @@ jobs:
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
         env:
           RUST_BACKTRACE: 1
-      - name: cargo test
+      - name: cargo test with llvm-cov
         run: cargo llvm-cov --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
         env:
           RUST_BACKTRACE: 1
