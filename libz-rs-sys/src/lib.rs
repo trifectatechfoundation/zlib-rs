@@ -211,10 +211,12 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
-    _version: *const c_char,
-    _stream_size: c_int,
+    version: *const c_char,
+    stream_size: c_int,
 ) -> c_int {
-    if strm.is_null() {
+    if !is_version_compatible(version, stream_size) {
+        ReturnCode::VersionError as _
+    } else if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
         zlib_rs::inflate::init(&mut *strm, InflateConfig::default()) as _
@@ -224,10 +226,14 @@ pub unsafe extern "C" fn inflateInit_(
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
     windowBits: c_int,
-    _version: *const c_char,
-    _stream_size: c_int,
+    version: *const c_char,
+    stream_size: c_int,
 ) -> c_int {
-    inflateInit2(strm, windowBits)
+    if !is_version_compatible(version, stream_size) {
+        ReturnCode::VersionError as _
+    } else {
+        inflateInit2(strm, windowBits)
+    }
 }
 
 pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
@@ -495,10 +501,12 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
-    _version: *const c_char,
-    _stream_size: c_int,
+    version: *const c_char,
+    stream_size: c_int,
 ) -> c_int {
-    if strm.is_null() {
+    if !is_version_compatible(version, stream_size) {
+        ReturnCode::VersionError as _
+    } else if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
         let stream = &mut *strm;
@@ -523,10 +531,12 @@ pub unsafe extern "C" fn deflateInit2_(
     windowBits: c_int,
     memLevel: c_int,
     strategy: c_int,
-    _version: *const c_char,
-    _stream_size: c_int,
+    version: *const c_char,
+    stream_size: c_int,
 ) -> c_int {
-    if strm.is_null() {
+    if !is_version_compatible(version, stream_size) {
+        ReturnCode::VersionError as _
+    } else if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
         let Ok(method) = Method::try_from(method) else {
@@ -579,7 +589,36 @@ pub unsafe extern "C" fn deflateTune(
     }
 }
 
+const LIBZ_RS_SYS_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> bool {
+    if version.is_null() {
+        return false;
+    }
+
+    let cstr = core::ffi::CStr::from_ptr(version);
+
+    if LIBZ_RS_SYS_VERSION.as_bytes()[0] != cstr.to_bytes()[0] {
+        return false;
+    }
+
+    core::mem::size_of::<z_stream>() as i32 == stream_size
+}
+
 pub const extern "C" fn zlibVersion() -> *const c_char {
-    // this is a recent zlib-ng version
-    "2.1.4\0".as_ptr() as *const c_char
+    const BUF: [u8; 16] = {
+        let mut buf = [0; 16];
+
+        let mut i = 0;
+        while i < LIBZ_RS_SYS_VERSION.len() {
+            buf[i] = LIBZ_RS_SYS_VERSION.as_bytes()[i];
+            i += 1;
+        }
+
+        assert!(matches!(buf.last(), Some(0)));
+
+        buf
+    };
+
+    BUF.as_ptr() as *const c_char
 }

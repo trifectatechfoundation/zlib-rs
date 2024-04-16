@@ -2,9 +2,6 @@
 use libfuzzer_sys::fuzz_target;
 use zlib_rs::ReturnCode;
 
-const VERSION: *const libc::c_char = "2.3.0\0".as_ptr() as *const libc::c_char;
-const STREAM_SIZE: libc::c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as libc::c_int;
-
 fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
     // first, deflate the data using the standard zlib
     let length = 8 * 1024;
@@ -40,7 +37,7 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
             window_bits as i32,
             mem_level,
             strategy,
-            b"1.3.0\0".as_ptr() as *const std::ffi::c_char,
+            libz_ng_sys::zlibVersion(),
             std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
         );
         let return_code = ReturnCode::from(err);
@@ -79,7 +76,12 @@ fuzz_target!(|input: (String, usize)| {
     let mut stream = libz_rs_sys::z_stream::default();
 
     unsafe {
-        let err = libz_rs_sys::inflateInit2_(&mut stream, window_bits as i32, VERSION, STREAM_SIZE);
+        let err = libz_rs_sys::inflateInit2_(
+            &mut stream,
+            window_bits as i32,
+            libz_rs_sys::zlibVersion(),
+            core::mem::size_of::<libz_rs_sys::z_stream>() as i32,
+        );
         let return_code: ReturnCode = ReturnCode::from(err);
 
         assert_eq!(ReturnCode::Ok, return_code);

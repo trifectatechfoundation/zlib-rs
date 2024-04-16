@@ -8,7 +8,7 @@ use zlib_rs::deflate::compress_slice;
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, INFLATE_STATE_SIZE};
 use zlib_rs::MAX_WBITS;
 
-const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
+const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 #[derive(Clone, Copy)]
@@ -379,7 +379,13 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 fn support() {
     let mut stream = mem_setup();
 
-    let ret = unsafe { inflateInit_(&mut stream, std::ptr::null(), 0) };
+    let ret = unsafe {
+        inflateInit_(
+            &mut stream,
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
     assert_eq!(ret, Z_OK);
 
     let ret = unsafe { inflateSetDictionary(&mut stream, std::ptr::null(), 0) };
@@ -1200,7 +1206,7 @@ fn gzip_chunked(chunk_size: usize) {
 
     let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
 
-    const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+    const VERSION: *const c_char = libz_rs_sys::zlibVersion();
     const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
     let err = unsafe {
@@ -1267,7 +1273,7 @@ fn gzip_chunked(chunk_size: usize) {
 
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
-        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
+        const VERSION: *const c_char = libz_rs_sys::zlibVersion();
         const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
 
         let err = unsafe {
@@ -1378,4 +1384,53 @@ fn chunked_output_rs() {
     assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
     assert_eq!(stream.total_out, 33);
+}
+
+#[test]
+fn version_error() {
+    let mut stream = core::mem::MaybeUninit::zeroed();
+
+    let ret = unsafe {
+        inflateInit_(
+            stream.as_mut_ptr(),
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_OK);
+
+    // invalid stream size
+    let ret = unsafe { inflateInit_(stream.as_mut_ptr(), zlibVersion(), 1) };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is null
+    let ret = unsafe {
+        inflateInit_(
+            stream.as_mut_ptr(),
+            core::ptr::null(),
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is invalid
+    let ret = unsafe {
+        inflateInit_(
+            stream.as_mut_ptr(),
+            b"!\0".as_ptr() as *const c_char,
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is invalid, inflateInit2_
+    let ret = unsafe {
+        inflateInit2_(
+            stream.as_mut_ptr(),
+            1,
+            b"!\0".as_ptr() as *const c_char,
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
 }

@@ -5,7 +5,7 @@ use zlib_rs::deflate::DeflateConfig;
 use zlib_rs::inflate::InflateConfig;
 use zlib_rs::{Flush, ReturnCode};
 
-use std::ffi::{c_char, c_int, c_uint};
+use std::ffi::c_uint;
 
 fuzz_target!(|input: (String, DeflateConfig)| {
     let (data, config) = input;
@@ -104,9 +104,6 @@ fn compress_slice_ng<'a>(
         reserved: 0,
     };
 
-    const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-    const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
-
     let err = unsafe {
         libz_ng_sys::deflateInit2_(
             &mut stream,
@@ -115,8 +112,8 @@ fn compress_slice_ng<'a>(
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            libz_rs_sys::zlibVersion(),
+            core::mem::size_of::<libz_rs_sys::z_stream>() as i32,
         )
     };
 
@@ -207,7 +204,7 @@ fn uncompress_slice_ng<'a>(
         libz_ng_sys::inflateInit2_(
             &mut stream,
             config.window_bits,
-            b"1.3.0\0".as_ptr() as *const std::ffi::c_char,
+            libz_ng_sys::zlibVersion(),
             std::mem::size_of::<libz_ng_sys::z_stream>() as i32,
         )
     };
