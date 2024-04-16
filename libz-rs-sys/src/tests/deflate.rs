@@ -15,7 +15,7 @@ use zlib_rs::{
     Flush, ReturnCode,
 };
 
-const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
+const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 pub mod quick {
@@ -1499,4 +1499,62 @@ fn test_deflate_copy() {
         let err = libz_rs_sys::deflateEnd(copy.as_mut_ptr());
         assert_eq!(err, 0);
     }
+}
+
+#[test]
+fn version_error() {
+    use libz_rs_sys::{deflateInit_, z_stream, zlibVersion, Z_OK, Z_VERSION_ERROR};
+
+    let mut stream = core::mem::MaybeUninit::zeroed();
+
+    let ret = unsafe {
+        deflateInit_(
+            stream.as_mut_ptr(),
+            1,
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_OK);
+
+    // invalid stream size
+    let ret = unsafe { deflateInit_(stream.as_mut_ptr(), 1, zlibVersion(), 1) };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is null
+    let ret = unsafe {
+        deflateInit_(
+            stream.as_mut_ptr(),
+            1,
+            core::ptr::null(),
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is invalid
+    let ret = unsafe {
+        deflateInit_(
+            stream.as_mut_ptr(),
+            1,
+            b"!\0".as_ptr() as *const c_char,
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    // version is invalid, deflateInit2_
+    let ret = unsafe {
+        deflateInit2_(
+            stream.as_mut_ptr(),
+            1,
+            0,
+            0,
+            0,
+            0,
+            b"!\0".as_ptr() as *const c_char,
+            core::mem::size_of::<z_stream>() as i32,
+        )
+    };
+    assert_eq!(ret, Z_VERSION_ERROR);
 }
