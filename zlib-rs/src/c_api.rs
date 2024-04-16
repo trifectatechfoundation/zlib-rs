@@ -191,15 +191,16 @@ impl gz_header {
     //  12 - QDOS
     //  13 - Acorn RISCOS
     // 255 - unknown
+    #[allow(clippy::if_same_then_else)]
     pub(crate) const OS_CODE: u8 = {
         if cfg!(windows) {
-            0
-        } else if cfg!(all(unix, not(target_os = "macos"))) {
-            3
+            10
         } else if cfg!(target_os = "macos") {
             7
+        } else if cfg!(unix) {
+            3
         } else {
-            255
+            3 // assume unix
         }
     };
 
