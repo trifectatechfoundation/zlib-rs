@@ -13,9 +13,8 @@ debug = true
 
 [features]
 default = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
-c-allocator = ["libz-rs-sys/c-allocator"]
-rust-allocator = ["libz-rs-sys/rust-allocator"]
-std = ["libz-rs-sys/std"]
+c-allocator = ["libz-rs-sys/c-allocator", "libz-rs-sys/std"]
+rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
 
 [dependencies.libfuzzer-sys]
 version = "0.4"
