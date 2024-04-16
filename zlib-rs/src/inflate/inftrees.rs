@@ -146,7 +146,8 @@ pub(crate) fn inflate_table(
         return InflateTable::EnoughIsNotEnough;
     }
 
-    let mut huff = 0;
+    let mut huff = 0; // starting code
+    let mut reversed_huff = 0u32; // starting code, reversed
     let mut sym = 0;
     let mut len = min;
     let mut next = 0usize; // index into `table`
@@ -189,16 +190,8 @@ pub(crate) fn inflate_table(
         }
 
         // backwards increment the len-bit code huff
-        let mut incr = 1 << (len - 1);
-        while (huff & incr) != 0 {
-            incr >>= 1;
-        }
-        if incr != 0 {
-            huff &= incr - 1;
-            huff += incr;
-        } else {
-            huff = 0;
-        }
+        reversed_huff = reversed_huff.wrapping_add(0x80000000u32 >> (len - 1));
+        huff = reversed_huff.reverse_bits() as usize;
 
         // go to next symbol, update count, len
         sym += 1;
