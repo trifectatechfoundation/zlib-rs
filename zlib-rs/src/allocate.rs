@@ -12,31 +12,34 @@ type size_t = usize;
 
 /// # Safety
 ///
-/// The `ptr` must be allocated with the allocator that the `zfree` function belongs to.
-pub unsafe fn free_aligned(zfree: crate::c_api::free_func, opaque: *mut c_void, ptr: *mut c_void) {
-    if zfree as usize == zfree_c as usize {
-        // safety: only unsafe because of the public interface
-        unsafe { zfree_c(opaque, ptr) }
-    } else if ptr.is_null() {
-        /* do nothing */
-    } else {
-        /* Calculate offset to original memory allocation pointer */
-        let sizeof_ptr = std::mem::size_of::<*mut c_void>();
+/// This function is safe, but must have this type signature to be used elsewhere in the library
+#[cfg(unix)]
+pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
+    let _ = opaque;
 
-        let original_ptr: *mut c_void = unsafe { ptr.offset(-8 * sizeof_ptr as isize) };
-        let free_ptr: *mut c_void = unsafe { *(original_ptr.cast::<*mut c_void>()) };
+    extern "C" {
+        fn posix_memalign(memptr: *mut *mut c_void, align: size_t, size: size_t) -> c_int;
+    }
 
-        /* Free original memory allocation */
-        unsafe { zfree(opaque, free_ptr) };
+    let mut ptr = std::ptr::null_mut();
+    match posix_memalign(&mut ptr, 64, items as size_t * size as size_t) {
+        0 => ptr,
+        _ => std::ptr::null_mut(),
     }
 }
 
 /// # Safety
 ///
 /// This function is safe, but must have this type signature to be used elsewhere in the library
+#[cfg(not(unix))]
 pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
-    zng_alloc(items as size_t * size as size_t)
+
+    extern "C" {
+        fn malloc(size: size_t) -> *mut c_void;
+    }
+
+    malloc(items as size_t * size as size_t)
 }
 
 /// # Safety
@@ -44,43 +47,7 @@ pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_ui
 /// The `ptr` must be allocated with the allocator that is used internally by `zcfree`
 pub unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
     let _ = opaque;
-    zng_free(ptr)
-}
 
-#[cfg(unix)]
-unsafe fn zng_alloc(size: size_t) -> *mut c_void {
-    extern "C" {
-        fn posix_memalign(memptr: *mut *mut c_void, align: size_t, size: size_t) -> c_int;
-    }
-
-    let mut ptr = std::ptr::null_mut();
-    match posix_memalign(&mut ptr, 64, size) {
-        0 => ptr,
-        _ => std::ptr::null_mut(),
-    }
-}
-
-#[cfg(windows)]
-unsafe fn zng_alloc(size: size_t) -> *mut c_void {
-    extern "C" {
-        fn aligned_malloc(size: size_t, alignment: size_t) -> *mut c_void;
-
-    }
-
-    aligned_malloc(size, 64)
-}
-
-#[cfg(not(any(unix, windows)))]
-unsafe fn zng_alloc(size: size_t) -> *mut c_void {
-    extern "C" {
-        fn memalign(align: size_t, size: size_t) -> *mut c_void;
-    }
-
-    // just sort of hope that this function exists
-    memalign(64, size)
-}
-
-unsafe fn zng_free(ptr: *mut c_void) {
     extern "C" {
         fn free(p: *mut c_void);
     }
