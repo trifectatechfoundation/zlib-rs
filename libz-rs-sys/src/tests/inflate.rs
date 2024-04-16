@@ -1140,6 +1140,30 @@ fn inflate_window_bits_0_is_15() {
 }
 
 #[test]
+fn uncompress_edge_cases() {
+    let config = InflateConfig { window_bits: 15 };
+
+    let (result, err) = uncompress_slice(&mut [], &[], config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
+
+    let mut output = [0; 1];
+    let (result, err) = uncompress_slice(&mut output, &[], config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
+
+    let input = b"Hello World!\n";
+
+    let mut compressed = [0; 64];
+    let (compressed, err) = compress_slice(&mut compressed, input, DeflateConfig::new(6));
+    assert_eq!(err, ReturnCode::Ok);
+
+    let (result, err) = uncompress_slice(&mut [], compressed, config);
+    assert_eq!(err, ReturnCode::DataError);
+    assert!(result.is_empty());
+}
+
+#[test]
 fn gzip_chunked_1_byte() {
     gzip_chunked(1);
 }

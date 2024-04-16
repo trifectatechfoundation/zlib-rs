@@ -143,7 +143,6 @@ pub fn uncompress<'a>(
     config: InflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
     let mut dest_len_ptr = output.len() as u64;
-    let dest_len = output.len() as u64;
 
     // for detection of incomplete stream when *destLen == 0
     let mut buf = [0u8];
@@ -151,22 +150,23 @@ pub fn uncompress<'a>(
     let mut left;
     let mut len = input.len() as u64;
 
-    let dest;
-    if dest_len != 0 {
-        left = dest_len;
-        dest_len_ptr = 0;
-        dest = output.as_mut_ptr() as *mut u8;
-    } else {
+    let dest = if output.is_empty() {
         left = 1;
-        dest = buf.as_mut_ptr();
-    }
+
+        buf.as_mut_ptr()
+    } else {
+        left = output.len() as u64;
+        dest_len_ptr = 0;
+
+        output.as_mut_ptr() as *mut u8
+    };
 
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
         avail_in: input.len() as _,
         total_in: 0,
         next_out: dest,
-        avail_out: dest_len as _,
+        avail_out: output.len() as _,
         total_out: 0,
         msg: std::ptr::null_mut(),
         state: std::ptr::null_mut(),
@@ -208,7 +208,7 @@ pub fn uncompress<'a>(
         }
     };
 
-    if dest_len != 0 {
+    if !output.is_empty() {
         dest_len_ptr = stream.total_out;
     } else if stream.total_out != 0 && err == ReturnCode::BufError as _ {
         left = 1;
