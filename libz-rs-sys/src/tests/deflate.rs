@@ -528,6 +528,7 @@ fn deflate_medium_fizzle_bug() {
 }
 
 #[test]
+#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn deflate_bound_correct() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
@@ -667,11 +668,13 @@ fn deflate_bound_gzip_header_help(
 }
 
 #[test]
+#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn deflate_bound_gzip_header() {
     ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
 }
 
 #[test]
+#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
