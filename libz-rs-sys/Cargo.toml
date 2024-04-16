@@ -14,9 +14,10 @@ rust-version.workspace = true
 crate-type=["rlib", "cdylib"]
 
 [features]
-default = ["rust-allocator"] # when used as a rust crate, use the rust allocator
+default = ["std", "rust-allocator"] # when used as a rust crate, use the rust allocator
 c-allocator = [] # by default, use malloc/free for memory allocation
 rust-allocator = [] # by default, use the rust global alloctor for memory allocation
+std = [] # assume `::std` is available
 
 [dependencies]
 zlib-rs = { workspace = true }
