@@ -3,7 +3,7 @@ use std::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 use crate::{
     adler32::adler32,
     allocate::Allocator,
-    c_api::{gz_header, internal_state, z_stream},
+    c_api::{gz_header, internal_state, z_checksum, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
     trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
@@ -440,7 +440,7 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
 
     // when using zlib wrappers, compute Adler-32 for provided dictionary
     if wrap == 1 {
-        stream.adler = adler32(stream.adler as u32, dictionary) as u64;
+        stream.adler = adler32(stream.adler as u32, dictionary) as z_checksum;
     }
 
     // avoid computing Adler-32 in read_buf
@@ -2259,7 +2259,8 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
         stream.state.pending.extend(&bytes[..copy]);
 
-        stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as u64;
+        stream.adler =
+            crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as z_checksum;
 
         stream.state.gzindex += copy;
         flush_pending(stream);
@@ -2276,7 +2277,7 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
     stream.state.pending.extend(bytes);
 
-    stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as u64;
+    stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as z_checksum;
     stream.state.gzindex = 0;
 
     ControlFlow::Continue(())
@@ -2402,7 +2403,8 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                 }
 
                 if gzhead.hcrc > 0 {
-                    stream.adler = crc32(stream.adler as u32, stream.state.pending.pending()) as u64
+                    stream.adler =
+                        crc32(stream.adler as u32, stream.state.pending.pending()) as z_checksum
                 }
 
                 stream.state.gzindex = 0;
@@ -2546,7 +2548,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     // write the trailer
     if stream.state.wrap == 2 {
         let crc_fold = std::mem::take(&mut stream.state.crc_fold);
-        stream.adler = crc_fold.finish() as u64;
+        stream.adler = crc_fold.finish() as z_checksum;
 
         let adler = stream.adler as u32;
         stream.state.pending.extend(&adler.to_le_bytes());

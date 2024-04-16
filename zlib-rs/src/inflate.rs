@@ -14,7 +14,7 @@ use crate::allocate::Allocator;
 use crate::c_api::internal_state;
 use crate::{
     adler32::adler32,
-    c_api::{gz_header, z_stream, Z_DEFLATED},
+    c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
     read_buf::ReadBuf,
     Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
@@ -142,7 +142,7 @@ pub fn uncompress<'a>(
     input: &[u8],
     config: InflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
-    let mut dest_len_ptr = output.len() as u64;
+    let mut dest_len_ptr = output.len() as z_checksum;
 
     // for detection of incomplete stream when *destLen == 0
     let mut buf = [0u8];
@@ -624,7 +624,7 @@ impl<'a> State<'a> {
     fn time(&mut self) -> ReturnCode {
         need_bits!(self, 32);
         if let Some(head) = self.head.as_mut() {
-            head.time = self.bit_reader.hold();
+            head.time = self.bit_reader.hold() as z_size;
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
@@ -1840,8 +1840,8 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
 
-    stream.total_in += in_read as u64;
-    stream.total_out += out_written as u64;
+    stream.total_in += in_read as z_size;
+    stream.total_out += out_written as z_size;
     state.total += out_written;
 
     stream.avail_in = state.bit_reader.bytes_remaining() as u32;
@@ -1850,7 +1850,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     stream.avail_out = (state.writer.capacity() - state.writer.len()) as u32;
     stream.next_out = state.writer.as_mut_ptr() as *mut u8;
 
-    stream.adler = state.checksum as u64;
+    stream.adler = state.checksum as z_checksum;
 
     let valid_mode = |mode| !matches!(mode, Mode::Bad | Mode::Mem | Mode::Sync);
     let not_done = |mode| {
@@ -1945,7 +1945,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     (state.have, len) = syncsearch(state.have, slice);
     stream.next_in = unsafe { stream.next_in.add(len) };
     stream.avail_in -= len as u32;
-    stream.total_in += len as u64;
+    stream.total_in += len as z_size;
 
     /* return no joy or set up to restart inflate() on a new block */
     if state.have != 4 {
