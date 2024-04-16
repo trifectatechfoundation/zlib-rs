@@ -32,6 +32,10 @@ jobs:
             os: ubuntu-latest
             features: ""
             target: "x86_64-unknown-linux-gnu"
+          - rust: stable-x86_64-gnu
+            os: windows-2022
+            features: ""
+            target: "x86_64-pc-windows-gnu"
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -39,15 +43,19 @@ jobs:
           persist-credentials: false
       - name: Set target rust version
         run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
+        if: matrix.os != 'windows-2022'
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
           toolchain: "${TARGET_RUST_VERSION}"
           targets: "${{ matrix.target }}"
-      - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@e0fdbe18d70a8bbed8a44d3319a1842949a63671
+        if: matrix.os != 'windows-2022'
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
-          target: ${{ matrix.target }}
+          toolchain: "${{matrix.rust}}"
+          targets: "${{ matrix.target }}"
+        if: matrix.os == 'windows-2022'
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
         with:
