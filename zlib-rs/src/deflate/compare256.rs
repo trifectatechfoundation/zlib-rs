@@ -148,18 +148,19 @@ mod neon {
     }
 
     #[test]
-    #[cfg(target_feature = "neon")]
     fn test_compare256() {
-        let str1 = [b'a'; super::MAX_COMPARE_SIZE];
-        let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
+        if std::arch::is_aarch64_feature_detected!("neon") {
+            let str1 = [b'a'; super::MAX_COMPARE_SIZE];
+            let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
-        for i in 0..str1.len() {
-            str2[i] = 0;
+            for i in 0..str1.len() {
+                str2[i] = 0;
 
-            let match_len = compare256(&str1, &str2);
-            assert_eq!(match_len, i);
+                let match_len = compare256(&str1, &str2);
+                assert_eq!(match_len, i);
 
-            str2[i] = b'a';
+                str2[i] = b'a';
+            }
         }
     }
 }
@@ -195,18 +196,19 @@ mod avx2 {
     }
 
     #[test]
-    #[cfg(target_feature = "avx2")]
     fn test_compare256() {
-        let str1 = [b'a'; super::MAX_COMPARE_SIZE];
-        let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
+        if std::arch::is_x86_feature_detected!("avx2") {
+            let str1 = [b'a'; super::MAX_COMPARE_SIZE];
+            let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
-        for i in 0..str1.len() {
-            str2[i] = 0;
+            for i in 0..str1.len() {
+                str2[i] = 0;
 
-            let match_len = compare256(&str1, &str2);
-            assert_eq!(match_len, i);
+                let match_len = compare256(&str1, &str2);
+                assert_eq!(match_len, i);
 
-            str2[i] = b'a';
+                str2[i] = b'a';
+            }
         }
     }
 }
