@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-__internal-fuzz = ["libz-ng-sys", "arbitrary"]
+__internal-fuzz = ["arbitrary"]
 __internal-test = ["quickcheck"]
 
 
