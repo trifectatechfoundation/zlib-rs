@@ -196,7 +196,7 @@ impl gz_header {
         if cfg!(windows) {
             10
         } else if cfg!(target_os = "macos") {
-            7
+            19
         } else if cfg!(unix) {
             3
         } else {
