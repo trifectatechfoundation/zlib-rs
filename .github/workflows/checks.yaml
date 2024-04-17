@@ -37,7 +37,7 @@ jobs:
             features: ""
             target: "x86_64-apple-darwin"
           - rust: "stable"
-            os: macos-latest
+            os: macos-14
             features: ""
             target: "aarch64-apple-darwin"
           - rust: stable-x86_64-gnu
@@ -64,6 +64,9 @@ jobs:
           toolchain: "${{matrix.rust}}"
           targets: "${{ matrix.target }}"
         if: matrix.os == 'windows-2022'
+      - name: target
+        run: "rustc -vV | sed -n 's|host: ||p'"
+        if: matrix.os != 'windows-2022'
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
         with:
