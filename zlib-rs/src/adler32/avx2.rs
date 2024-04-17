@@ -175,6 +175,7 @@ unsafe fn helper_32_bytes<const COPY: bool>(
 }
 
 #[cfg(test)]
+#[cfg(target_feature = "avx2")]
 mod test {
     use super::*;
 
