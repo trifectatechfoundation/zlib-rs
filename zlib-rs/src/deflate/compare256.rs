@@ -148,6 +148,7 @@ mod neon {
     }
 
     #[test]
+    #[cfg(target_feature = "neon")]
     fn test_compare256() {
         let str1 = [b'a'; super::MAX_COMPARE_SIZE];
         let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
