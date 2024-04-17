@@ -32,6 +32,10 @@ jobs:
             os: ubuntu-latest
             features: ""
             target: "x86_64-unknown-linux-gnu"
+          - rust: "stable"
+            os: macos-latest
+            features: ""
+            target: "x86_64-apple-darwin"
           - rust: stable-x86_64-gnu
             os: windows-2022
             features: ""
