@@ -1883,7 +1883,7 @@ fn gen_codes(tree: &mut [Value], max_code: usize, bl_count: &[u16]) {
             trace!(
                 "\nn {:>3} {} l {:>2} c {:>4x} ({:x}) ",
                 n,
-                if isgraph(n u8) {
+                if isgraph(n as u8) {
                     char::from_u32(n as u32).unwrap()
                 } else {
                     ' '
