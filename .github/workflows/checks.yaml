@@ -36,6 +36,10 @@ jobs:
             os: macos-latest
             features: ""
             target: "x86_64-apple-darwin"
+          - rust: "stable"
+            os: macos-latest
+            features: ""
+            target: "aarch64-apple-darwin"
           - rust: stable-x86_64-gnu
             os: windows-2022
             features: ""
