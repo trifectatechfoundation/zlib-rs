@@ -137,14 +137,15 @@ impl<'a> Window<'a> {
 
     // padding required so that SIMD operations going out-of-bounds are not a problem
     pub fn padding() -> usize {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if is_x86_feature_detected!("pclmulqdq")
             && is_x86_feature_detected!("sse2")
             && is_x86_feature_detected!("sse4.1")
         {
-            8
-        } else {
-            0
+            return 8;
         }
+
+        0
     }
 }
 
