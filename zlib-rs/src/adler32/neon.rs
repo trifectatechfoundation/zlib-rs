@@ -1,10 +1,13 @@
-use crate::adler32::{adler32_len_1, adler32_len_16, BASE, NMAX};
-
 use core::arch::aarch64::{
     uint16x8_t, uint16x8x2_t, uint16x8x4_t, uint8x16_t, vaddq_u32, vaddw_high_u8, vaddw_u8,
     vdupq_n_u16, vdupq_n_u32, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
     vget_low_u8, vld1q_u8_x4, vmlal_high_u16, vmlal_u16, vpadalq_u16, vpadalq_u8, vpadd_u32,
     vpaddlq_u8, vsetq_lane_u32, vshlq_n_u32,
+};
+
+use crate::adler32::{
+    generic::{adler32_len_1, adler32_len_16},
+    BASE, NMAX,
 };
 
 const TAPS: [uint16x8x4_t; 2] = unsafe {
@@ -190,7 +193,7 @@ mod tests {
     quickcheck::quickcheck! {
         fn adler32_neon_is_adler32_rust(v: Vec<u8>, start: u32) -> bool {
             let neon = adler32_neon(start, &v);
-            let rust = crate::adler32::adler32_rust(start, &v);
+            let rust = crate::adler32::generic::adler32_rust(start, &v);
 
             rust == neon
         }
@@ -213,7 +216,7 @@ mod tests {
         for i in 0..16 {
             for start in [crate::ADLER32_INITIAL_VALUE as u32, 42] {
                 let neon = adler32_neon(start, &INPUT[i..]);
-                let rust = crate::adler32::adler32_rust(start, &INPUT[i..]);
+                let rust = crate::adler32::generic::adler32_rust(start, &INPUT[i..]);
 
                 assert_eq!(neon, rust, "offset = {i}, start = {start}");
             }
@@ -226,7 +229,7 @@ mod tests {
             include_str!("../deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
 
         let neon = adler32_neon(42, &DEFAULT.as_bytes());
-        let rust = crate::adler32::adler32_rust(42, &DEFAULT.as_bytes());
+        let rust = crate::adler32::generic::adler32_rust(42, &DEFAULT.as_bytes());
 
         assert_eq!(neon, rust);
     }

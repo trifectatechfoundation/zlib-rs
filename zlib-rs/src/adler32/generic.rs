@@ -80,7 +80,7 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     return adler32_len_64(adler, it.remainder(), sum2);
 }
 
-fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
+pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     adler += buf[0] as u32;
     adler %= BASE;
     sum2 += adler;

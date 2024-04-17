@@ -1,4 +1,4 @@
-use std::{
+use core::{
     arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_castsi256_si128, _mm256_extracti128_si256,
         _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_permutevar8x32_epi32, _mm256_sad_epu8,
