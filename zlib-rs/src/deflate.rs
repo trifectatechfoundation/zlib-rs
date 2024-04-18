@@ -124,9 +124,13 @@ pub struct DeflateConfig {
 #[cfg(any(test, feature = "__internal-test"))]
 impl quickcheck::Arbitrary for DeflateConfig {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        let mem_levels: Vec<_> = (0..=9).collect();
+        let mem_levels: Vec<_> = (1..=9).collect();
         let levels: Vec<_> = (0..=9).collect();
-        let window_bits: Vec<_> = (-15..=31).collect();
+
+        let mut window_bits = Vec::new();
+        window_bits.extend(9..=15); // zlib
+        window_bits.extend(9 + 16..=15 + 16); // gzip
+        window_bits.extend(-15..=-9); // raw
 
         Self {
             level: *g.choose(&levels).unwrap(),
@@ -2865,9 +2869,12 @@ const DEFLATE_BLOCK_OVERHEAD: usize =
 
 const DEFLATE_QUICK_LIT_MAX_BITS: usize = 9;
 const fn deflate_quick_overhead(x: usize) -> usize {
-    (x.wrapping_mul(DEFLATE_QUICK_LIT_MAX_BITS - 8)
-        .wrapping_add(7))
-        >> 3
+    let sum = x
+        .wrapping_mul(DEFLATE_QUICK_LIT_MAX_BITS - 8)
+        .wrapping_add(7);
+
+    // imitate zlib-ng rounding behavior (on windows, c_ulong is 32 bits)
+    (sum as core::ffi::c_ulong >> 3) as usize
 }
 
 /// For the default windowBits of 15 and memLevel of 8, this function returns
@@ -2886,10 +2893,13 @@ const fn deflate_quick_overhead(x: usize) -> usize {
 /// upper bound of about 14% expansion does not seem onerous for output buffer
 /// allocation.
 pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
+    // on windows, c_ulong is only a 32-bit integer
+    let mask = core::ffi::c_ulong::MAX as usize;
+
     // conservative upper bound for compressed data
     let comp_len = source_len
-        .wrapping_add((source_len.wrapping_add(7)) >> 3)
-        .wrapping_add((source_len.wrapping_add(63)) >> 6)
+        .wrapping_add((source_len.wrapping_add(7) & mask) >> 3)
+        .wrapping_add((source_len.wrapping_add(63) & mask) >> 6)
         .wrapping_add(5);
 
     let Some(stream) = stream else {

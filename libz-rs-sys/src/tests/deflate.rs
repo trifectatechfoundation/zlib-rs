@@ -10,7 +10,7 @@ use libz_rs_sys::{
 };
 use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,
-    deflate::{DeflateConfig, Strategy},
+    deflate::{DeflateConfig, Method, Strategy},
     inflate::InflateConfig,
     Flush, ReturnCode,
 };
@@ -527,56 +527,98 @@ fn deflate_medium_fizzle_bug() {
     assert_eq!(output, EXPECTED);
 }
 
+fn deflate_bound_correct_help(
+    (config, source_len): (DeflateConfig, c_ulong),
+) -> (c_ulong, c_ulong) {
+    let rs_bound = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
+    };
+
+    let ng_bound = unsafe {
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = libz_ng_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
+        );
+
+        assert_eq!(err, 0);
+
+        libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
+    };
+
+    (rs_bound, ng_bound)
+}
+
 #[test]
-#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn deflate_bound_correct() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
-    fn test((config, source_len): (DeflateConfig, c_ulong)) -> bool {
-        let rs_bound = unsafe {
-            let mut strm = MaybeUninit::zeroed();
+    fn test(input: (DeflateConfig, c_ulong)) -> bool {
+        let (rs, ng) = deflate_bound_correct_help(input);
 
-            // first validate the config
-            let err = libz_rs_sys::deflateInit2_(
-                strm.as_mut_ptr(),
-                config.level,
-                config.method as i32,
-                config.window_bits,
-                config.mem_level,
-                config.strategy as i32,
-                VERSION,
-                STREAM_SIZE,
-            );
-
-            if err != 0 {
-                return true;
-            }
-
-            libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
-        };
-
-        let ng_bound = unsafe {
-            let mut strm = MaybeUninit::zeroed();
-
-            // first validate the config
-            let err = libz_ng_sys::deflateInit2_(
-                strm.as_mut_ptr(),
-                config.level,
-                config.method as i32,
-                config.window_bits,
-                config.mem_level,
-                config.strategy as i32,
-                VERSION,
-                core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-            );
-
-            assert_eq!(err, 0);
-
-            libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
-        };
-
-        rs_bound == ng_bound
+        rs == ng
     }
+}
+
+#[test]
+fn deflate_bound_correct_windows() {
+    // on windows, c_ulong is just 32 bits wide. That leads to rounding that is different to what
+    // we'd get when using usize in rust
+
+    let config = DeflateConfig {
+        level: 9,
+        method: Method::Deflated,
+        window_bits: -13,
+        mem_level: 5,
+        strategy: Strategy::Filtered,
+    };
+
+    // this value is dangerously close to u32::MAX, and the calculation will run into overflow
+    //    u32::MAX = 4294967296
+    let source_len = 4294967233;
+
+    let (rs, ng) = deflate_bound_correct_help((config, source_len));
+
+    assert_eq!(rs, ng);
+
+    let config = DeflateConfig {
+        level: 0,
+        method: Method::Deflated,
+        window_bits: 15,
+        mem_level: 5,
+        strategy: Strategy::HuffmanOnly,
+    };
+    // this value is dangerously close to u32::MAX, and the calculation will run into overflow
+    //    u32::MAX = 4294967296
+    let source_len = 4294967289;
+
+    let (rs, ng) = deflate_bound_correct_help((config, source_len));
+
+    assert_eq!(rs, ng);
 }
 
 fn deflate_bound_gzip_header_help(
@@ -668,13 +710,11 @@ fn deflate_bound_gzip_header_help(
 }
 
 #[test]
-#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn deflate_bound_gzip_header() {
     ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
 }
 
 #[test]
-#[cfg(not(windows))] // zlib-ng gives weird deflate bounds on windows
 fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
@@ -910,7 +950,7 @@ fn test_deflate_prime() {
 
     let config = DeflateConfig {
         level: -1,
-        method: zlib_rs::deflate::Method::Deflated,
+        method: Method::Deflated,
         window_bits: -15, // deflate as raw bytes
         mem_level: 8,
         strategy: Strategy::Default,
@@ -1021,7 +1061,7 @@ fn test_deflate_prime() {
 fn small_window() {
     let deflate_config = DeflateConfig {
         level: Z_BEST_COMPRESSION,
-        method: zlib_rs::deflate::Method::Deflated,
+        method: Method::Deflated,
         window_bits: -9,
         mem_level: 8,
         strategy: Strategy::Default,
