@@ -158,3 +158,33 @@ jobs:
           for target in $(cargo fuzz list ${{ matrix.features }}) ; do
             cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
           done
+
+  fuzz-aarch64:
+    name: Smoke-test fuzzing targets
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - rust: "stable"
+            os: macos-14
+            features: ""
+            target: "aarch64-apple-darwin"
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: nightly
+      - name: Install cargo fuzz
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-fuzz
+      - name: Smoke-test fuzz targets
+        run: |
+          cargo fuzz build ${{ matrix.features }}
+          for target in $(cargo fuzz list ${{ matrix.features }}) ; do
+            cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
+          done
