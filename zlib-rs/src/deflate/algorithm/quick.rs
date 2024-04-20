@@ -20,7 +20,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
 
     macro_rules! quick_start_block {
         () => {
-            state.emit_tree(BlockType::StaticTrees, last);
+            state.bit_writer.emit_tree(BlockType::StaticTrees, last);
             state.block_open = 1 + last as u8;
             state.block_start = state.strstart as isize;
         };
@@ -29,7 +29,9 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
     macro_rules! quick_end_block {
         () => {
             if state.block_open > 0 {
-                state.emit_end_block_and_align(&StaticTreeDesc::L.static_tree, last);
+                state
+                    .bit_writer
+                    .emit_end_block_and_align(&StaticTreeDesc::L.static_tree, last);
                 state.block_open = 0;
                 state.block_start = state.strstart as isize;
                 flush_pending(stream);
@@ -121,7 +123,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         // TODO do this with a debug_assert?
                         // check_match(s, state.strstart, hash_head, match_len);
 
-                        state.emit_dist(
+                        state.bit_writer.emit_dist(
                             StaticTreeDesc::L.static_tree,
                             StaticTreeDesc::D.static_tree,
                             (match_len - STD_MIN_MATCH) as u8,
@@ -136,7 +138,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         }
 
         let lc = state.window.filled()[state.strstart];
-        state.emit_lit(StaticTreeDesc::L.static_tree, lc);
+        state.bit_writer.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;
     }
