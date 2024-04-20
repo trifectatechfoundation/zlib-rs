@@ -1159,17 +1159,33 @@ impl<'a> State<'a> {
         self.bi_buf = 0;
     }
 
-    fn compress_block(&mut self, ltree: &[Value], dtree: &[Value]) {
+    fn compress_block_static_trees(&mut self) {
+        self.compress_block_help(
+            self::trees_tbl::STATIC_LTREE.as_slice(),
+            self::trees_tbl::STATIC_DTREE.as_slice(),
+        )
+    }
+
+    fn compress_block_dynamic_trees(&mut self) {
+        // work around a mutable borrow on self
+        let dyn_ltree = self.l_desc.dyn_tree.clone();
+        let dyn_dtree = self.d_desc.dyn_tree.clone();
+        self.compress_block_help(&dyn_ltree, &dyn_dtree);
+    }
+
+    fn compress_block_help(&mut self, ltree: &[Value], dtree: &[Value]) {
         let mut sx = 0;
 
         if !self.sym_buf.is_empty() {
             loop {
-                let mut dist = self.sym_buf.filled()[sx] as usize;
-                sx += 1;
-                dist += (self.sym_buf.filled()[sx] as usize) << 8;
-                sx += 1;
-                let lc = self.sym_buf.filled()[sx];
-                sx += 1;
+                let (dist_low, dist_high, lc) = match self.sym_buf.filled()[sx..] {
+                    [a, b, c, ..] => (a, b, c),
+                    _ => panic!("out of bound access on the symbol buffer"),
+                };
+
+                let dist = dist_low as usize + ((dist_high as usize) << 8);
+
+                sx += 3;
 
                 if dist == 0 {
                     self.emit_lit(ltree, lc);
@@ -2226,10 +2242,7 @@ fn zng_tr_flush_block(
         zng_tr_stored_block(state, range, last);
     } else if static_lenb == opt_lenb {
         state.emit_tree(BlockType::StaticTrees, last);
-        state.compress_block(
-            &self::trees_tbl::STATIC_LTREE,
-            &self::trees_tbl::STATIC_DTREE,
-        );
+        state.compress_block_static_trees();
     // cmpr_bits_add(s, s.static_len);
     } else {
         state.emit_tree(BlockType::DynamicTrees, last);
@@ -2239,15 +2252,8 @@ fn zng_tr_flush_block(
             state.d_desc.max_code + 1,
             max_blindex + 1,
         );
-        {
-            let mut tmp1 = TreeDesc::EMPTY;
-            let mut tmp2 = TreeDesc::EMPTY;
-            core::mem::swap(&mut tmp1, &mut state.l_desc);
-            core::mem::swap(&mut tmp2, &mut state.d_desc);
-            state.compress_block(&tmp1.dyn_tree, &tmp2.dyn_tree);
-            core::mem::swap(&mut tmp1, &mut state.l_desc);
-            core::mem::swap(&mut tmp2, &mut state.d_desc);
-        }
+
+        state.compress_block_dynamic_trees();
     }
 
     // TODO
