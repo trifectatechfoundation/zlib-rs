@@ -966,6 +966,14 @@ impl<'a> BitWriter<'a> {
         self.send_bits(node.code() as u64, node.len() as u8)
     }
 
+    /// Send one empty static block to give enough lookahead for inflate.
+    /// This takes 10 bits, of which 7 may remain in the bit buffer.
+    pub fn align(&mut self) {
+        self.emit_tree(BlockType::StaticTrees, false);
+        self.emit_end_block(&STATIC_LTREE, false);
+        self.flush_bits();
+    }
+
     pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
         let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
         self.send_bits(header_bits, 3);
@@ -1074,6 +1082,70 @@ impl<'a> BitWriter<'a> {
         }
 
         self.emit_end_block(ltree, false)
+    }
+
+    fn send_tree(&mut self, tree: &[Value], bl_tree: &[Value], max_code: usize) {
+        /* tree: the tree to be scanned */
+        /* max_code and its largest code of non zero frequency */
+        let mut prevlen: isize = -1; /* last emitted length */
+        let mut curlen; /* length of current code */
+        let mut nextlen = tree[0].len(); /* length of next code */
+        let mut count = 0; /* repeat count of the current code */
+        let mut max_count = 7; /* max repeat count */
+        let mut min_count = 4; /* min repeat count */
+
+        /* tree[max_code+1].Len = -1; */
+        /* guard already set */
+        if nextlen == 0 {
+            max_count = 138;
+            min_count = 3;
+        }
+
+        for n in 0..=max_code {
+            curlen = nextlen;
+            nextlen = tree[n + 1].len();
+            count += 1;
+            if count < max_count && curlen == nextlen {
+                continue;
+            } else if count < min_count {
+                loop {
+                    self.send_code(curlen as usize, bl_tree);
+
+                    count -= 1;
+                    if count == 0 {
+                        break;
+                    }
+                }
+            } else if curlen != 0 {
+                if curlen as isize != prevlen {
+                    self.send_code(curlen as usize, bl_tree);
+                    count -= 1;
+                }
+                assert!((3..=6).contains(&count), " 3_6?");
+                self.send_code(REP_3_6, bl_tree);
+                self.send_bits(count - 3, 2);
+            } else if count <= 10 {
+                self.send_code(REPZ_3_10, bl_tree);
+                self.send_bits(count - 3, 3);
+            } else {
+                self.send_code(REPZ_11_138, bl_tree);
+                self.send_bits(count - 11, 7);
+            }
+
+            count = 0;
+            prevlen = curlen as isize;
+
+            if nextlen == 0 {
+                max_count = 138;
+                min_count = 3;
+            } else if curlen == nextlen {
+                max_count = 6;
+                min_count = 3;
+            } else {
+                max_count = 7;
+                min_count = 4;
+            }
+        }
     }
 }
 
@@ -2032,89 +2104,17 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
     }
     // trace!("\nbl tree: sent {}", state.bits_sent);
 
-    let mut tmp1 = TreeDesc::EMPTY;
-    let mut tmp2 = TreeDesc::EMPTY;
-    core::mem::swap(&mut tmp1, &mut state.l_desc);
-    core::mem::swap(&mut tmp2, &mut state.d_desc);
-
-    send_tree(state, &tmp1.dyn_tree, lcodes - 1); /* literal tree */
+    // literal tree
+    state
+        .bit_writer
+        .send_tree(&state.l_desc.dyn_tree, &state.bl_desc.dyn_tree, lcodes - 1);
     // trace!("\nlit tree: sent {}", state.bits_sent);
 
-    send_tree(state, &tmp2.dyn_tree, dcodes - 1); /* distance tree */
+    // distance tree
+    state
+        .bit_writer
+        .send_tree(&state.d_desc.dyn_tree, &state.bl_desc.dyn_tree, dcodes - 1);
     // trace!("\ndist tree: sent {}", state.bits_sent);
-
-    core::mem::swap(&mut tmp1, &mut state.l_desc);
-    core::mem::swap(&mut tmp2, &mut state.d_desc);
-}
-
-fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
-    /* tree: the tree to be scanned */
-    /* max_code and its largest code of non zero frequency */
-    let mut prevlen: isize = -1; /* last emitted length */
-    let mut curlen; /* length of current code */
-    let mut nextlen = tree[0].len(); /* length of next code */
-    let mut count = 0; /* repeat count of the current code */
-    let mut max_count = 7; /* max repeat count */
-    let mut min_count = 4; /* min repeat count */
-
-    /* tree[max_code+1].Len = -1; */
-    /* guard already set */
-    if nextlen == 0 {
-        max_count = 138;
-        min_count = 3;
-    }
-
-    let mut bl_desc = TreeDesc::EMPTY;
-    core::mem::swap(&mut bl_desc, &mut state.bl_desc);
-    let bl_tree = &bl_desc.dyn_tree;
-
-    for n in 0..=max_code {
-        curlen = nextlen;
-        nextlen = tree[n + 1].len();
-        count += 1;
-        if count < max_count && curlen == nextlen {
-            continue;
-        } else if count < min_count {
-            loop {
-                state.bit_writer.send_code(curlen as usize, bl_tree);
-
-                count -= 1;
-                if count == 0 {
-                    break;
-                }
-            }
-        } else if curlen != 0 {
-            if curlen as isize != prevlen {
-                state.bit_writer.send_code(curlen as usize, bl_tree);
-                count -= 1;
-            }
-            assert!((3..=6).contains(&count), " 3_6?");
-            state.bit_writer.send_code(REP_3_6, bl_tree);
-            state.bit_writer.send_bits(count - 3, 2);
-        } else if count <= 10 {
-            state.bit_writer.send_code(REPZ_3_10, bl_tree);
-            state.bit_writer.send_bits(count - 3, 3);
-        } else {
-            state.bit_writer.send_code(REPZ_11_138, bl_tree);
-            state.bit_writer.send_bits(count - 11, 7);
-        }
-
-        count = 0;
-        prevlen = curlen as isize;
-
-        if nextlen == 0 {
-            max_count = 138;
-            min_count = 3;
-        } else if curlen == nextlen {
-            max_count = 6;
-            min_count = 3;
-        } else {
-            max_count = 7;
-            min_count = 4;
-        }
-    }
-
-    core::mem::swap(&mut bl_desc, &mut state.bl_desc);
 }
 
 /// Construct the Huffman tree for the bit lengths and return the index in
@@ -2572,7 +2572,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                 match flush {
                     DeflateFlush::NoFlush => unreachable!("condition of inner surrounding if"),
                     DeflateFlush::PartialFlush => {
-                        state.align();
+                        state.bit_writer.align();
                     }
                     DeflateFlush::SyncFlush => {
                         // add an empty stored block that is marked as not final. This is useful for
