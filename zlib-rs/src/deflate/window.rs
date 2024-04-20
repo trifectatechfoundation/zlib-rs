@@ -51,19 +51,15 @@ impl<'a> Window<'a> {
     /// Returns a shared reference to the filled portion of the buffer.
     #[inline]
     pub fn filled(&self) -> &[u8] {
-        let slice = &self.buf[..self.filled];
-        // safety: filled describes how far into the buffer that the
-        // user has filled with bytes, so it's been initialized.
-        unsafe { slice_assume_init(slice) }
+        // safety: `self.buf` has been initialized for at least `filled` elements
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast(), self.filled) }
     }
 
     /// Returns a mutable reference to the filled portion of the buffer.
     #[inline]
     pub fn filled_mut(&mut self) -> &mut [u8] {
-        let slice = &mut self.buf[..self.filled];
-        // safety: filled describes how far into the buffer that the
-        // user has filled with bytes, so it's been initialized.
-        unsafe { slice_assume_init_mut(slice) }
+        // safety: `self.buf` has been initialized for at least `filled` elements
+        unsafe { core::slice::from_raw_parts_mut(self.buf.as_mut_ptr().cast(), self.filled) }
     }
 
     /// # Safety
@@ -147,14 +143,4 @@ impl<'a> Window<'a> {
 
         0
     }
-}
-
-// TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
-unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
-    &*(slice as *const [MaybeUninit<u8>] as *const [u8])
-}
-
-// TODO: This could use `MaybeUninit::slice_assume_init_mut` when it is stable.
-unsafe fn slice_assume_init_mut(slice: &mut [MaybeUninit<u8>]) -> &mut [u8] {
-    &mut *(slice as *mut [MaybeUninit<u8>] as *mut [u8])
 }
