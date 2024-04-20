@@ -960,6 +960,92 @@ impl<'a> BitWriter<'a> {
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
         }
     }
+
+    fn send_code(&mut self, code: usize, tree: &[Value]) {
+        let node = tree[code];
+        self.send_bits(node.code() as u64, node.len() as u8)
+    }
+
+    pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
+        let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
+        self.send_bits(header_bits, 3);
+    }
+
+    pub(crate) fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
+        self.emit_end_block(ltree, is_last_block);
+
+        if is_last_block {
+            self.flush_and_align_bits();
+        }
+    }
+
+    fn emit_end_block(&mut self, ltree: &[Value], _is_last_block: bool) {
+        const END_BLOCK: usize = 256;
+        self.send_code(END_BLOCK, ltree);
+    }
+
+    pub(crate) fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
+        self.send_code(c as usize, ltree);
+
+        trace!(
+            "'{}' ",
+            match char::from_u32(c as u32) {
+                None => ' ',
+                Some(c) => match c.is_ascii() && !c.is_whitespace() {
+                    true => c,
+                    false => ' ',
+                },
+            }
+        );
+
+        ltree[c as usize].len()
+    }
+
+    pub(crate) fn emit_dist(
+        &mut self,
+        ltree: &[Value],
+        dtree: &[Value],
+        lc: u8,
+        mut dist: usize,
+    ) -> usize {
+        let mut lc = lc as usize;
+
+        /* Send the length code, len is the match length - STD_MIN_MATCH */
+        let mut code = self::trees_tbl::LENGTH_CODE[lc] as usize;
+        let c = code + LITERALS + 1;
+        assert!(c < L_CODES, "bad l_code");
+        // send_code_trace(s, c);
+
+        let lnode = ltree[c];
+        let mut match_bits = lnode.code() as usize;
+        let mut match_bits_len = lnode.len() as usize;
+        let mut extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
+        if extra != 0 {
+            lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
+            match_bits |= lc << match_bits_len;
+            match_bits_len += extra;
+        }
+
+        dist -= 1; /* dist is now the match distance - 1 */
+        code = State::d_code(dist) as usize;
+        assert!(code < D_CODES, "bad d_code");
+        // send_code_trace(s, code);
+
+        /* Send the distance code */
+        let dnode = dtree[code];
+        match_bits |= (dnode.code() as usize) << match_bits_len;
+        match_bits_len += dnode.len() as usize;
+        extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
+        if extra != 0 {
+            dist -= self::trees_tbl::BASE_DIST[code] as usize;
+            match_bits |= dist << match_bits_len;
+            match_bits_len += extra;
+        }
+
+        self.send_bits(match_bits as u64, match_bits_len as u8);
+
+        match_bits_len
+    }
 }
 
 #[allow(unused)]
@@ -1152,6 +1238,14 @@ impl<'a> State<'a> {
         self.sym_buf.len() == self.sym_buf.capacity() - 3
     }
 
+    const fn d_code(dist: usize) -> u8 {
+        if dist < 256 {
+            self::trees_tbl::DIST_CODE[dist]
+        } else {
+            self::trees_tbl::DIST_CODE[256 + (dist >> 7)]
+        }
+    }
+
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
         self.sym_buf.push(dist as u8);
         self.sym_buf.push((dist >> 8) as u8);
@@ -1232,9 +1326,9 @@ impl<'a> State<'a> {
                 sx += 3;
 
                 if dist == 0 {
-                    self.emit_lit(ltree, lc);
+                    self.bit_writer.emit_lit(ltree, lc);
                 } else {
-                    self.emit_dist(ltree, dtree, lc, dist);
+                    self.bit_writer.emit_dist(ltree, dtree, lc, dist);
                 }
 
                 /* Check that the overlay between pending_buf and sym_buf is ok: */
@@ -1249,109 +1343,7 @@ impl<'a> State<'a> {
             }
         }
 
-        self.emit_end_block(ltree, false)
-    }
-
-    pub(crate) fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
-        self.emit_end_block(ltree, is_last_block);
-
-        if is_last_block {
-            self.bit_writer.flush_and_align_bits();
-        }
-    }
-
-    fn emit_end_block(&mut self, ltree: &[Value], _is_last_block: bool) {
-        const END_BLOCK: usize = 256;
-        self.send_code(END_BLOCK, ltree);
-    }
-
-    pub(crate) fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
-        self.send_code(c as usize, ltree);
-
-        trace!(
-            "'{}' ",
-            match char::from_u32(c as u32) {
-                None => ' ',
-                Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                    true => c,
-                    false => ' ',
-                },
-            }
-        );
-
-        ltree[c as usize].len()
-    }
-
-    const fn d_code(dist: usize) -> u8 {
-        if dist < 256 {
-            self::trees_tbl::DIST_CODE[dist]
-        } else {
-            self::trees_tbl::DIST_CODE[256 + (dist >> 7)]
-        }
-    }
-
-    pub(crate) fn emit_dist(
-        &mut self,
-        ltree: &[Value],
-        dtree: &[Value],
-        lc: u8,
-        mut dist: usize,
-    ) -> usize {
-        let mut lc = lc as usize;
-
-        /* Send the length code, len is the match length - STD_MIN_MATCH */
-        let mut code = self::trees_tbl::LENGTH_CODE[lc] as usize;
-        let c = code + LITERALS + 1;
-        assert!(c < L_CODES, "bad l_code");
-        // send_code_trace(s, c);
-
-        let mut match_bits = ltree[c].code() as usize;
-        let mut match_bits_len = ltree[c].len() as usize;
-        let mut extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
-        if extra != 0 {
-            lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
-            match_bits |= lc << match_bits_len;
-            match_bits_len += extra;
-        }
-
-        dist -= 1; /* dist is now the match distance - 1 */
-        code = Self::d_code(dist) as usize;
-        assert!(code < D_CODES, "bad d_code");
-        // send_code_trace(s, code);
-
-        /* Send the distance code */
-        match_bits |= (dtree[code].code() as usize) << match_bits_len;
-        match_bits_len += dtree[code].len() as usize;
-        extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
-        if extra != 0 {
-            dist -= self::trees_tbl::BASE_DIST[code] as usize;
-            match_bits |= dist << match_bits_len;
-            match_bits_len += extra;
-        }
-
-        self.bit_writer
-            .send_bits(match_bits as u64, match_bits_len as u8);
-
-        match_bits_len
-    }
-
-    fn send_code(&mut self, code: usize, tree: &[Value]) {
-        let node = tree[code];
-        self.bit_writer
-            .send_bits(node.code() as u64, node.len() as u8)
-    }
-
-    /// Send one empty static block to give enough lookahead for inflate.
-    /// This takes 10 bits, of which 7 may remain in the bit buffer.
-    pub fn align(&mut self) {
-        self.emit_tree(BlockType::StaticTrees, false);
-        self.emit_end_block(&STATIC_LTREE, false);
-        self.flush_bits();
-    }
-
-    pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
-        let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
-        self.bit_writer.send_bits(header_bits, 3);
+        self.bit_writer.emit_end_block(ltree, false)
     }
 
     fn header(&self) -> u16 {
@@ -1531,7 +1523,7 @@ pub(crate) fn zng_tr_stored_block(
     is_last: bool,
 ) {
     // send block type
-    state.emit_tree(BlockType::StoredBlock, is_last);
+    state.bit_writer.emit_tree(BlockType::StoredBlock, is_last);
 
     // align on byte boundary
     state.bit_writer.flush_and_align_bits();
@@ -2088,7 +2080,7 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
             continue;
         } else if count < min_count {
             loop {
-                state.send_code(curlen as usize, bl_tree);
+                state.bit_writer.send_code(curlen as usize, bl_tree);
 
                 count -= 1;
                 if count == 0 {
@@ -2097,17 +2089,17 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
             }
         } else if curlen != 0 {
             if curlen as isize != prevlen {
-                state.send_code(curlen as usize, bl_tree);
+                state.bit_writer.send_code(curlen as usize, bl_tree);
                 count -= 1;
             }
             assert!((3..=6).contains(&count), " 3_6?");
-            state.send_code(REP_3_6, bl_tree);
+            state.bit_writer.send_code(REP_3_6, bl_tree);
             state.bit_writer.send_bits(count - 3, 2);
         } else if count <= 10 {
-            state.send_code(REPZ_3_10, bl_tree);
+            state.bit_writer.send_code(REPZ_3_10, bl_tree);
             state.bit_writer.send_bits(count - 3, 3);
         } else {
-            state.send_code(REPZ_11_138, bl_tree);
+            state.bit_writer.send_code(REPZ_11_138, bl_tree);
             state.bit_writer.send_bits(count - 11, 7);
         }
 
@@ -2265,11 +2257,11 @@ fn zng_tr_flush_block(
         let range = window_offset..window_offset + stored_len as usize;
         zng_tr_stored_block(state, range, last);
     } else if static_lenb == opt_lenb {
-        state.emit_tree(BlockType::StaticTrees, last);
+        state.bit_writer.emit_tree(BlockType::StaticTrees, last);
         state.compress_block_static_trees();
     // cmpr_bits_add(s, s.static_len);
     } else {
-        state.emit_tree(BlockType::DynamicTrees, last);
+        state.bit_writer.emit_tree(BlockType::DynamicTrees, last);
         send_all_trees(
             state,
             state.l_desc.max_code + 1,
