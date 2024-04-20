@@ -9,7 +9,10 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
     // Smallest worthy block size when not flushing or finishing. By default
     // this is 32K. This can be as small as 507 bytes for memLevel == 1. For
     // large input and output buffers, the stored block size will be larger.
-    let min_block = Ord::min(stream.state.pending.capacity() - 5, stream.state.w_size);
+    let min_block = Ord::min(
+        stream.state.bit_writer.pending.capacity() - 5,
+        stream.state.w_size,
+    );
 
     // Copy as many min_block or larger stored blocks directly to next_out as
     // possible. If flushing, copy the remaining available input to next_out as
@@ -24,7 +27,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         let mut len = MAX_STORED;
 
         // number of header bytes
-        have = ((stream.state.bi_valid + 42) / 8) as usize;
+        have = ((stream.state.bit_writer.bits_used + 42) / 8) as usize;
 
         // we need room for at least the header
         if stream.avail_out < have as u32 {
@@ -61,9 +64,17 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         zng_tr_stored_block(stream.state, 0..0, last);
 
         /* Replace the lengths in the dummy stored block with len. */
-        stream.state.pending.rewind(4);
-        stream.state.pending.extend(&(len as u16).to_le_bytes());
-        stream.state.pending.extend(&(!len as u16).to_le_bytes());
+        stream.state.bit_writer.pending.rewind(4);
+        stream
+            .state
+            .bit_writer
+            .pending
+            .extend(&(len as u16).to_le_bytes());
+        stream
+            .state
+            .bit_writer
+            .pending
+            .extend(&(!len as u16).to_le_bytes());
 
         // Write the stored block header bytes.
         flush_pending(stream);
@@ -189,10 +200,10 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
 
     // number of header bytes
     let state = &mut stream.state;
-    let have = ((state.bi_valid + 42) >> 3) as usize;
+    let have = ((state.bit_writer.bits_used + 42) >> 3) as usize;
 
     // maximum stored block length that will fit in pending:
-    let have = Ord::min(state.pending.capacity() - have, MAX_STORED);
+    let have = Ord::min(state.bit_writer.pending.capacity() - have, MAX_STORED);
     let min_block = Ord::min(have, state.w_size);
     let left = state.strstart as isize - state.block_start;
 

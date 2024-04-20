@@ -81,7 +81,10 @@ impl<'a> DeflateStream<'a> {
     }
 
     pub fn pending(&self) -> (usize, u8) {
-        (self.state.pending.pending, self.state.bi_valid)
+        (
+            self.state.bit_writer.pending.pending,
+            self.state.bit_writer.bits_used,
+        )
     }
 }
 
@@ -318,7 +321,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         window,
         prev,
         head,
-        pending,
+        bit_writer: BitWriter::from_pending(pending),
 
         //
         lit_bufsize,
@@ -332,8 +335,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // these fields are not set explicitly at this point
         last_flush: 0,
-        bi_buf: 0,
-        bi_valid: 0,
         wrap,
         strstart: 0,
         block_start: 0,
@@ -522,7 +523,7 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
     let state = &mut stream.state;
 
     if bits < 0
-        || bits > State::BIT_BUF_SIZE as i32
+        || bits > BitWriter::BIT_BUF_SIZE as i32
         || bits > (core::mem::size_of_val(&value) << 3) as i32
     {
         return ReturnCode::BufError;
@@ -531,17 +532,18 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
     let mut put;
 
     loop {
-        put = State::BIT_BUF_SIZE - state.bi_valid;
+        put = BitWriter::BIT_BUF_SIZE - state.bit_writer.bits_used;
         let put = Ord::min(put as i32, bits);
 
-        if state.bi_valid == 0 {
-            state.bi_buf = value64;
+        if state.bit_writer.bits_used == 0 {
+            state.bit_writer.bit_buffer = value64;
         } else {
-            state.bi_buf |= (value64 & ((1 << put) - 1)) << state.bi_valid;
+            state.bit_writer.bit_buffer |=
+                (value64 & ((1 << put) - 1)) << state.bit_writer.bits_used;
         }
 
-        state.bi_valid += put as u8;
-        state.flush_bits();
+        state.bit_writer.bits_used += put as u8;
+        state.bit_writer.flush_bits();
         value64 >>= put;
         bits -= put;
 
@@ -577,7 +579,7 @@ pub fn copy<'a>(
     let prev = alloc.allocate_slice::<u16>(source_state.w_size);
     let head = alloc.allocate::<[u16; HASH_SIZE]>();
 
-    let pending = source_state.pending.clone_in(alloc);
+    let pending = source_state.bit_writer.pending.clone_in(alloc);
     let sym_buf = source_state.sym_buf.clone_in(alloc);
 
     // if any allocation failed, clean up allocations that did succeed
@@ -619,12 +621,14 @@ pub fn copy<'a>(
     let prev = unsafe { core::slice::from_raw_parts_mut(prev.as_mut_ptr().cast(), prev.len()) };
     let head = head.write(*source_state.head);
 
+    let mut bit_writer = BitWriter::from_pending(pending);
+    bit_writer.bits_used = source_state.bit_writer.bits_used;
+    bit_writer.bit_buffer = source_state.bit_writer.bit_buffer;
+
     let dest_state = State {
         status: source_state.status,
-        pending,
+        bit_writer,
         last_flush: source_state.last_flush,
-        bi_buf: source_state.bi_buf,
-        bi_valid: source_state.bi_valid,
         wrap: source_state.wrap,
         strategy: source_state.strategy,
         level: source_state.level,
@@ -695,7 +699,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
     unsafe {
         // safety: we make sure that these fields are not used (by invalidating the state pointer)
         stream.state.sym_buf.drop_in(&alloc);
-        stream.state.pending.drop_in(&alloc);
+        stream.state.bit_writer.pending.drop_in(&alloc);
         alloc.deallocate(stream.state.head, 1);
         if !stream.state.prev.is_empty() {
             alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
@@ -736,7 +740,7 @@ fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
 
     let state = &mut stream.state;
 
-    state.pending.reset_keep();
+    state.bit_writer.pending.reset_keep();
 
     // can be made negative by deflate(..., Z_FINISH);
     state.wrap = state.wrap.abs();
@@ -893,17 +897,79 @@ const MAX_BL_BITS: usize = 7;
 
 pub(crate) const DIST_CODE_LEN: usize = 512;
 
+struct BitWriter<'a> {
+    pub(crate) pending: Pending<'a>, // output still pending
+    pub(crate) bit_buffer: u64,
+    pub(crate) bits_used: u8,
+}
+
+impl<'a> BitWriter<'a> {
+    pub(crate) const BIT_BUF_SIZE: u8 = 64;
+
+    fn from_pending(pending: Pending<'a>) -> Self {
+        Self {
+            pending,
+            bit_buffer: 0,
+            bits_used: 0,
+        }
+    }
+
+    fn flush_bits(&mut self) {
+        debug_assert!(self.bits_used <= 64);
+        let removed = self.bits_used.saturating_sub(7).next_multiple_of(8);
+        let keep_bytes = self.bits_used / 8; // can never divide by zero
+
+        let src = &self.bit_buffer.to_le_bytes();
+        self.pending.extend(&src[..keep_bytes as usize]);
+
+        self.bits_used -= removed;
+        self.bit_buffer = self.bit_buffer.checked_shr(removed as u32).unwrap_or(0);
+    }
+
+    fn flush_and_align_bits(&mut self) {
+        debug_assert!(self.bits_used <= 64);
+        let keep_bytes = self.bits_used.div_ceil(8);
+        let src = &self.bit_buffer.to_le_bytes();
+        self.pending.extend(&src[..keep_bytes as usize]);
+
+        self.bits_used = 0;
+        self.bit_buffer = 0;
+    }
+
+    fn send_bits(&mut self, val: u64, len: u8) {
+        debug_assert!(len <= 64);
+        debug_assert!(self.bits_used <= 64);
+
+        let total_bits = len + self.bits_used;
+
+        // send_bits_trace(s, val, len);\
+        // sent_bits_add(s, len);\
+
+        if total_bits < Self::BIT_BUF_SIZE {
+            self.bit_buffer |= val << self.bits_used;
+            self.bits_used = total_bits;
+        } else if self.bits_used == Self::BIT_BUF_SIZE {
+            // with how send_bits is called, this is unreachable in practice
+            self.pending.extend(&self.bit_buffer.to_ne_bytes());
+            self.bit_buffer = val;
+            self.bits_used = len;
+        } else {
+            self.bit_buffer |= val << self.bits_used;
+            self.pending.extend(&self.bit_buffer.to_ne_bytes());
+            self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
+            self.bits_used = total_bits - Self::BIT_BUF_SIZE;
+        }
+    }
+}
+
 #[allow(unused)]
 #[repr(C)]
 pub(crate) struct State<'a> {
     status: Status,
 
-    pub(crate) pending: Pending<'a>, // output still pending
-
     last_flush: i32, /* value of flush param for previous deflate call */
 
-    bi_buf: u64,
-    pub(crate) bi_valid: u8,
+    bit_writer: BitWriter<'a>,
 
     pub(crate) wrap: i8, /* bit 0 true for zlib, bit 1 true for gzip */
 
@@ -1052,7 +1118,7 @@ enum DataType {
 }
 
 impl<'a> State<'a> {
-    pub(crate) const BIT_BUF_SIZE: u8 = 64;
+    pub const BIT_BUF_SIZE: u8 = BitWriter::BIT_BUF_SIZE;
 
     pub(crate) fn max_dist(&self) -> usize {
         self.w_size - MIN_LOOKAHEAD
@@ -1137,28 +1203,6 @@ impl<'a> State<'a> {
         DataType::Binary
     }
 
-    fn flush_bits(&mut self) {
-        debug_assert!(self.bi_valid <= 64);
-        let removed = self.bi_valid.saturating_sub(7).next_multiple_of(8);
-        let keep_bytes = self.bi_valid / 8; // can never divide by zero
-
-        let src = &self.bi_buf.to_le_bytes();
-        self.pending.extend(&src[..keep_bytes as usize]);
-
-        self.bi_valid -= removed;
-        self.bi_buf = self.bi_buf.checked_shr(removed as u32).unwrap_or(0);
-    }
-
-    fn flush_and_align_bits(&mut self) {
-        debug_assert!(self.bi_valid <= 64);
-        let keep_bytes = self.bi_valid.div_ceil(8);
-        let src = &self.bi_buf.to_le_bytes();
-        self.pending.extend(&src[..keep_bytes as usize]);
-
-        self.bi_valid = 0;
-        self.bi_buf = 0;
-    }
-
     fn compress_block_static_trees(&mut self) {
         self.compress_block_help(
             self::trees_tbl::STATIC_LTREE.as_slice(),
@@ -1195,7 +1239,7 @@ impl<'a> State<'a> {
 
                 /* Check that the overlay between pending_buf and sym_buf is ok: */
                 assert!(
-                    self.pending.pending < self.lit_bufsize + sx,
+                    self.bit_writer.pending.pending < self.lit_bufsize + sx,
                     "pending_buf overflow"
                 );
 
@@ -1212,7 +1256,7 @@ impl<'a> State<'a> {
         self.emit_end_block(ltree, is_last_block);
 
         if is_last_block {
-            self.flush_and_align_bits();
+            self.bit_writer.flush_and_align_bits();
         }
     }
 
@@ -1285,14 +1329,16 @@ impl<'a> State<'a> {
             match_bits_len += extra;
         }
 
-        self.send_bits(match_bits as u64, match_bits_len as u8);
+        self.bit_writer
+            .send_bits(match_bits as u64, match_bits_len as u8);
 
         match_bits_len
     }
 
     fn send_code(&mut self, code: usize, tree: &[Value]) {
         let node = tree[code];
-        self.send_bits(node.code() as u64, node.len() as u8)
+        self.bit_writer
+            .send_bits(node.code() as u64, node.len() as u8)
     }
 
     /// Send one empty static block to give enough lookahead for inflate.
@@ -1305,32 +1351,7 @@ impl<'a> State<'a> {
 
     pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
         let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
-        self.send_bits(header_bits, 3);
-    }
-
-    fn send_bits(&mut self, val: u64, len: u8) {
-        debug_assert!(len <= 64);
-        debug_assert!(self.bi_valid <= 64);
-
-        let total_bits = len + self.bi_valid;
-
-        // send_bits_trace(s, val, len);\
-        // sent_bits_add(s, len);\
-
-        if total_bits < Self::BIT_BUF_SIZE {
-            self.bi_buf |= val << self.bi_valid;
-            self.bi_valid = total_bits;
-        } else if self.bi_valid == Self::BIT_BUF_SIZE {
-            // with how send_bits is called, this is unreachable in practice
-            self.pending.extend(&self.bi_buf.to_le_bytes());
-            self.bi_buf = val;
-            self.bi_valid = len;
-        } else {
-            self.bi_buf |= val << self.bi_valid;
-            self.pending.extend(&self.bi_buf.to_le_bytes());
-            self.bi_buf = val >> (Self::BIT_BUF_SIZE - self.bi_valid);
-            self.bi_valid = total_bits - Self::BIT_BUF_SIZE;
-        }
+        self.bit_writer.send_bits(header_bits, 3);
     }
 
     fn header(&self) -> u16 {
@@ -1370,8 +1391,8 @@ impl<'a> State<'a> {
 
         self.bl_desc.stat_desc = &StaticTreeDesc::BL;
 
-        self.bi_buf = 0;
-        self.bi_valid = 0;
+        self.bit_writer.bit_buffer = 0;
+        self.bit_writer.bits_used = 0;
 
         // Initialize the first block of the first file:
         self.init_block();
@@ -1513,20 +1534,23 @@ pub(crate) fn zng_tr_stored_block(
     state.emit_tree(BlockType::StoredBlock, is_last);
 
     // align on byte boundary
-    state.flush_and_align_bits();
+    state.bit_writer.flush_and_align_bits();
 
     // cmpr_bits_align(s);
 
     let input_block: &[u8] = &state.window.filled()[window_range];
     let stored_len = input_block.len() as u16;
 
-    state.pending.extend(&stored_len.to_le_bytes());
-    state.pending.extend(&(!stored_len).to_le_bytes());
+    state.bit_writer.pending.extend(&stored_len.to_le_bytes());
+    state
+        .bit_writer
+        .pending
+        .extend(&(!stored_len).to_le_bytes());
 
     // cmpr_bits_add(s, 32);
     // sent_bits_add(s, 32);
     if stored_len > 0 {
-        state.pending.extend(input_block);
+        state.bit_writer.pending.extend(input_block);
         // cmpr_bits_add(s, stored_len << 3);
         // sent_bits_add(s, stored_len << 3);
     }
@@ -2007,13 +2031,13 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
     );
 
     trace!("\nbl counts: ");
-    state.send_bits(lcodes as u64 - 257, 5); /* not +255 as stated in appnote.txt */
-    state.send_bits(dcodes as u64 - 1, 5);
-    state.send_bits(blcodes as u64 - 4, 4); /* not -3 as stated in appnote.txt */
+    state.bit_writer.send_bits(lcodes as u64 - 257, 5); /* not +255 as stated in appnote.txt */
+    state.bit_writer.send_bits(dcodes as u64 - 1, 5);
+    state.bit_writer.send_bits(blcodes as u64 - 4, 4); /* not -3 as stated in appnote.txt */
 
     for rank in 0..blcodes {
         trace!("\nbl code {:>2} ", StaticTreeDesc::BL_ORDER[rank]);
-        state.send_bits(
+        state.bit_writer.send_bits(
             state.bl_desc.dyn_tree[StaticTreeDesc::BL_ORDER[rank] as usize].len() as u64,
             3,
         );
@@ -2078,13 +2102,13 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
             }
             assert!((3..=6).contains(&count), " 3_6?");
             state.send_code(REP_3_6, bl_tree);
-            state.send_bits(count - 3, 2);
+            state.bit_writer.send_bits(count - 3, 2);
         } else if count <= 10 {
             state.send_code(REPZ_3_10, bl_tree);
-            state.send_bits(count - 3, 3);
+            state.bit_writer.send_bits(count - 3, 3);
         } else {
             state.send_code(REPZ_11_138, bl_tree);
-            state.send_bits(count - 11, 7);
+            state.bit_writer.send_bits(count - 11, 7);
         }
 
         count = 0;
@@ -2262,7 +2286,7 @@ fn zng_tr_flush_block(
 
     state.init_block();
     if last {
-        state.flush_and_align_bits();
+        state.bit_writer.flush_and_align_bits();
     }
 
     // Tracev((stderr, "\ncomprlen %lu(%lu) ", s->compressed_len>>3, s->compressed_len-7*last));
@@ -2282,23 +2306,28 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
 
 #[must_use]
 fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<ReturnCode> {
+    let mut state = &mut stream.state;
+
     // we'll be using the pending buffer as temporary storage
-    let mut beg = stream.state.pending.pending().len(); /* start of bytes to update crc */
+    let mut beg = state.bit_writer.pending.pending().len(); /* start of bytes to update crc */
 
-    while stream.state.pending.remaining() < bytes.len() {
-        let copy = stream.state.pending.remaining();
+    while state.bit_writer.pending.remaining() < bytes.len() {
+        let copy = state.bit_writer.pending.remaining();
 
-        stream.state.pending.extend(&bytes[..copy]);
+        state.bit_writer.pending.extend(&bytes[..copy]);
 
-        stream.adler =
-            crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as z_checksum;
+        stream.adler = crc32(
+            stream.adler as u32,
+            &state.bit_writer.pending.pending()[beg..],
+        ) as z_checksum;
 
-        stream.state.gzindex += copy;
+        state.gzindex += copy;
         flush_pending(stream);
+        state = &mut stream.state;
 
         // could not flush all the pending output
-        if !stream.state.pending.pending().is_empty() {
-            stream.state.last_flush = -1;
+        if !state.bit_writer.pending.pending().is_empty() {
+            state.last_flush = -1;
             return ControlFlow::Break(ReturnCode::Ok);
         }
 
@@ -2306,10 +2335,13 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
         bytes = &bytes[copy..];
     }
 
-    stream.state.pending.extend(bytes);
+    state.bit_writer.pending.extend(bytes);
 
-    stream.adler = crc32(stream.adler as u32, &stream.state.pending.pending()[beg..]) as z_checksum;
-    stream.state.gzindex = 0;
+    stream.adler = crc32(
+        stream.adler as u32,
+        &state.bit_writer.pending.pending()[beg..],
+    ) as z_checksum;
+    state.gzindex = 0;
 
     ControlFlow::Continue(())
 }
@@ -2334,7 +2366,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     stream.state.last_flush = flush as i32;
 
     /* Flush as much pending output as possible */
-    if !stream.state.pending.pending().is_empty() {
+    if !stream.state.bit_writer.pending.pending().is_empty() {
         flush_pending(stream);
         if stream.avail_out == 0 {
             /* Since avail_out is 0, deflate will be called again with
@@ -2374,12 +2406,16 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
 
     if stream.state.status == Status::Init {
         let header = stream.state.header();
-        stream.state.pending.extend(&header.to_be_bytes());
+        stream
+            .state
+            .bit_writer
+            .pending
+            .extend(&header.to_be_bytes());
 
         /* Save the adler32 of the preset dictionary: */
         if stream.state.strstart != 0 {
             let adler = stream.adler as u32;
-            stream.state.pending.extend(&adler.to_be_bytes());
+            stream.state.bit_writer.pending.extend(&adler.to_be_bytes());
         }
 
         stream.adler = ADLER32_INITIAL_VALUE as _;
@@ -2388,7 +2424,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         // compression must start with an empty pending buffer
         flush_pending(stream);
 
-        if !stream.state.pending.pending().is_empty() {
+        if !stream.state.bit_writer.pending.pending().is_empty() {
             stream.state.last_flush = -1;
 
             return ReturnCode::Ok;
@@ -2399,7 +2435,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         /* gzip header */
         stream.state.crc_fold = Crc32Fold::new();
 
-        stream.state.pending.extend(&[31, 139, 8]);
+        stream.state.bit_writer.pending.extend(&[31, 139, 8]);
 
         let extra_flags = if stream.state.level == 9 {
             2
@@ -2412,30 +2448,36 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         match &stream.state.gzhead {
             None => {
                 let bytes = [0, 0, 0, 0, 0, extra_flags, gz_header::OS_CODE];
-                stream.state.pending.extend(&bytes);
+                stream.state.bit_writer.pending.extend(&bytes);
                 stream.state.status = Status::Busy;
 
                 /* Compression must start with an empty pending buffer */
                 flush_pending(stream);
-                if !stream.state.pending.pending().is_empty() {
+                if !stream.state.bit_writer.pending.pending().is_empty() {
                     stream.state.last_flush = -1;
                     return ReturnCode::Ok;
                 }
             }
             Some(gzhead) => {
-                stream.state.pending.extend(&[gzhead.flags()]);
+                stream.state.bit_writer.pending.extend(&[gzhead.flags()]);
                 let bytes = (gzhead.time as u32).to_le_bytes();
-                stream.state.pending.extend(&bytes);
-                stream.state.pending.extend(&[extra_flags, gzhead.os as u8]);
+                stream.state.bit_writer.pending.extend(&bytes);
+                stream
+                    .state
+                    .bit_writer
+                    .pending
+                    .extend(&[extra_flags, gzhead.os as u8]);
 
                 if !gzhead.extra.is_null() {
                     let bytes = (gzhead.extra_len as u16).to_le_bytes();
-                    stream.state.pending.extend(&bytes);
+                    stream.state.bit_writer.pending.extend(&bytes);
                 }
 
                 if gzhead.hcrc > 0 {
-                    stream.adler =
-                        crc32(stream.adler as u32, stream.state.pending.pending()) as z_checksum
+                    stream.adler = crc32(
+                        stream.adler as u32,
+                        stream.state.bit_writer.pending.pending(),
+                    ) as z_checksum
                 }
 
                 stream.state.gzindex = 0;
@@ -2504,7 +2546,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
 
         // compression must start with an empty pending buffer
         flush_pending(stream);
-        if !stream.state.pending.pending().is_empty() {
+        if !stream.state.bit_writer.pending.pending().is_empty() {
             stream.state.last_flush = -1;
             return ReturnCode::Ok;
         }
@@ -2589,13 +2631,17 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         stream.adler = crc_fold.finish() as z_checksum;
 
         let adler = stream.adler as u32;
-        stream.state.pending.extend(&adler.to_le_bytes());
+        stream.state.bit_writer.pending.extend(&adler.to_le_bytes());
 
         let total_in = stream.total_in as u32;
-        stream.state.pending.extend(&total_in.to_le_bytes());
+        stream
+            .state
+            .bit_writer
+            .pending
+            .extend(&total_in.to_le_bytes());
     } else if stream.state.wrap == 1 {
         let adler = stream.adler as u32;
-        stream.state.pending.extend(&adler.to_be_bytes());
+        stream.state.bit_writer.pending.extend(&adler.to_be_bytes());
     }
 
     flush_pending(stream);
@@ -2605,8 +2651,8 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         stream.state.wrap = -stream.state.wrap; /* write the trailer only once! */
     }
 
-    if stream.state.pending.pending().is_empty() {
-        assert_eq!(stream.state.bi_valid, 0, "bi_buf not flushed");
+    if stream.state.bit_writer.pending.pending().is_empty() {
+        assert_eq!(stream.state.bit_writer.bits_used, 0, "bi_buf not flushed");
         return ReturnCode::StreamEnd;
     }
     ReturnCode::Ok
@@ -2615,9 +2661,9 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
 pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     let state = &mut stream.state;
 
-    state.flush_bits();
+    state.bit_writer.flush_bits();
 
-    let pending = state.pending.pending();
+    let pending = state.bit_writer.pending.pending();
     let len = Ord::min(pending.len(), stream.avail_out as usize);
 
     if len == 0 {
@@ -2631,7 +2677,7 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     stream.total_out += len as crate::c_api::z_size;
     stream.avail_out -= len as crate::c_api::uInt;
 
-    state.pending.advance(len);
+    state.bit_writer.pending.advance(len);
 }
 
 pub fn compress_slice<'a>(
@@ -3782,11 +3828,11 @@ mod test {
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = 100;
 
-        assert_eq!(stream.state.pending.capacity(), 512);
+        assert_eq!(stream.state.bit_writer.pending.capacity(), 512);
 
         // only 12 bytes remain, so to write the name the pending buffer must be flushed.
         // but there is insufficient output space to flush (only 100 bytes)
-        stream.state.pending.extend(&[0; 500]);
+        stream.state.bit_writer.pending.extend(&[0; 500]);
 
         assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::Ok);
 

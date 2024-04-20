@@ -59,7 +59,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
     }
 
     loop {
-        if state.pending.pending + State::BIT_BUF_SIZE.div_ceil(8) as usize
+        if state.bit_writer.pending.pending + State::BIT_BUF_SIZE.div_ceil(8) as usize
             >= state.pending_buf_size()
         {
             flush_pending(stream);
@@ -67,7 +67,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             if stream.avail_out == 0 {
                 return if last
                     && stream.avail_in == 0
-                    && state.bi_valid == 0
+                    && state.bit_writer.bits_used == 0
                     && state.block_open == 0
                 {
                     BlockState::FinishStarted
