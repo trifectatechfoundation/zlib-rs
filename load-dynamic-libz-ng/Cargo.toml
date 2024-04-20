@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 libloading.workspace = true
-libz-ng-sys.workspace = true
+libz-sys.workspace = true

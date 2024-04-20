@@ -2,9 +2,12 @@
 
 use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 
+// we use the libz_sys but configure zlib-ng in zlib compat mode
+use libz_sys as libz_ng_sys;
+
 use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
 
-use std::ffi::{c_char, c_int, c_uint};
+use std::ffi::{c_int, c_uint};
 
 fn main() {
     let mut it = std::env::args();
@@ -113,10 +116,7 @@ fn compress_rs(
     //
     level: i32,
 ) -> ReturnCode {
-    use libz_rs_sys::{deflate, deflateEnd, deflateInit2_, z_stream};
-
-    const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
-    const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
+    use libz_rs_sys::{deflate, deflateEnd, deflateInit2_, z_stream, zlibVersion};
 
     let mut stream = z_stream {
         next_in: source.as_ptr() as *mut u8,
@@ -145,8 +145,8 @@ fn compress_rs(
                 WINDOW_BITS,
                 MEM_LEVEL,
                 STRATEGY,
-                VERSION,
-                STREAM_SIZE,
+                zlibVersion(),
+                std::mem::size_of::<z_stream>() as c_int,
             )
         }
     };
@@ -197,10 +197,7 @@ fn compress_ng(
     //
     level: i32,
 ) -> ReturnCode {
-    use libz_ng_sys::{deflate, deflateEnd, deflateInit2_, z_stream};
-
-    const VERSION: *const c_char = "2.3.0\0".as_ptr() as *const c_char;
-    const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
+    use libz_ng_sys::{deflate, deflateEnd, deflateInit2_, z_stream, zlibVersion};
 
     let mut stream = z_stream {
         next_in: source.as_ptr() as *mut u8,
@@ -229,8 +226,8 @@ fn compress_ng(
                 WINDOW_BITS,
                 MEM_LEVEL,
                 STRATEGY,
-                VERSION,
-                STREAM_SIZE,
+                zlibVersion(),
+                std::mem::size_of::<z_stream>() as c_int,
             )
         }
     };
