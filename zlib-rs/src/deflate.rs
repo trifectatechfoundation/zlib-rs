@@ -1046,6 +1046,35 @@ impl<'a> BitWriter<'a> {
 
         match_bits_len
     }
+
+    fn compress_block_help(&mut self, sym_buf: &[u8], ltree: &[Value], dtree: &[Value]) {
+        let mut sx = 0;
+
+        if !sym_buf.is_empty() {
+            loop {
+                let (dist_low, dist_high, lc) = match sym_buf[sx..] {
+                    [a, b, c, ..] => (a, b, c),
+                    _ => panic!("out of bound access on the symbol buffer"),
+                };
+
+                let dist = dist_low as usize + ((dist_high as usize) << 8);
+
+                sx += 3;
+
+                if dist == 0 {
+                    self.emit_lit(ltree, lc);
+                } else {
+                    self.emit_dist(ltree, dtree, lc, dist);
+                }
+
+                if sx >= sym_buf.len() {
+                    break;
+                }
+            }
+        }
+
+        self.emit_end_block(ltree, false)
+    }
 }
 
 #[allow(unused)]
@@ -1298,52 +1327,19 @@ impl<'a> State<'a> {
     }
 
     fn compress_block_static_trees(&mut self) {
-        self.compress_block_help(
+        self.bit_writer.compress_block_help(
+            self.sym_buf.filled(),
             self::trees_tbl::STATIC_LTREE.as_slice(),
             self::trees_tbl::STATIC_DTREE.as_slice(),
         )
     }
 
     fn compress_block_dynamic_trees(&mut self) {
-        // work around a mutable borrow on self
-        let dyn_ltree = self.l_desc.dyn_tree.clone();
-        let dyn_dtree = self.d_desc.dyn_tree.clone();
-        self.compress_block_help(&dyn_ltree, &dyn_dtree);
-    }
-
-    fn compress_block_help(&mut self, ltree: &[Value], dtree: &[Value]) {
-        let mut sx = 0;
-
-        if !self.sym_buf.is_empty() {
-            loop {
-                let (dist_low, dist_high, lc) = match self.sym_buf.filled()[sx..] {
-                    [a, b, c, ..] => (a, b, c),
-                    _ => panic!("out of bound access on the symbol buffer"),
-                };
-
-                let dist = dist_low as usize + ((dist_high as usize) << 8);
-
-                sx += 3;
-
-                if dist == 0 {
-                    self.bit_writer.emit_lit(ltree, lc);
-                } else {
-                    self.bit_writer.emit_dist(ltree, dtree, lc, dist);
-                }
-
-                /* Check that the overlay between pending_buf and sym_buf is ok: */
-                assert!(
-                    self.bit_writer.pending.pending < self.lit_bufsize + sx,
-                    "pending_buf overflow"
-                );
-
-                if sx >= self.sym_buf.len() {
-                    break;
-                }
-            }
-        }
-
-        self.bit_writer.emit_end_block(ltree, false)
+        self.bit_writer.compress_block_help(
+            self.sym_buf.filled(),
+            &self.l_desc.dyn_tree,
+            &self.d_desc.dyn_tree,
+        );
     }
 
     fn header(&self) -> u16 {
