@@ -3025,11 +3025,19 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(
+        target_arch = "aarch64",
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
     fn compress_lcet10() {
         fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
     }
 
     #[test]
+    #[cfg_attr(
+        target_arch = "aarch64",
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
 
@@ -3040,6 +3048,10 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(
+        target_arch = "aarch64",
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
     fn compress_fireworks() {
         let mut config = DeflateConfig::default();
 
