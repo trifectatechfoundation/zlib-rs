@@ -561,11 +561,11 @@ fn deflate_bound_correct_help(
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
+            libz_ng_sys::zlibVersion(),
             core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
 
-        assert_eq!(err, 0);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
     };
@@ -676,7 +676,7 @@ fn deflate_bound_gzip_header_help(
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
+            libz_ng_sys::zlibVersion(),
             core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
 
@@ -797,8 +797,8 @@ fn test_compress_param() {
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            libz_ng_sys::zlibVersion(),
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
         assert_eq!(err, 0);
 
@@ -902,8 +902,8 @@ fn test_dict_deflate() {
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            libz_ng_sys::zlibVersion(),
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
@@ -1159,8 +1159,8 @@ fn small_window() {
             deflate_config.window_bits,
             deflate_config.mem_level,
             deflate_config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            libz_ng_sys::zlibVersion(),
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
@@ -1192,8 +1192,8 @@ fn small_window() {
         let err = libz_ng_sys::inflateInit2_(
             strm.as_mut_ptr(),
             inflate_config.window_bits,
-            VERSION,
-            STREAM_SIZE,
+            libz_ng_sys::zlibVersion(),
+            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
         );
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
