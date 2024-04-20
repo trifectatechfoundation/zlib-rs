@@ -20,7 +20,7 @@ __internal-test = ["quickcheck"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true, features = ["derive"] }
-libz-ng-sys = { workspace = true, optional = true }
+libz-sys = { workspace = true, optional = true }
 quickcheck = { version = "1.0.3", optional = true, default-features = false, features = [] }
 
 [dev-dependencies]

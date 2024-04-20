@@ -30,7 +30,7 @@ opt-level = 1 # required for the tail calls in inflate to optimize
 
 [workspace.dependencies]
 libloading = "0.8.1"
-libz-ng-sys = { version = "1.1.12" }
+libz-sys = { version = "1.1.12", default-features = false, features = ["zlib-ng"] } # use libz-ng in libz compat mode
 arbitrary = { version = "1.0" }
 
 libc = "0.2.153" # TODO remove

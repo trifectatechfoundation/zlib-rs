@@ -3,6 +3,9 @@
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)]
 
+// we use the libz_sys but configure zlib-ng in zlib compat mode
+use libz_sys as libz_ng_sys;
+
 use libz_ng_sys::Bytef;
 use std::{
     ffi::{c_char, c_int, c_uint, c_ulong},
@@ -181,7 +184,7 @@ pub fn compress_slice<'a>(
         assert_eq!(libz_ng_sys::Z_OK, err);
     }
 
-    (&mut output[..stream.total_out], libz_ng_sys::Z_OK)
+    (&mut output[..stream.total_out as usize], libz_ng_sys::Z_OK)
 }
 
 pub unsafe fn crc32(start: u32, buf: *const u8, len: usize) -> u32 {

@@ -1,5 +1,8 @@
 use std::{ffi::CString, mem::MaybeUninit};
 
+// we use the libz_sys but configure zlib-ng in zlib compat mode
+use libz_sys as libz_ng_sys;
+
 use crate as libz_rs_sys;
 
 use core::ffi::{c_char, c_int, c_ulong};
@@ -715,6 +718,16 @@ fn deflate_bound_gzip_header() {
 }
 
 #[test]
+fn test_compress_bound_windows() {
+    let source_len = 4294967289 as core::ffi::c_ulong;
+
+    let rs_bound = libz_rs_sys::compressBound(source_len as _);
+    let ng_bound = unsafe { libz_ng_sys::compressBound(source_len as _) };
+
+    assert_eq!(rs_bound, ng_bound as _);
+}
+
+#[test]
 fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
@@ -834,7 +847,7 @@ fn test_compress_param() {
         let err = libz_ng_sys::deflateEnd(stream);
         assert_eq!(err, 0);
 
-        stream.total_out
+        stream.total_out as usize
     };
 
     assert_eq!(&output_rs[..n_rs], &output_ng[..n_ng]);
