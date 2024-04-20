@@ -1056,29 +1056,15 @@ impl<'a> BitWriter<'a> {
     }
 
     fn compress_block_help(&mut self, sym_buf: &[u8], ltree: &[Value], dtree: &[Value]) {
-        let mut sx = 0;
+        for chunk in sym_buf.chunks_exact(3) {
+            let [dist_low, dist_high, lc] = *chunk else {
+                unreachable!("out of bound access on the symbol buffer");
+            };
 
-        if !sym_buf.is_empty() {
-            loop {
-                let (dist_low, dist_high, lc) = match sym_buf[sx..] {
-                    [a, b, c, ..] => (a, b, c),
-                    _ => panic!("out of bound access on the symbol buffer"),
-                };
-
-                let dist = dist_low as usize + ((dist_high as usize) << 8);
-
-                sx += 3;
-
-                if dist == 0 {
-                    self.emit_lit(ltree, lc);
-                } else {
-                    self.emit_dist(ltree, dtree, lc, dist);
-                }
-
-                if sx >= sym_buf.len() {
-                    break;
-                }
-            }
+            match u16::from_be_bytes([dist_high, dist_low]) as usize {
+                0 => self.emit_lit(ltree, lc) as usize,
+                dist => self.emit_dist(ltree, dtree, lc, dist),
+            };
         }
 
         self.emit_end_block(ltree, false)
