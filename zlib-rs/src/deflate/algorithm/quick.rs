@@ -8,11 +8,6 @@ use crate::{
     DeflateFlush,
 };
 
-#[inline(always)]
-fn memcmp_n_slice<const N: usize>(src0: &[u8], src1: &[u8]) -> bool {
-    src0[..N] != src1[..N]
-}
-
 pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut state = &mut stream.state;
 
@@ -105,20 +100,15 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                 let str_start = &state.window.filled()[state.strstart..];
                 let match_start = &state.window.filled()[hash_head as usize..];
 
-                if !memcmp_n_slice::<2>(str_start, match_start) {
+                if str_start[0] == match_start[0] && str_start[1] == match_start[1] {
                     let mut match_len = crate::deflate::compare256::compare256_slice(
                         &str_start[2..],
                         &match_start[2..],
                     ) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
-                        if match_len > state.lookahead {
-                            match_len = state.lookahead;
-                        }
-
-                        if match_len > STD_MAX_MATCH {
-                            match_len = STD_MAX_MATCH;
-                        }
+                        match_len = Ord::min(match_len, state.lookahead);
+                        match_len = Ord::min(match_len, STD_MAX_MATCH);
 
                         // TODO do this with a debug_assert?
                         // check_match(s, state.strstart, hash_head, match_len);

@@ -1326,11 +1326,8 @@ impl<'a> State<'a> {
     }
 
     const fn d_code(dist: usize) -> u8 {
-        if dist < 256 {
-            self::trees_tbl::DIST_CODE[dist]
-        } else {
-            self::trees_tbl::DIST_CODE[256 + (dist >> 7)]
-        }
+        let index = if dist < 256 { dist } else { 256 + (dist >> 7) };
+        self::trees_tbl::DIST_CODE[index]
     }
 
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
