@@ -7,20 +7,14 @@ pub trait HashCalc {
     fn hash_calc(h: u32, val: u32) -> u32;
 
     fn update_hash(h: u32, val: u32) -> u32 {
-        let h = Self::hash_calc(h, val);
-        h & Self::HASH_CALC_MASK
+        Self::hash_calc(h, val) & Self::HASH_CALC_MASK
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let mut h = 0;
-
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
         let val = u32::from_ne_bytes(slice[..4].try_into().unwrap());
 
-        h = Self::hash_calc(h, val);
-        h &= Self::HASH_CALC_MASK;
-
-        let hm = h as usize;
+        let hm = (Self::hash_calc(0, val) & Self::HASH_CALC_MASK) as usize;
 
         let head = state.head[hm];
         if head != string as u16 {
@@ -34,21 +28,13 @@ pub trait HashCalc {
     fn insert_string(state: &mut State, string: usize, count: usize) {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
 
-        for (i, w) in slice.windows(4).take(count).enumerate() {
+        // .take(count) generates worse assembly
+        for (i, w) in slice[..count + 3].windows(4).enumerate() {
             let idx = string as u16 + i as u16;
 
-            // HASH_CALC_VAR_INIT;
-            let mut h = 0;
-
-            // HASH_CALC_READ;
             let val = u32::from_ne_bytes(w.try_into().unwrap());
 
-            // HASH_CALC(s, HASH_CALC_VAR, val);
-            h = Self::hash_calc(h, val);
-            h &= Self::HASH_CALC_MASK;
-
-            // hm = HASH_CALC_VAR;
-            let hm = h as usize;
+            let hm = (Self::hash_calc(0, val) & Self::HASH_CALC_MASK) as usize;
 
             let head = state.head[hm];
             if head != idx {
