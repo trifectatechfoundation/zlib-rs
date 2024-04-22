@@ -3,9 +3,6 @@
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)]
 
-// we use the libz_sys but configure zlib-ng in zlib compat mode
-use libz_sys as libz_ng_sys;
-
 use libz_ng_sys::Bytef;
 use std::{
     ffi::{c_char, c_int, c_uint, c_ulong},
@@ -107,6 +104,20 @@ pub unsafe fn deflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi:
 
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
+unsafe fn zlibVersion() -> *const c_char {
+    const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
+
+    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
+
+    type Func = unsafe extern "C" fn() -> *const c_char;
+
+    let f: libloading::Symbol<Func> = lib.get(b"zlibng_version").unwrap();
+
+    f()
+}
+
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
 unsafe fn deflateInit2(
     strm: *mut libz_ng_sys::z_stream,
     level: c_int,
@@ -116,9 +127,6 @@ unsafe fn deflateInit2(
     strategy: c_int,
 ) -> std::ffi::c_int {
     const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
-
-    const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-    const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
     let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
 
@@ -142,9 +150,23 @@ unsafe fn deflateInit2(
         windowBits,
         memLevel,
         strategy,
-        VERSION,
-        STREAM_SIZE,
+        libz_ng_sys::zlibVersion(),
+        std::mem::size_of::<libz_ng_sys::z_stream>() as c_int,
     )
+}
+
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+unsafe fn deflateEnd(strm: *mut libz_ng_sys::z_stream) -> std::ffi::c_int {
+    const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
+
+    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
+
+    type Func = unsafe extern "C" fn(strm: *mut libz_ng_sys::z_stream) -> i32;
+
+    let f: libloading::Symbol<Func> = lib.get(b"zng_deflateEnd").unwrap();
+
+    f(strm)
 }
 
 pub fn compress_slice<'a>(
@@ -175,12 +197,41 @@ pub fn compress_slice<'a>(
 
     let stream = unsafe { stream.assume_init_mut() };
 
-    let error = unsafe { deflate(stream, libz_ng_sys::Z_FINISH) };
+    stream.next_in = input.as_ptr() as *mut u8;
+    stream.next_out = output.as_mut_ptr();
 
-    assert_eq!(libz_ng_sys::Z_STREAM_END, error);
+    let max = c_uint::MAX as usize;
+
+    let mut left = output.len();
+    let mut source_len = input.len();
+
+    loop {
+        if stream.avail_out == 0 {
+            stream.avail_out = Ord::min(left, max) as _;
+            left -= stream.avail_out as usize;
+        }
+
+        if stream.avail_in == 0 {
+            stream.avail_in = Ord::min(source_len, max) as _;
+            source_len -= stream.avail_in as usize;
+        }
+
+        let flush = if source_len > 0 {
+            0 // Flush::NoFlush
+        } else {
+            4 // Flush::Finish
+        };
+
+        let err = unsafe { deflate(stream, flush as i32) };
+
+        if err != libz_ng_sys::Z_OK {
+            break;
+        }
+    }
 
     unsafe {
-        let err = libz_ng_sys::deflateEnd(stream);
+        let err = deflateEnd(stream);
+        // may DataError if there was insufficient output space
         assert_eq!(libz_ng_sys::Z_OK, err);
     }
 
