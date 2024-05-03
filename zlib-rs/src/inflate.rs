@@ -1896,12 +1896,10 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
         stream.msg = msg.as_ptr() as *mut u8 as *mut std::ffi::c_char;
     }
 
-    if ((in_read == 0 && out_written == 0) || flush == Flush::Finish as _)
-        && err == (ReturnCode::Ok as _)
-    {
-        ReturnCode::BufError as _
+    if ((in_read == 0 && out_written == 0) || flush == Flush::Finish) && err == ReturnCode::Ok {
+        ReturnCode::BufError
     } else {
-        err as _
+        err
     }
 }
 
