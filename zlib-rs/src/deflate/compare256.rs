@@ -10,7 +10,7 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    if core::is_x86_feature_detected!("avx2") {
+    if std::is_x86_feature_detected!("avx2") {
         debug_assert_eq!(avx2::compare256(src0, src1), rust::compare256(src0, src1));
 
         return avx2::compare256(src0, src1);
@@ -149,7 +149,7 @@ mod neon {
 
     #[test]
     fn test_compare256() {
-        if core::arch::is_aarch64_feature_detected!("neon") {
+        if std::arch::is_aarch64_feature_detected!("neon") {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
@@ -199,7 +199,7 @@ mod avx2 {
 
     #[test]
     fn test_compare256() {
-        if core::arch::is_x86_feature_detected!("avx2") {
+        if std::arch::is_x86_feature_detected!("avx2") {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 

@@ -110,7 +110,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_slide_hash_avx2() {
-        if core::arch::is_x86_feature_detected!("avx2") {
+        if std::arch::is_x86_feature_detected!("avx2") {
             let mut input = INPUT;
 
             avx2::slide_hash_chain(&mut input, WSIZE);
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_slide_hash_neon() {
-        if core::arch::is_aarch64_feature_detected!("neon") {
+        if std::arch::is_aarch64_feature_detected!("neon") {
             let mut input = INPUT;
 
             neon::slide_hash_chain(&mut input, WSIZE);

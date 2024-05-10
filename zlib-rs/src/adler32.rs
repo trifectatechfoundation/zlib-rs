@@ -8,7 +8,7 @@ mod neon;
 
 pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    if core::is_x86_feature_detected!("avx2") {
+    if std::is_x86_feature_detected!("avx2") {
         return avx2::adler32_avx2(start_checksum, data);
     }
 
