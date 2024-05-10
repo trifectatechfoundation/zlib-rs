@@ -1,9 +1,9 @@
 #![allow(non_snake_case)] // TODO ultimately remove this
 #![allow(clippy::missing_safety_doc)] // obviously needs to be fixed long-term
 
-use std::ffi::{c_char, c_int, c_long, c_ulong};
-use std::marker::PhantomData;
-use std::mem::MaybeUninit;
+use core::ffi::{c_char, c_int, c_long, c_ulong};
+use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 
 mod bitreader;
 mod inffixed_tbl;
@@ -130,7 +130,7 @@ pub fn uncompress_slice<'a>(
     config: InflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
     let output_uninit = unsafe {
-        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
 
     uncompress(output_uninit, input, config)
@@ -168,11 +168,11 @@ pub fn uncompress<'a>(
         next_out: dest,
         avail_out: output.len() as _,
         total_out: 0,
-        msg: std::ptr::null_mut(),
-        state: std::ptr::null_mut(),
+        msg: core::ptr::null_mut(),
+        state: core::ptr::null_mut(),
         zalloc: None,
         zfree: None,
-        opaque: std::ptr::null_mut(),
+        opaque: core::ptr::null_mut(),
         data_type: 0,
         adler: 0,
         reserved: 0,
@@ -227,7 +227,7 @@ pub fn uncompress<'a>(
 
     // SAFETY: we have now initialized these bytes
     let output_slice = unsafe {
-        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, dest_len_ptr as usize)
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, dest_len_ptr as usize)
     };
 
     (output_slice, ret)
@@ -670,7 +670,7 @@ impl<'a> State<'a> {
             }
             self.bit_reader.init_bits();
         } else if let Some(head) = self.head.as_mut() {
-            head.extra = std::ptr::null_mut();
+            head.extra = core::ptr::null_mut();
         }
 
         self.mode = Mode::Extra;
@@ -694,7 +694,7 @@ impl<'a> State<'a> {
                         );
 
                         unsafe {
-                            std::ptr::copy_nonoverlapping(
+                            core::ptr::copy_nonoverlapping(
                                 self.bit_reader.as_ptr(),
                                 head.extra.add(written_so_far),
                                 count,
@@ -748,7 +748,7 @@ impl<'a> State<'a> {
                     let copy = Ord::min(name_slice.len(), remaining_name_bytes);
 
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
+                        core::ptr::copy_nonoverlapping(
                             name_slice.as_ptr(),
                             head.name.add(self.length),
                             copy,
@@ -770,7 +770,7 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
-            head.name = std::ptr::null_mut();
+            head.name = core::ptr::null_mut();
         }
 
         self.length = 0;
@@ -801,7 +801,7 @@ impl<'a> State<'a> {
                     let remaining_comm_bytes = (head.comm_max as usize).saturating_sub(self.length);
                     let copy = Ord::min(comment_slice.len(), remaining_comm_bytes);
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
+                        core::ptr::copy_nonoverlapping(
                             comment_slice.as_ptr(),
                             head.comment.add(self.length),
                             copy,
@@ -823,7 +823,7 @@ impl<'a> State<'a> {
                 return self.inflate_leave(ReturnCode::Ok);
             }
         } else if let Some(head) = self.head.as_mut() {
-            head.comment = std::ptr::null_mut();
+            head.comment = core::ptr::null_mut();
         }
 
         self.mode = Mode::HCrc;
@@ -863,6 +863,7 @@ impl<'a> State<'a> {
 
     fn lit(&mut self) -> ReturnCode {
         if self.writer.remaining() == 0 {
+            #[cfg(feature = "std")]
             eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
             return self.inflate_leave(ReturnCode::Ok);
         }
@@ -982,6 +983,7 @@ impl<'a> State<'a> {
                 self.table()
             }
             3 => {
+                #[cfg(feature = "std")]
                 eprintln!("inflate:     invalid block type");
 
                 self.bit_reader.drop_bits(2);
@@ -989,7 +991,7 @@ impl<'a> State<'a> {
                 self.mode = Mode::Bad;
                 self.bad("invalid block type\0")
             }
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 
@@ -1095,6 +1097,7 @@ impl<'a> State<'a> {
         if here.op == 0 {
             if self.writer.remaining() == 0 {
                 self.mode = Mode::Lit;
+                #[cfg(feature = "std")]
                 eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
                 return self.inflate_leave(ReturnCode::Ok);
             }
@@ -1211,6 +1214,7 @@ impl<'a> State<'a> {
 
     fn match_(&mut self) -> ReturnCode {
         if self.writer.remaining() == 0 {
+            #[cfg(feature = "std")]
             eprintln!(
                 "BufError: read_buf is full ({} bytes)",
                 self.writer.capacity()
@@ -1487,6 +1491,7 @@ impl<'a> State<'a> {
     }
 
     fn bad(&mut self, msg: &'static str) -> ReturnCode {
+        #[cfg(feature = "std")]
         dbg!(msg);
         self.error_message = Some(msg);
         self.inflate_leave(ReturnCode::DataError)
@@ -1502,10 +1507,10 @@ impl<'a> State<'a> {
 
 fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     let mut bit_reader = BitReader::new(&[]);
-    std::mem::swap(&mut bit_reader, &mut state.bit_reader);
+    core::mem::swap(&mut bit_reader, &mut state.bit_reader);
 
     let mut writer = ReadBuf::new(&mut []);
-    std::mem::swap(&mut writer, &mut state.writer);
+    core::mem::swap(&mut writer, &mut state.writer);
 
     let lcode = state.len_table_ref();
     let dcode = state.dist_table_ref();
@@ -1693,11 +1698,12 @@ impl Default for InflateConfig {
 
 /// Initialize the stream in an inflate state
 pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
-    stream.msg = std::ptr::null_mut();
+    stream.msg = core::ptr::null_mut();
 
     // for safety we must really make sure that alloc and free are consistent
     // this is a (slight) deviation from stock zlib. In this crate we pick the rust
     // allocator as the default, but `libz-rs-sys` configures the C allocator
+    #[cfg(feature = "alloc")]
     if stream.zalloc.is_none() || stream.zfree.is_none() {
         stream.configure_default_rust_allocator()
     }
@@ -1730,7 +1736,7 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
 
     if ret != ReturnCode::Ok as _ {
         let ptr = stream.state;
-        stream.state = std::ptr::null_mut();
+        stream.state = core::ptr::null_mut();
         // SAFETY: we assume deallocation does not cause UB
         unsafe { alloc.deallocate(ptr, 1) };
     }
@@ -1759,13 +1765,14 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
     }
 
     if window_bits != 0 && !(MIN_WBITS..=MAX_WBITS).contains(&window_bits) {
+        #[cfg(feature = "std")]
         eprintln!("invalid windowBits");
         return ReturnCode::StreamError;
     }
 
     if stream.state.window.size() != 0 && stream.state.wbits != window_bits as usize {
         let mut window = Window::empty();
-        std::mem::swap(&mut window, &mut stream.state.window);
+        core::mem::swap(&mut window, &mut stream.state.window);
 
         unsafe { window.drop_in(&stream.alloc) };
     }
@@ -1790,7 +1797,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     stream.total_out = 0;
     // stream.state.total = 0;
 
-    stream.msg = std::ptr::null_mut();
+    stream.msg = core::ptr::null_mut();
 
     let state = &mut stream.state;
 
@@ -1824,8 +1831,8 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
         return ReturnCode::StreamError as _;
     }
 
-    let source_slice = std::slice::from_raw_parts(stream.next_in, stream.avail_in as usize);
-    let dest_slice = std::slice::from_raw_parts_mut(stream.next_out, stream.avail_out as usize);
+    let source_slice = core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize);
+    let dest_slice = core::slice::from_raw_parts_mut(stream.next_out, stream.avail_out as usize);
 
     let state = &mut stream.state;
 
@@ -1893,7 +1900,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
 
     if let Some(msg) = stream.state.error_message {
         assert!(msg.ends_with(|c| c == '\0'));
-        stream.msg = msg.as_ptr() as *mut u8 as *mut std::ffi::c_char;
+        stream.msg = msg.as_ptr() as *mut u8 as *mut core::ffi::c_char;
     }
 
     if ((in_read == 0 && out_written == 0) || flush == Flush::Finish as _)
@@ -1939,7 +1946,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     }
 
     // search available input
-    let slice = unsafe { std::slice::from_raw_parts(stream.next_in, stream.avail_in as usize) };
+    let slice = unsafe { core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize) };
 
     let len;
     (state.have, len) = syncsearch(state.have, slice);
@@ -2007,7 +2014,7 @@ pub unsafe fn copy<'a>(
     let state = &source.state;
 
     let writer: MaybeUninit<ReadBuf> =
-        unsafe { std::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
+        unsafe { core::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
 
     let mut copy = State {
         mode: state.mode,
@@ -2062,16 +2069,16 @@ pub unsafe fn copy<'a>(
     let state_ptr = state_allocation.write(copy);
 
     // insert the state_ptr into `dest`
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { std::ptr::write(field_ptr as *mut *mut State, state_ptr) };
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_ptr) };
 
     // update the writer; it cannot be cloned so we need to use some shennanigans
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };
-    unsafe { std::ptr::copy(writer.as_ptr(), field_ptr, 1) };
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };
+    unsafe { core::ptr::copy(writer.as_ptr(), field_ptr, 1) };
 
     // update the gzhead field (it contains a mutable reference so we need to be careful
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.head) };
-    unsafe { std::ptr::copy(&source.state.head, field_ptr, 1) };
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.head) };
+    unsafe { core::ptr::copy(&source.state.head, field_ptr, 1) };
 
     ReturnCode::Ok
 }
@@ -2144,10 +2151,10 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
 
 pub fn end<'a>(stream: &'a mut InflateStream) -> &'a mut z_stream {
     let mut state = State::new(&[], ReadBuf::new(&mut []));
-    std::mem::swap(&mut state, stream.state);
+    core::mem::swap(&mut state, stream.state);
 
     let mut window = Window::empty();
-    std::mem::swap(&mut window, &mut state.window);
+    core::mem::swap(&mut window, &mut state.window);
 
     let alloc = stream.alloc;
 
@@ -2156,7 +2163,7 @@ pub fn end<'a>(stream: &'a mut InflateStream) -> &'a mut z_stream {
 
     let stream = stream.as_z_stream_mut();
 
-    let state_ptr = std::mem::replace(&mut stream.state, std::ptr::null_mut());
+    let state_ptr = core::mem::replace(&mut stream.state, core::ptr::null_mut());
 
     // safety: state_ptr is not used again
     unsafe { alloc.deallocate(state_ptr as *mut State, 1) };

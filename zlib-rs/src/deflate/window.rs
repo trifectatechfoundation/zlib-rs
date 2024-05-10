@@ -1,6 +1,5 @@
-use std::mem::MaybeUninit;
-
 use crate::allocate::Allocator;
+use core::mem::MaybeUninit;
 
 #[derive(Debug)]
 pub struct Window<'a> {
@@ -70,11 +69,11 @@ impl<'a> Window<'a> {
     /// # Safety
     ///
     /// `src` must point to `range.end - range.start` valid (initialized!) bytes
-    pub unsafe fn copy_and_initialize(&mut self, range: std::ops::Range<usize>, src: *const u8) {
+    pub unsafe fn copy_and_initialize(&mut self, range: core::ops::Range<usize>, src: *const u8) {
         let (start, end) = (range.start, range.end);
 
         let dst = self.buf[range].as_mut_ptr() as *mut u8;
-        std::ptr::copy_nonoverlapping(src, dst, end - start);
+        core::ptr::copy_nonoverlapping(src, dst, end - start);
 
         if start >= self.filled {
             self.filled = Ord::max(self.filled, end);
@@ -137,10 +136,11 @@ impl<'a> Window<'a> {
 
     // padding required so that SIMD operations going out-of-bounds are not a problem
     pub fn padding() -> usize {
+        #[cfg(feature = "std")]
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        if is_x86_feature_detected!("pclmulqdq")
-            && is_x86_feature_detected!("sse2")
-            && is_x86_feature_detected!("sse4.1")
+        if std::is_x86_feature_detected!("pclmulqdq")
+            && std::is_x86_feature_detected!("sse2")
+            && std::is_x86_feature_detected!("sse4.1")
         {
             return 8;
         }

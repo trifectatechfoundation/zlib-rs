@@ -1,5 +1,5 @@
 use core::arch::x86_64::__m128i;
-use std::{
+use core::{
     arch::x86_64::{
         _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128,
         _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128, _mm_storeu_si128,
@@ -128,7 +128,7 @@ impl Accumulator {
     }
 
     fn fold_step<const N: usize>(&mut self) {
-        self.fold = std::array::from_fn(|i| match self.fold.get(i + N) {
+        self.fold = core::array::from_fn(|i| match self.fold.get(i + N) {
             Some(v) => *v,
             None => unsafe { Self::step(self.fold[(i + N) - 4]) },
         });
@@ -197,7 +197,7 @@ impl Accumulator {
         init_crc: &mut u32,
     ) -> usize {
         let mut it = src.chunks_exact(16);
-        let mut input: [_; N] = std::array::from_fn(|_| unsafe {
+        let mut input: [_; N] = core::array::from_fn(|_| unsafe {
             _mm_load_si128(it.next().unwrap().as_ptr() as *const __m128i)
         });
 
@@ -322,14 +322,14 @@ impl Accumulator {
         }
 
         if !src.is_empty() {
-            std::ptr::copy_nonoverlapping(
+            core::ptr::copy_nonoverlapping(
                 src.as_ptr(),
                 &mut xmm_crc_part as *mut _ as *mut u8,
                 src.len(),
             );
             if COPY {
                 _mm_storeu_si128(partial_buf.0.as_mut_ptr() as *mut __m128i, xmm_crc_part);
-                std::ptr::copy_nonoverlapping(
+                core::ptr::copy_nonoverlapping(
                     partial_buf.0.as_ptr() as *const MaybeUninit<u8>,
                     dst.as_mut_ptr(),
                     src.len(),

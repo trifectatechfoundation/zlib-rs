@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 use crate::{read_buf::ReadBuf, CRC32_INITIAL_VALUE};
 
@@ -71,20 +71,20 @@ impl Crc32Fold {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     fn is_pclmulqdq() -> bool {
-        is_x86_feature_detected!("pclmulqdq")
-            && is_x86_feature_detected!("sse2")
-            && is_x86_feature_detected!("sse4.1")
+        std::is_x86_feature_detected!("pclmulqdq")
+            && std::is_x86_feature_detected!("sse2")
+            && std::is_x86_feature_detected!("sse4.1")
     }
 
     pub fn fold(&mut self, src: &[u8], _start: u32) {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if Self::is_pclmulqdq() {
             return self.fold.fold(src, _start);
         }
 
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(all(target_arch = "aarch64", feature = "std"))]
         if std::arch::is_aarch64_feature_detected!("crc") {
             self.value = self::acle::crc32_acle_aarch64(self.value, src);
             return;
@@ -101,7 +101,7 @@ impl Crc32Fold {
     }
 
     pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if Self::is_pclmulqdq() {
             return self.fold.fold_copy(dst, src);
         }
@@ -111,7 +111,7 @@ impl Crc32Fold {
     }
 
     pub fn finish(self) -> u32 {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if Self::is_pclmulqdq() {
             return unsafe { self.fold.finish() };
         }

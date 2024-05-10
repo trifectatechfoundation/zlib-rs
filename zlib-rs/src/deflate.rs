@@ -1,4 +1,4 @@
-use std::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
+use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
     adler32::adler32,
@@ -33,10 +33,10 @@ pub struct DeflateStream<'a> {
     pub(crate) next_out: *mut crate::c_api::Bytef,
     pub(crate) avail_out: crate::c_api::uInt,
     pub(crate) total_out: crate::c_api::z_size,
-    pub(crate) msg: *const std::ffi::c_char,
+    pub(crate) msg: *const core::ffi::c_char,
     pub(crate) state: &'a mut State<'a>,
     pub(crate) alloc: Allocator<'a>,
-    pub(crate) data_type: std::ffi::c_int,
+    pub(crate) data_type: core::ffi::c_int,
     pub(crate) adler: crate::c_api::z_checksum,
     pub(crate) reserved: crate::c_api::uLong,
 }
@@ -192,11 +192,12 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     } = config;
 
     /* Todo: ignore strm->next_in if we use it as window */
-    stream.msg = std::ptr::null_mut();
+    stream.msg = core::ptr::null_mut();
 
     // for safety we  must really make sure that alloc and free are consistent
     // this is a (slight) deviation from stock zlib. In this crate we pick the rust
     // allocator as the default, but `libz-rs-sys` configures the C allocator
+    #[cfg(feature = "alloc")]
     if stream.zalloc.is_none() || stream.zfree.is_none() {
         stream.configure_default_rust_allocator()
     }
@@ -574,8 +575,8 @@ pub fn copy<'a>(
         }
         (window, prev, head, pending, sym_buf) => {
             // Safety: this access is in-bounds
-            let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-            unsafe { std::ptr::write(field_ptr as *mut *mut State, std::ptr::null_mut()) };
+            let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+            unsafe { core::ptr::write(field_ptr as *mut *mut State, core::ptr::null_mut()) };
 
             // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
             unsafe {
@@ -659,12 +660,12 @@ pub fn copy<'a>(
     let state_ptr = state_allocation.write(dest_state);
 
     // insert the state_ptr into `dest`
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { std::ptr::write(field_ptr as *mut *mut State, state_ptr) };
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_ptr) };
 
     // update the gzhead field (it contains a mutable reference so we need to be careful
-    let field_ptr = unsafe { std::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
-    unsafe { std::ptr::copy(&source_state.gzhead, field_ptr, 1) };
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
+    unsafe { core::ptr::copy(&source_state.gzhead, field_ptr, 1) };
 
     ReturnCode::Ok
 }
@@ -692,7 +693,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
 
     let state = stream.state as *mut State;
     let stream = stream.as_z_stream_mut();
-    stream.state = std::ptr::null_mut();
+    stream.state = core::ptr::null_mut();
 
     // safety: `state` is not used later
     unsafe {
@@ -718,7 +719,7 @@ pub fn reset(stream: &mut DeflateStream) -> ReturnCode {
 fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
     stream.total_in = 0;
     stream.total_out = 0;
-    stream.msg = std::ptr::null_mut();
+    stream.msg = core::ptr::null_mut();
     stream.data_type = crate::c_api::Z_UNKNOWN;
 
     let state = &mut stream.state;
@@ -1383,7 +1384,7 @@ enum Status {
     Finish = 3,
 }
 
-const fn error_message(return_code: ReturnCode) -> *const std::ffi::c_char {
+const fn error_message(return_code: ReturnCode) -> *const core::ffi::c_char {
     const TABLE: [&str; 10] = [
         "need dictionary\0",      /* Z_NEED_DICT       2  */
         "stream end\0",           /* Z_STREAM_END      1  */
@@ -1469,7 +1470,7 @@ pub(crate) enum BlockType {
 
 pub(crate) fn zng_tr_stored_block(
     state: &mut State,
-    window_range: std::ops::Range<usize>,
+    window_range: core::ops::Range<usize>,
     is_last: bool,
 ) {
     // send block type
@@ -1985,8 +1986,8 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
 
     let mut tmp1 = TreeDesc::EMPTY;
     let mut tmp2 = TreeDesc::EMPTY;
-    std::mem::swap(&mut tmp1, &mut state.l_desc);
-    std::mem::swap(&mut tmp2, &mut state.d_desc);
+    core::mem::swap(&mut tmp1, &mut state.l_desc);
+    core::mem::swap(&mut tmp2, &mut state.d_desc);
 
     send_tree(state, &tmp1.dyn_tree, lcodes - 1); /* literal tree */
     // trace!("\nlit tree: sent {}", state.bits_sent);
@@ -1994,8 +1995,8 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
     send_tree(state, &tmp2.dyn_tree, dcodes - 1); /* distance tree */
     // trace!("\ndist tree: sent {}", state.bits_sent);
 
-    std::mem::swap(&mut tmp1, &mut state.l_desc);
-    std::mem::swap(&mut tmp2, &mut state.d_desc);
+    core::mem::swap(&mut tmp1, &mut state.l_desc);
+    core::mem::swap(&mut tmp2, &mut state.d_desc);
 }
 
 fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
@@ -2016,7 +2017,7 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
     }
 
     let mut bl_desc = TreeDesc::EMPTY;
-    std::mem::swap(&mut bl_desc, &mut state.bl_desc);
+    core::mem::swap(&mut bl_desc, &mut state.bl_desc);
     let bl_tree = &bl_desc.dyn_tree;
 
     for n in 0..=max_code {
@@ -2065,7 +2066,7 @@ fn send_tree(state: &mut State, tree: &[Value], max_code: usize) {
         }
     }
 
-    std::mem::swap(&mut bl_desc, &mut state.bl_desc);
+    core::mem::swap(&mut bl_desc, &mut state.bl_desc);
 }
 
 /// Construct the Huffman tree for the bit lengths and return the index in
@@ -2088,9 +2089,9 @@ fn build_bl_tree(state: &mut State) -> usize {
     /* Build the bit length tree: */
     {
         let mut tmp = TreeDesc::EMPTY;
-        std::mem::swap(&mut tmp, &mut state.bl_desc);
+        core::mem::swap(&mut tmp, &mut state.bl_desc);
         build_tree(state, &mut tmp);
-        std::mem::swap(&mut tmp, &mut state.bl_desc);
+        core::mem::swap(&mut tmp, &mut state.bl_desc);
     }
 
     /* opt_len now includes the length of the tree representations, except
@@ -2145,10 +2146,10 @@ fn zng_tr_flush_block(
 
         {
             let mut tmp = TreeDesc::EMPTY;
-            std::mem::swap(&mut tmp, &mut state.l_desc);
+            core::mem::swap(&mut tmp, &mut state.l_desc);
 
             build_tree(state, &mut tmp);
-            std::mem::swap(&mut tmp, &mut state.l_desc);
+            core::mem::swap(&mut tmp, &mut state.l_desc);
 
             trace!(
                 "\nlit data: dyn {}, stat {}",
@@ -2159,9 +2160,9 @@ fn zng_tr_flush_block(
 
         {
             let mut tmp = TreeDesc::EMPTY;
-            std::mem::swap(&mut tmp, &mut state.d_desc);
+            core::mem::swap(&mut tmp, &mut state.d_desc);
             build_tree(state, &mut tmp);
-            std::mem::swap(&mut tmp, &mut state.d_desc);
+            core::mem::swap(&mut tmp, &mut state.d_desc);
 
             trace!(
                 "\nlit data: dyn {}, stat {}",
@@ -2221,11 +2222,11 @@ fn zng_tr_flush_block(
         {
             let mut tmp1 = TreeDesc::EMPTY;
             let mut tmp2 = TreeDesc::EMPTY;
-            std::mem::swap(&mut tmp1, &mut state.l_desc);
-            std::mem::swap(&mut tmp2, &mut state.d_desc);
+            core::mem::swap(&mut tmp1, &mut state.l_desc);
+            core::mem::swap(&mut tmp2, &mut state.d_desc);
             state.compress_block(&tmp1.dyn_tree, &tmp2.dyn_tree);
-            std::mem::swap(&mut tmp1, &mut state.l_desc);
-            std::mem::swap(&mut tmp2, &mut state.d_desc);
+            core::mem::swap(&mut tmp1, &mut state.l_desc);
+            core::mem::swap(&mut tmp2, &mut state.d_desc);
         }
     }
 
@@ -2423,7 +2424,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                 let gzhead_extra = gzhead.extra;
 
                 let extra = unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         gzhead_extra.add(stream.state.gzindex),
                         (gzhead.extra_len & 0xffff) as usize - stream.state.gzindex,
                     )
@@ -2551,7 +2552,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
 
     // write the trailer
     if stream.state.wrap == 2 {
-        let crc_fold = std::mem::take(&mut stream.state.crc_fold);
+        let crc_fold = core::mem::take(&mut stream.state.crc_fold);
         stream.adler = crc_fold.finish() as z_checksum;
 
         let adler = stream.adler as u32;
@@ -2591,7 +2592,7 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     }
 
     trace!("\n[FLUSH {len} bytes]");
-    unsafe { std::ptr::copy_nonoverlapping(pending.as_ptr(), stream.next_out, len) };
+    unsafe { core::ptr::copy_nonoverlapping(pending.as_ptr(), stream.next_out, len) };
 
     stream.next_out = stream.next_out.wrapping_add(len);
     stream.total_out += len as crate::c_api::z_size;
@@ -2606,7 +2607,7 @@ pub fn compress_slice<'a>(
     config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
     let output_uninit = unsafe {
-        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
 
     compress(output_uninit, input, config)
@@ -2624,11 +2625,11 @@ pub fn compress<'a>(
         next_out: output.as_mut_ptr() as *mut u8,
         avail_out: 0, // for special logic on the first iteration
         total_out: 0,
-        msg: std::ptr::null_mut(),
-        state: std::ptr::null_mut(),
+        msg: core::ptr::null_mut(),
+        state: core::ptr::null_mut(),
         zalloc: None,
         zfree: None,
-        opaque: std::ptr::null_mut(),
+        opaque: core::ptr::null_mut(),
         data_type: 0,
         adler: 0,
         reserved: 0,
@@ -2674,7 +2675,7 @@ pub fn compress<'a>(
 
     // SAFETY: we have now initialized these bytes
     let output_slice = unsafe {
-        std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
     };
 
     if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
@@ -2760,9 +2761,9 @@ impl Heap {
         let (n, m) = (n as usize, m as usize);
 
         match Ord::cmp(&tree[n].freq(), &tree[m].freq()) {
-            std::cmp::Ordering::Less => true,
-            std::cmp::Ordering::Equal => depth[n] <= depth[m],
-            std::cmp::Ordering::Greater => false,
+            core::cmp::Ordering::Less => true,
+            core::cmp::Ordering::Equal => depth[n] <= depth[m],
+            core::cmp::Ordering::Greater => false,
         }
     }
 
@@ -2992,7 +2993,7 @@ mod test {
 
     use super::*;
 
-    use std::{
+    use core::{
         ffi::{c_char, c_int, c_uint, CStr},
         sync::atomic::AtomicUsize,
     };
@@ -3064,7 +3065,7 @@ mod test {
     #[test]
     fn from_stream_mut() {
         unsafe {
-            assert!(DeflateStream::from_stream_mut(std::ptr::null_mut()).is_none());
+            assert!(DeflateStream::from_stream_mut(core::ptr::null_mut()).is_none());
 
             let mut stream = z_stream::default();
             assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
@@ -3087,10 +3088,10 @@ mod test {
     ) -> crate::c_api::voidpf {
         let count = unsafe { &*(opaque as *const AtomicUsize) };
 
-        if count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) != N {
+        if count.fetch_add(1, core::sync::atomic::Ordering::Relaxed) != N {
             crate::allocate::zalloc_c(opaque, items, size)
         } else {
-            std::ptr::null_mut()
+            core::ptr::null_mut()
         }
     }
 
@@ -3099,7 +3100,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<0>),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3111,7 +3112,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<3>),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3123,7 +3124,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<5>),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _,
+                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3140,7 +3141,8 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<0>);
-            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
+            stream.opaque =
+                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
                 unreachable!()
             };
@@ -3155,7 +3157,8 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<3>);
-            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
+            stream.opaque =
+                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
                 unreachable!()
             };
@@ -3170,7 +3173,8 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<5>);
-            stream.opaque = (&AtomicUsize::new(0)) as *const _ as *const std::ffi::c_void as *mut _;
+            stream.opaque =
+                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
                 unreachable!()
             };
@@ -3361,18 +3365,18 @@ mod test {
             next_out: output.as_mut_ptr(),
             avail_out: 0, // for special logic on the first iteration
             total_out: 0,
-            msg: std::ptr::null_mut(),
-            state: std::ptr::null_mut(),
+            msg: core::ptr::null_mut(),
+            state: core::ptr::null_mut(),
             zalloc: crate::allocate::zalloc_c,
             zfree: crate::allocate::zfree_c,
-            opaque: std::ptr::null_mut(),
+            opaque: core::ptr::null_mut(),
             data_type: 0,
             adler: 0,
             reserved: 0,
         };
 
         const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-        const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+        const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
         let err = unsafe {
             libz_ng_sys::deflateInit2_(
@@ -3775,7 +3779,7 @@ mod test {
             let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
 
             const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-            const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+            const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
             let err = unsafe {
                 libz_ng_sys::deflateInit2_(
@@ -3835,7 +3839,7 @@ mod test {
             let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
 
             const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-            const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
+            const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
 
             let err = unsafe {
                 libz_ng_sys::inflateInit2_(

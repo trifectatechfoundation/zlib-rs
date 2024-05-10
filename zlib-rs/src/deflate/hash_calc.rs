@@ -129,7 +129,7 @@ impl Crc32HashCalc {
             return true;
         }
 
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(all(target_arch = "aarch64", feature = "std"))]
         return std::arch::is_aarch64_feature_detected!("crc");
 
         #[allow(unreachable_code)]
@@ -144,12 +144,12 @@ impl HashCalc for Crc32HashCalc {
 
     #[cfg(target_arch = "x86")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        unsafe { std::arch::x86::_mm_crc32_u32(h, val) }
+        unsafe { core::arch::x86::_mm_crc32_u32(h, val) }
     }
 
     #[cfg(target_arch = "x86_64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        unsafe { std::arch::x86_64::_mm_crc32_u32(h, val) }
+        unsafe { core::arch::x86_64::_mm_crc32_u32(h, val) }
     }
 
     #[cfg(target_arch = "aarch64")]

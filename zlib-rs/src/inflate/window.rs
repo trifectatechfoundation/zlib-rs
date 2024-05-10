@@ -3,7 +3,7 @@ use crate::{
     allocate::Allocator,
     crc32::Crc32Fold,
 };
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 // translation guide:
 //

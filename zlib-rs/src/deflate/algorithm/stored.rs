@@ -74,7 +74,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             let left = Ord::min(left, len);
             let src = &stream.state.window.filled()[stream.state.block_start as usize..];
 
-            unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), stream.next_out, left) };
+            unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), stream.next_out, left) };
 
             stream.next_out = stream.next_out.wrapping_add(left);
             stream.avail_out = stream.avail_out.wrapping_sub(left as _);
@@ -233,20 +233,20 @@ fn read_buf_direct_copy(stream: &mut DeflateStream, size: usize) -> usize {
     if stream.state.wrap == 2 {
         // we likely cannot fuse the crc32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
-        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+        unsafe { core::ptr::copy_nonoverlapping(stream.next_in, output, len) }
 
-        let data = unsafe { std::slice::from_raw_parts(output, len) };
+        let data = unsafe { core::slice::from_raw_parts(output, len) };
         stream.state.crc_fold.fold(data, 0);
     } else if stream.state.wrap == 1 {
         // we cannot fuse the adler and the copy in our case, because adler32 takes a slice.
         // Another process is allowed to concurrently modify stream.next_in, so we cannot turn it
         // into a rust slice (violates its safety requirements)
-        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+        unsafe { core::ptr::copy_nonoverlapping(stream.next_in, output, len) }
 
-        let data = unsafe { std::slice::from_raw_parts(output, len) };
+        let data = unsafe { core::slice::from_raw_parts(output, len) };
         stream.adler = crate::adler32::adler32(stream.adler as u32, data) as _;
     } else {
-        unsafe { std::ptr::copy_nonoverlapping(stream.next_in, output, len) }
+        unsafe { core::ptr::copy_nonoverlapping(stream.next_in, output, len) }
     }
 
     stream.next_in = stream.next_in.wrapping_add(len);

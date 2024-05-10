@@ -9,14 +9,14 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 }
 
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-    #[cfg(target_arch = "x86_64")]
-    if std::is_x86_feature_detected!("avx2") {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    if core::is_x86_feature_detected!("avx2") {
         debug_assert_eq!(avx2::compare256(src0, src1), rust::compare256(src0, src1));
 
         return avx2::compare256(src0, src1);
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
     if std::arch::is_aarch64_feature_detected!("neon") {
         debug_assert_eq!(neon::compare256(src0, src1), rust::compare256(src0, src1));
 
@@ -109,13 +109,13 @@ mod rust {
 
 #[cfg(target_arch = "aarch64")]
 mod neon {
-    use std::arch::aarch64::{
+    use core::arch::aarch64::{
         uint8x16_t, veorq_u8, vgetq_lane_u64, vld1q_u8, vreinterpretq_u64_u8,
     };
 
     pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0: &[[u8; 16]; 16] = unsafe { std::mem::transmute(src0) };
-        let src1: &[[u8; 16]; 16] = unsafe { std::mem::transmute(src1) };
+        let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
+        let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
 
         let mut len = 0;
 
@@ -149,7 +149,7 @@ mod neon {
 
     #[test]
     fn test_compare256() {
-        if std::arch::is_aarch64_feature_detected!("neon") {
+        if core::arch::is_aarch64_feature_detected!("neon") {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
@@ -167,11 +167,13 @@ mod neon {
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use std::arch::x86_64::{__m256i, _mm256_cmpeq_epi8, _mm256_loadu_si256, _mm256_movemask_epi8};
+    use core::arch::x86_64::{
+        __m256i, _mm256_cmpeq_epi8, _mm256_loadu_si256, _mm256_movemask_epi8,
+    };
 
     pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0: &[[u8; 32]; 8] = unsafe { std::mem::transmute(src0) };
-        let src1: &[[u8; 32]; 8] = unsafe { std::mem::transmute(src1) };
+        let src0: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src0) };
+        let src1: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src1) };
 
         let mut len = 0;
 
@@ -197,7 +199,7 @@ mod avx2 {
 
     #[test]
     fn test_compare256() {
-        if std::arch::is_x86_feature_detected!("avx2") {
+        if core::arch::is_x86_feature_detected!("avx2") {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 

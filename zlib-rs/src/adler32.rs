@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;
@@ -7,12 +7,12 @@ mod generic;
 mod neon;
 
 pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
-    #[cfg(target_arch = "x86_64")]
-    if std::is_x86_feature_detected!("avx2") {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    if core::is_x86_feature_detected!("avx2") {
         return avx2::adler32_avx2(start_checksum, data);
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
     if std::arch::is_aarch64_feature_detected!("neon") {
         return self::neon::adler32_neon(start_checksum, data);
     }
@@ -23,7 +23,7 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
 pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: &[u8]) -> u32 {
     debug_assert!(dst.len() >= src.len(), "{} < {}", dst.len(), src.len());
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     if std::is_x86_feature_detected!("avx2") {
         return avx2::adler32_fold_copy_avx2(start_checksum, dst, src);
     }

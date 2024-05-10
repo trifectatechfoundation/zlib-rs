@@ -1,4 +1,8 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(not(any(test, feature = "alloc")), no_std)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 mod adler32;
 pub mod allocate;

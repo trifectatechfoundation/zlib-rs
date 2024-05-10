@@ -65,9 +65,9 @@ fn longest_match_help<const SLOW: bool>(
     let mut offset = best_len - 1;
 
     // we're assuming we can do a fast(ish) unaligned 64-bit read
-    if best_len >= std::mem::size_of::<u32>() {
+    if best_len >= core::mem::size_of::<u32>() {
         offset -= 2;
-        if best_len >= std::mem::size_of::<u64>() {
+        if best_len >= core::mem::size_of::<u64>() {
             offset -= 4;
         }
     }
@@ -156,8 +156,8 @@ fn longest_match_help<const SLOW: bool>(
         // The two pointers must be valid for reads of N bytes.
         #[inline(always)]
         unsafe fn memcmp_n_ptr<const N: usize>(src0: *const u8, src1: *const u8) -> bool {
-            let src0_cmp = std::ptr::read(src0 as *const [u8; N]);
-            let src1_cmp = std::ptr::read(src1 as *const [u8; N]);
+            let src0_cmp = core::ptr::read(src0 as *const [u8; N]);
+            let src1_cmp = core::ptr::read(src1 as *const [u8; N]);
 
             src0_cmp == src1_cmp
         }
@@ -182,7 +182,7 @@ fn longest_match_help<const SLOW: bool>(
             let scan_start = scan_start.as_ptr();
             let scan_end = scan_end.as_ptr();
 
-            if best_len < std::mem::size_of::<u32>() {
+            if best_len < core::mem::size_of::<u32>() {
                 loop {
                     if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
@@ -190,7 +190,7 @@ fn longest_match_help<const SLOW: bool>(
 
                     goto_next_in_chain!();
                 }
-            } else if best_len >= std::mem::size_of::<u64>() {
+            } else if best_len >= core::mem::size_of::<u64>() {
                 loop {
                     if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
@@ -236,9 +236,9 @@ fn longest_match_help<const SLOW: bool>(
             }
 
             offset = best_len - 1;
-            if best_len >= std::mem::size_of::<u32>() {
+            if best_len >= core::mem::size_of::<u32>() {
                 offset -= 2;
-                if best_len >= std::mem::size_of::<u64>() {
+                if best_len >= core::mem::size_of::<u64>() {
                     offset -= 4;
                 }
             }

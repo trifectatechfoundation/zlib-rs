@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::allocate::Allocator;
 
@@ -17,7 +17,7 @@ impl<'a> Pending<'a> {
     }
 
     pub fn pending(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.out, self.pending) }
+        unsafe { core::slice::from_raw_parts(self.out, self.pending) }
     }
 
     pub(crate) fn remaining(&self) -> usize {
@@ -59,7 +59,7 @@ impl<'a> Pending<'a> {
         );
 
         unsafe {
-            std::ptr::copy_nonoverlapping(buf.as_ptr(), self.out.add(self.pending), buf.len());
+            core::ptr::copy_nonoverlapping(buf.as_ptr(), self.out.add(self.pending), buf.len());
         }
 
         self.pending += buf.len();

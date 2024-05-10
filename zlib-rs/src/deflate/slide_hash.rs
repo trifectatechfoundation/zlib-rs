@@ -6,12 +6,12 @@ pub fn slide_hash(state: &mut crate::deflate::State) {
 }
 
 fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     if std::is_x86_feature_detected!("avx2") {
         return avx2::slide_hash_chain(table, wsize);
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
     if std::arch::is_aarch64_feature_detected!("neon") {
         return neon::slide_hash_chain(table, wsize);
     }
@@ -29,7 +29,7 @@ mod rust {
 
 #[cfg(target_arch = "aarch64")]
 mod neon {
-    use std::arch::aarch64::{
+    use core::arch::aarch64::{
         uint16x8_t, uint16x8x4_t, vdupq_n_u16, vld1q_u16_x4, vqsubq_u16, vst1q_u16_x4,
     };
 
@@ -59,7 +59,7 @@ mod neon {
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use std::arch::x86_64::{
+    use core::arch::x86_64::{
         __m256i, _mm256_loadu_si256, _mm256_set1_epi16, _mm256_storeu_si256, _mm256_subs_epu16,
     };
 
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_slide_hash_avx2() {
-        if std::arch::is_x86_feature_detected!("avx2") {
+        if core::arch::is_x86_feature_detected!("avx2") {
             let mut input = INPUT;
 
             avx2::slide_hash_chain(&mut input, WSIZE);
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_slide_hash_neon() {
-        if std::arch::is_aarch64_feature_detected!("neon") {
+        if core::arch::is_aarch64_feature_detected!("neon") {
             let mut input = INPUT;
 
             neon::slide_hash_chain(&mut input, WSIZE);
@@ -136,7 +136,7 @@ mod tests {
             // pad to a multiple of 32
             let difference = v.len().next_multiple_of(32) - v.len();
             let mut v = v;
-            v.extend(std::iter::repeat(u16::MAX).take(difference));
+            v.extend(core::iter::repeat(u16::MAX).take(difference));
 
 
             let mut a = v.clone();

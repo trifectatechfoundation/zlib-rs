@@ -67,7 +67,7 @@ fn remainder(mut c: u32, mut buf: &[u8]) -> u32 {
 #[target_feature(enable = "crc")]
 #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
 unsafe fn __crc32b(mut crc: u32, data: u8) -> u32 {
-    std::arch::asm!("crc32b {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
+    core::arch::asm!("crc32b {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }
 
@@ -77,7 +77,7 @@ unsafe fn __crc32b(mut crc: u32, data: u8) -> u32 {
 #[target_feature(enable = "crc")]
 #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
 unsafe fn __crc32h(mut crc: u32, data: u16) -> u32 {
-    std::arch::asm!("crc32h {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
+    core::arch::asm!("crc32h {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }
 
@@ -87,7 +87,7 @@ unsafe fn __crc32h(mut crc: u32, data: u16) -> u32 {
 #[target_feature(enable = "crc")]
 #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
 unsafe fn __crc32w(mut crc: u32, data: u32) -> u32 {
-    std::arch::asm!("crc32w {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
+    core::arch::asm!("crc32w {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }
 
@@ -97,7 +97,7 @@ unsafe fn __crc32w(mut crc: u32, data: u32) -> u32 {
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "crc")]
 unsafe fn __crc32d(mut crc: u32, data: u64) -> u32 {
-    std::arch::asm!("crc32x {crc:w}, {crc:w}, {data:x}", crc = inout(reg) crc, data = in(reg) data);
+    core::arch::asm!("crc32x {crc:w}, {crc:w}, {data:x}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }
 
@@ -107,7 +107,7 @@ unsafe fn __crc32d(mut crc: u32, data: u64) -> u32 {
 #[target_feature(enable = "crc")]
 #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
 pub unsafe fn __crc32cw(mut crc: u32, data: u32) -> u32 {
-    std::arch::asm!("crc32cw {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
+    core::arch::asm!("crc32cw {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }
 

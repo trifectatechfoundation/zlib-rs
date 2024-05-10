@@ -275,7 +275,7 @@ mod test {
         let table = [Code::default(); crate::ENOUGH_DISTS];
 
         let mut work = [0; 16];
-        let mut lens: [_; 16] = std::array::from_fn(|i| (i + 1) as u16);
+        let mut lens: [_; 16] = core::array::from_fn(|i| (i + 1) as u16);
         lens[15] = 15;
 
         let mut next = table;
@@ -315,7 +315,7 @@ mod test {
         let bits = 9;
         inflate_table(CodeType::Lens, &lens, 288, &mut next, bits, work);
 
-        std::array::from_fn(|i| {
+        core::array::from_fn(|i| {
             let mut code = next[i];
 
             code.op = if i & 0b0111_1111 == 99 { 64 } else { code.op };
