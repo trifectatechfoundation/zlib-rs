@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
 use crate::allocate::Allocator;
 
@@ -41,17 +41,17 @@ pub type z_streamp = *mut z_stream;
 impl Default for z_stream {
     fn default() -> Self {
         Self {
-            next_in: std::ptr::null_mut(),
+            next_in: core::ptr::null_mut(),
             avail_in: 0,
             total_in: 0,
-            next_out: std::ptr::null_mut(),
+            next_out: core::ptr::null_mut(),
             avail_out: 0,
             total_out: 0,
-            msg: std::ptr::null_mut(),
-            state: std::ptr::null_mut(),
+            msg: core::ptr::null_mut(),
+            state: core::ptr::null_mut(),
             zalloc: Some(crate::allocate::zalloc_c),
             zfree: Some(crate::allocate::zfree_c),
-            opaque: std::ptr::null_mut(),
+            opaque: core::ptr::null_mut(),
             data_type: 0,
             adler: 0,
             reserved: 0,
@@ -66,6 +66,7 @@ impl z_stream {
         self.opaque = alloc.opaque;
     }
 
+    #[cfg(feature = "alloc")]
     pub fn configure_default_rust_allocator(&mut self) {
         self.configure_allocator(Allocator::RUST)
     }
@@ -160,12 +161,12 @@ impl Default for gz_header {
             time: 0,
             xflags: 0,
             os: 0,
-            extra: std::ptr::null_mut(),
+            extra: core::ptr::null_mut(),
             extra_len: 0,
             extra_max: 0,
-            name: std::ptr::null_mut(),
+            name: core::ptr::null_mut(),
             name_max: 0,
-            comment: std::ptr::null_mut(),
+            comment: core::ptr::null_mut(),
             comm_max: 0,
             hcrc: 0,
             done: 0,

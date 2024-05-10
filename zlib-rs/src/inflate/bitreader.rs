@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::ReturnCode;
 
@@ -50,7 +50,7 @@ impl<'a> BitReader<'a> {
     #[inline(always)]
     pub fn as_slice(&self) -> &[u8] {
         let len = self.bytes_remaining();
-        unsafe { std::slice::from_raw_parts(self.ptr, len) }
+        unsafe { core::slice::from_raw_parts(self.ptr, len) }
     }
 
     #[inline(always)]
@@ -103,7 +103,7 @@ impl<'a> BitReader<'a> {
     pub fn refill(&mut self) {
         debug_assert!(self.bytes_remaining() >= 8);
 
-        let read = unsafe { std::ptr::read_unaligned(self.ptr.cast::<u64>()) };
+        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) };
         self.bit_buffer |= read << self.bits_used;
         let increment = (63 - self.bits_used) >> 3;
         self.ptr = self.ptr.wrapping_add(increment as usize);
@@ -116,7 +116,7 @@ impl<'a> BitReader<'a> {
 
         // the trick of this function is that the read can happen concurrently
         // with the arithmetic below. That makes the read effectively free.
-        let read = unsafe { std::ptr::read_unaligned(self.ptr.cast::<u64>()) };
+        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) };
         let next_bit_buffer = self.bit_buffer | read << self.bits_used;
 
         let increment = (63 - self.bits_used) >> 3;
@@ -186,6 +186,7 @@ impl<'a> BitReader<'a> {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::io::Read for BitReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         assert_eq!(self.bits_used, 0, "bit buffer not cleared before read");
@@ -194,7 +195,7 @@ impl std::io::Read for BitReader<'_> {
 
         // safety: `buf` is a mutable (exclusive) reference, so it cannot overlap the memory that
         // the reader contains
-        unsafe { std::ptr::copy_nonoverlapping(self.ptr, buf.as_mut_ptr(), number_of_bytes) }
+        unsafe { core::ptr::copy_nonoverlapping(self.ptr, buf.as_mut_ptr(), number_of_bytes) }
 
         self.ptr = unsafe { self.ptr.add(number_of_bytes) };
         Ok(number_of_bytes)

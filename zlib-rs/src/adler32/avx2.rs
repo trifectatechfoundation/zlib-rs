@@ -14,7 +14,7 @@ use crate::adler32::{
 };
 
 const fn __m256i_literal(bytes: [u8; 32]) -> __m256i {
-    unsafe { std::mem::transmute(bytes) }
+    unsafe { core::mem::transmute(bytes) }
 }
 
 const DOT2V: __m256i = __m256i_literal([

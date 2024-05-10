@@ -1,8 +1,8 @@
 #![allow(unused)]
 // taken from https://docs.rs/tokio/latest/src/tokio/io/read_buf.rs.html#23-27
 // based on https://rust-lang.github.io/rfcs/2930-read-buf.html
-use std::fmt;
-use std::mem::MaybeUninit;
+use core::fmt;
+use core::mem::MaybeUninit;
 
 use crate::allocate::Allocator;
 
@@ -48,7 +48,7 @@ impl<'a> ReadBuf<'a> {
     ///
     /// The `ptr` and `len` must for a valid `&mut [MaybeUninit<u8>]`
     pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
-        let buf = std::slice::from_raw_parts_mut(ptr as _, len);
+        let buf = core::slice::from_raw_parts_mut(ptr as _, len);
 
         Self {
             buf,
@@ -113,7 +113,7 @@ impl<'a> ReadBuf<'a> {
     /// Returns a new `ReadBuf` comprised of the unfilled section up to `n`.
     #[inline]
     pub fn take(&mut self, n: usize) -> ReadBuf<'_> {
-        let max = std::cmp::min(self.remaining(), n);
+        let max = core::cmp::min(self.remaining(), n);
         // Safety: We don't set any of the `unfilled_mut` with `MaybeUninit::uninit`.
         unsafe { ReadBuf::uninit(&mut self.unfilled_mut()[..max]) }
     }
@@ -312,17 +312,17 @@ impl<'a> ReadBuf<'a> {
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
         let current = self.filled;
 
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if std::is_x86_feature_detected!("avx512f") {
             return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
         }
 
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if std::is_x86_feature_detected!("avx2") {
             return self.copy_match_help::<core::arch::x86_64::__m256i>(offset_from_end, length);
         }
 
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if std::is_x86_feature_detected!("sse") {
             return self.copy_match_help::<core::arch::x86_64::__m128i>(offset_from_end, length);
         }
@@ -429,6 +429,7 @@ impl<'a> ReadBuf<'a> {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::io::Write for ReadBuf<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if self.remaining() < buf.len() {
@@ -485,11 +486,11 @@ trait Chunk {
 
 impl Chunk for u64 {
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
-        std::ptr::read_unaligned(from.cast())
+        core::ptr::read_unaligned(from.cast())
     }
 
     unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
-        std::ptr::copy_nonoverlapping(
+        core::ptr::copy_nonoverlapping(
             chunk.to_ne_bytes().as_ptr().cast(),
             out,
             core::mem::size_of::<Self>(),
@@ -531,7 +532,7 @@ impl Chunk for core::arch::x86_64::__m512i {
         // We cross our fingers that LLVM optimizes this into a vmovdqu32
         //
         // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_loadu_si512&expand=3420&ig_expand=4110
-        std::ptr::read_unaligned(from.cast())
+        core::ptr::read_unaligned(from.cast())
     }
 
     #[inline(always)]
@@ -540,6 +541,6 @@ impl Chunk for core::arch::x86_64::__m512i {
         // We cross our fingers that LLVM optimizes this into a vmovdqu32
         //
         // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_storeu_si512&expand=3420&ig_expand=4110,6550
-        std::ptr::write_unaligned(out.cast(), chunk)
+        core::ptr::write_unaligned(out.cast(), chunk)
     }
 }
