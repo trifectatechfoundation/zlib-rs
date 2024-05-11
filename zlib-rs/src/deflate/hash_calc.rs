@@ -156,6 +156,12 @@ impl HashCalc for Crc32HashCalc {
     fn hash_calc(h: u32, val: u32) -> u32 {
         unsafe { crate::crc32::acle::__crc32cw(h, val) }
     }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+    fn hash_calc(h: u32, val: u32) -> u32 {
+        assert!(!Self::is_supported());
+        unimplemented!("there is no hardware support on this platform")
+    }
 }
 
 #[cfg(test)]

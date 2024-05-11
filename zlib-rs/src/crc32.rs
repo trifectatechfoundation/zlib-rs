@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 
 use crate::{read_buf::ReadBuf, CRC32_INITIAL_VALUE};
 
-#[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+#[cfg(target_arch = "aarch64")]
 pub(crate) mod acle;
 mod braid;
 mod combine;
@@ -87,12 +87,6 @@ impl Crc32Fold {
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
         if std::arch::is_aarch64_feature_detected!("crc") {
             self.value = self::acle::crc32_acle_aarch64(self.value, src);
-            return;
-        }
-
-        #[cfg(target_arch = "arm")]
-        if is_arm_feature_detected("crc") {
-            self.value = self::acle::crc32_acle_arm(self.value, src);
             return;
         }
 
