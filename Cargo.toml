@@ -20,7 +20,7 @@ homepage = "https://github.com/memorysafety/zlib-rs"
 readme = "./README.md"
 description = "A memory-safe zlib implementation written in rust"
 publish = true
-rust-version = "1.70" # MSRV
+rust-version = "1.73" # MSRV
 
 [profile.release]
 debug = true
