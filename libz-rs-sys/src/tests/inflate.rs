@@ -1,4 +1,4 @@
-use std::mem::ManuallyDrop;
+use core::mem::ManuallyDrop;
 
 use crate as libz_rs_sys;
 
@@ -9,7 +9,7 @@ use zlib_rs::inflate::{set_mode_dict, uncompress_slice, INFLATE_STATE_SIZE};
 use zlib_rs::MAX_WBITS;
 
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
-const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 #[derive(Clone, Copy)]
 struct MemItem {
@@ -1207,7 +1207,7 @@ fn gzip_chunked(chunk_size: usize) {
     let mut stream = MaybeUninit::<libz_rs_sys::z_stream>::zeroed();
 
     const VERSION: *const c_char = libz_rs_sys::zlibVersion();
-    const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+    const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
     let err = unsafe {
         libz_rs_sys::deflateInit2_(
@@ -1274,7 +1274,7 @@ fn gzip_chunked(chunk_size: usize) {
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         const VERSION: *const c_char = libz_rs_sys::zlibVersion();
-        const STREAM_SIZE: c_int = std::mem::size_of::<z_stream>() as c_int;
+        const STREAM_SIZE: c_int = core::mem::size_of::<z_stream>() as c_int;
 
         let err = unsafe {
             inflateInit2_(

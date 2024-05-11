@@ -19,7 +19,7 @@ use zlib_rs::{
 };
 
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
-const STREAM_SIZE: c_int = std::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
+const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
 pub mod quick {
     use super::*;
