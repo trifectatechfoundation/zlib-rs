@@ -1708,6 +1708,15 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         stream.configure_default_rust_allocator()
     }
 
+    #[cfg(not(feature = "alloc"))]
+    if cfg!(test) && stream.zalloc.is_none() || stream.zfree.is_none() {
+        stream.configure_default_c_allocator()
+    }
+
+    if stream.zalloc.is_none() || stream.zfree.is_none() {
+        return ReturnCode::StreamError;
+    }
+
     let mut state = State::new(&[], ReadBuf::new(&mut []));
 
     // TODO this can change depending on the used/supported SIMD instructions

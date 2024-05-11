@@ -196,10 +196,20 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
     // for safety we  must really make sure that alloc and free are consistent
     // this is a (slight) deviation from stock zlib. In this crate we pick the rust
-    // allocator as the default, but `libz-rs-sys` configures the C allocator
+    // allocator as the default, but `libz-rs-sys` always explicitly sets an allocator,
+    // and can configure the C allocator
     #[cfg(feature = "alloc")]
     if stream.zalloc.is_none() || stream.zfree.is_none() {
         stream.configure_default_rust_allocator()
+    }
+
+    #[cfg(not(feature = "alloc"))]
+    if cfg!(test) && stream.zalloc.is_none() || stream.zfree.is_none() {
+        stream.configure_default_c_allocator()
+    }
+
+    if stream.zalloc.is_none() || stream.zfree.is_none() {
+        return ReturnCode::StreamError;
     }
 
     if level == crate::c_api::Z_DEFAULT_COMPRESSION {
