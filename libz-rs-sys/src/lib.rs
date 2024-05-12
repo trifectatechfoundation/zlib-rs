@@ -20,9 +20,9 @@
 #[cfg(test)]
 mod tests;
 
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
-use std::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
 
 use zlib_rs::{
     deflate::{DeflateConfig, DeflateStream, Method, Strategy},
@@ -68,7 +68,7 @@ pub type z_off_t = libc::off_t;
 pub type z_off_t = c_long;
 
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
     zlib_rs::crc32(crc as u32, buf) as c_ulong
 }
 
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off
 }
 
 pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    let buf = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
     zlib_rs::adler32(adler as u32, buf) as c_ulong
 }
 
@@ -115,16 +115,16 @@ pub unsafe extern "C" fn uncompress(
     sourceLen: c_ulong,
 ) -> c_int {
     let data = dest;
-    let len = std::ptr::read(destLen) as usize;
-    let output = std::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
+    let len = core::ptr::read(destLen) as usize;
+    let output = core::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
 
     let data = source;
     let len = sourceLen as usize;
-    let input = std::slice::from_raw_parts(data, len);
+    let input = core::slice::from_raw_parts(data, len);
 
     let (output, err) = zlib_rs::inflate::uncompress(output, input, InflateConfig::default());
 
-    std::ptr::write(destLen, output.len() as _);
+    core::ptr::write(destLen, output.len() as _);
 
     err as c_int
 }
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
 
         if stream.zalloc.is_none() {
             stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = std::ptr::null_mut();
+            stream.opaque = core::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
@@ -298,7 +298,7 @@ pub unsafe extern "C" fn inflateSetDictionary(
     let dict = if dictLength == 0 || dictionary.is_null() {
         &[]
     } else {
-        unsafe { std::slice::from_raw_parts(dictionary, dictLength as usize) }
+        unsafe { core::slice::from_raw_parts(dictionary, dictLength as usize) }
     };
 
     zlib_rs::inflate::set_dictionary(stream, dict) as _
@@ -395,17 +395,17 @@ pub unsafe extern "C" fn compress2(
     level: c_int,
 ) -> c_int {
     let data = dest;
-    let len = std::ptr::read(destLen) as usize;
-    let output = std::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
+    let len = core::ptr::read(destLen) as usize;
+    let output = core::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
 
     let data = source;
     let len = sourceLen as usize;
-    let input = std::slice::from_raw_parts(data, len);
+    let input = core::slice::from_raw_parts(data, len);
 
     let config = DeflateConfig::new(level);
     let (output, err) = zlib_rs::deflate::compress(output, input, config);
 
-    std::ptr::write(destLen, output.len() as _);
+    core::ptr::write(destLen, output.len() as _);
 
     err as c_int
 }
@@ -513,7 +513,7 @@ pub unsafe extern "C" fn deflateInit_(
 
         if stream.zalloc.is_none() {
             stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = std::ptr::null_mut();
+            stream.opaque = core::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
@@ -559,7 +559,7 @@ pub unsafe extern "C" fn deflateInit2_(
 
         if stream.zalloc.is_none() {
             stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = std::ptr::null_mut();
+            stream.opaque = core::ptr::null_mut();
         }
 
         if stream.zfree.is_none() {
