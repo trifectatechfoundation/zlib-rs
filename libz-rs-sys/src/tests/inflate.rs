@@ -43,8 +43,12 @@ unsafe extern "C" fn mem_alloc(mem: *mut c_void, count: u32, size: u32) -> *mut 
         return std::ptr::null_mut();
     }
 
+    extern "C" {
+        fn malloc(size: usize) -> *mut c_void;
+    }
+
     // perform the allocation
-    let ptr = unsafe { libc::malloc(len) };
+    let ptr = unsafe { malloc(len) };
     if ptr.is_null() {
         return std::ptr::null_mut();
     }
@@ -69,8 +73,12 @@ unsafe extern "C" fn mem_alloc(mem: *mut c_void, count: u32, size: u32) -> *mut 
 }
 
 unsafe extern "C" fn mem_free(mem: *mut c_void, ptr: *mut c_void) {
+    extern "C" {
+        fn free(p: *mut c_void);
+    }
+
     if mem.is_null() {
-        unsafe { libc::free(ptr) };
+        unsafe { free(ptr) };
         return;
     }
 
@@ -102,7 +110,7 @@ unsafe extern "C" fn mem_free(mem: *mut c_void, ptr: *mut c_void) {
         zone.rogue += 1;
     }
 
-    unsafe { libc::free(ptr) }
+    unsafe { free(ptr) }
 }
 
 fn mem_setup() -> z_stream {
@@ -146,13 +154,17 @@ fn mem_limit(stream: &mut z_stream, limit: usize) {
 fn mem_done(stream: &mut z_stream) {
     assert!(!stream.opaque.is_null());
 
+    extern "C" {
+        fn free(p: *mut c_void);
+    }
+
     // zone not wrapped in ManuallyDrop so it is free'd
     let mut zone = unsafe { Box::from_raw(stream.opaque as *mut MemZone) };
 
     let count = zone.items.len();
 
     for item in zone.items.drain(..) {
-        unsafe { libc::free(item.ptr) };
+        unsafe { free(item.ptr) };
     }
 
     assert_eq!(

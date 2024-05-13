@@ -21,7 +21,6 @@ std = [] # assume `::std` is available
 
 [dependencies]
 zlib-rs = { workspace = true }
-libc.workspace = true
 
 [dev-dependencies]
 zlib-rs = { workspace = true, features = [ "__internal-test" ] }
