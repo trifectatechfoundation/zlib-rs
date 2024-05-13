@@ -20,10 +20,10 @@ rust-allocator = ["zlib-rs/rust-allocator"] # by default, use the rust global al
 std = ["zlib-rs/std"] # assume `::std` is available
 
 [dependencies]
-zlib-rs = { workspace = true }
+zlib-rs = { workspace = true, default-features = false }
 
 [dev-dependencies]
-zlib-rs = { workspace = true, features = [ "__internal-test" ] }
+zlib-rs = { workspace = true, default-features = false, features = ["std", "__internal-test"] }
 libz-sys.workspace = true
 libloading.workspace = true
 load-dynamic-libz-ng.workspace = true
