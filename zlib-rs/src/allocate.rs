@@ -6,7 +6,7 @@ use core::{
     mem::MaybeUninit,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "rust-allocator")]
 use alloc::alloc::GlobalAlloc;
 
 #[allow(non_camel_case_types)]
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
 /// # Safety
 ///
 /// This function is safe to call.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "rust-allocator")]
 pub unsafe extern "C" fn zalloc_rust(
     _opaque: *mut c_void,
     count: c_uint,
@@ -81,7 +81,7 @@ pub unsafe extern "C" fn zalloc_rust(
 ///
 /// - `ptr` must be allocated with the rust `alloc::System` allocator
 /// - `opaque` is a `&usize` that represents the size of the allocation
-#[cfg(feature = "alloc")]
+#[cfg(feature = "rust-allocator")]
 pub unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     if ptr.is_null() {
         return;
@@ -112,7 +112,7 @@ pub(crate) struct Allocator<'a> {
 }
 
 impl Allocator<'static> {
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "rust-allocator")]
     pub const RUST: Self = Self {
         zalloc: zalloc_rust,
         zfree: zfree_rust,
@@ -120,6 +120,7 @@ impl Allocator<'static> {
         _marker: PhantomData,
     };
 
+    #[cfg(feature = "c-allocator")]
     pub const C: Self = Self {
         zalloc: zalloc_c,
         zfree: zfree_c,
@@ -131,7 +132,7 @@ impl Allocator<'static> {
 impl<'a> Allocator<'a> {
     fn allocate_layout(&self, layout: Layout) -> *mut c_void {
         // Special case for the Rust `alloc` backed allocator
-        #[cfg(feature = "alloc")]
+        #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
             let ptr = unsafe { (Allocator::RUST.zalloc)(self.opaque, layout.size() as _, 1) };
 
@@ -245,7 +246,7 @@ impl<'a> Allocator<'a> {
     pub unsafe fn deallocate<T>(&self, ptr: *mut T, len: usize) {
         if !ptr.is_null() {
             // Special case for the Rust `alloc` backed allocator
-            #[cfg(feature = "alloc")]
+            #[cfg(feature = "rust-allocator")]
             if self.zfree == Allocator::RUST.zfree {
                 assert_ne!(len, 0, "invalid size for {:?}", ptr);
                 let mut size = core::mem::size_of::<T>() * len;

@@ -1,7 +1,7 @@
-#![doc = include_str!("../README.md")]
-#![cfg_attr(not(any(test, feature = "alloc")), no_std)]
+#![doc = core::include_str!("../README.md")]
+#![cfg_attr(not(any(test, feature = "rust-allocator")), no_std)]
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
 
 mod adler32;
