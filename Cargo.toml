@@ -34,6 +34,6 @@ libz-sys = { version = "1.1.12", default-features = false, features = ["zlib-ng"
 arbitrary = { version = "1.0" }
 quickcheck = { version = "1.0.3", default-features = false, features = [] }
 
-zlib-rs = { version = "0.1.1", path = "./zlib-rs" }
+zlib-rs = { version = "0.1.1", path = "./zlib-rs", default-features = false }
 load-dynamic-libz-ng = { path = "./load-dynamic-libz-ng" }
 
