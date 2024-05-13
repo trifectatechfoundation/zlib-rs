@@ -66,11 +66,12 @@ impl z_stream {
         self.opaque = alloc.opaque;
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "rust-allocator")]
     pub fn configure_default_rust_allocator(&mut self) {
         self.configure_allocator(Allocator::RUST)
     }
 
+    #[cfg(feature = "c-allocator")]
     pub fn configure_default_c_allocator(&mut self) {
         self.configure_allocator(Allocator::C)
     }

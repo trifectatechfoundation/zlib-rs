@@ -13,9 +13,10 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["std"]
-std = ["alloc"]
-alloc = []
+default = ["std", "c-allocator"]
+std = ["rust-allocator"]
+c-allocator = [] # expose a malloc-based C allocator
+rust-allocator = [] # expose a rust global alloctor
 __internal-fuzz = ["arbitrary"]
 __internal-test = ["quickcheck"]
 
