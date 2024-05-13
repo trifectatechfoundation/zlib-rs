@@ -61,10 +61,9 @@ const DEFAULT_ZFREE: Option<free_func> = '_blk: {
     None
 };
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub type z_off_t = libc::off_t;
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+// In spirit this type is `libc::off_t`, but it would be our only libc dependency, and so we
+// hardcode the type here. This should be correct on most operating systems. If we ever run into
+// issues with it, we can either special-case or add a feature flag to force a particular width
 pub type z_off_t = c_long;
 
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
