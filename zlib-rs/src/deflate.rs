@@ -4086,4 +4086,82 @@ mod test {
         // this is sufficient space
         assert_eq!(helper(&mut output), ReturnCode::Ok);
     }
+
+    #[test]
+    // splits the input into two, deflates them seperately and then joins the deflated byte streams
+    // into something that can be correctly inflated again. This is the basic idea behind pigz, and
+    // allows for parallel compression.
+    fn split_deflate() {
+        let input = "Hello World!\n";
+
+        let (input1, input2) = input.split_at(6);
+
+        let mut output1 = vec![0; 128];
+        let mut output2 = vec![0; 128];
+
+        let config = DeflateConfig {
+            level: 6, // use gzip
+            method: Method::Deflated,
+            window_bits: 16 + crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        // see also the docs on `SyncFlush`. it makes sure everything is flushed, ends on a byte
+        // boundary, and that the final block does not have the "last block" bit set.
+        let (prefix, err) = compress_slice_with_flush(
+            &mut output1,
+            input1.as_bytes(),
+            config,
+            DeflateFlush::SyncFlush,
+        );
+        assert_eq!(err, ReturnCode::Ok);
+
+        let (output2, err) = compress_slice_with_flush(
+            &mut output2,
+            input2.as_bytes(),
+            config,
+            DeflateFlush::Finish,
+        );
+        assert_eq!(err, ReturnCode::Ok);
+
+        let inflate_config = crate::inflate::InflateConfig {
+            window_bits: 16 + 15,
+        };
+
+        // cuts off the length and crc
+        let (suffix, end) = output2.split_at(output2.len() - 8);
+        let (crc2, len2) = end.split_at(4);
+        let crc2 = u32::from_ne_bytes(crc2.try_into().unwrap());
+
+        // cuts off the gzip header (10 bytes) from the front
+        let suffix = &suffix[10..];
+
+        let mut result: Vec<u8> = Vec::new();
+        result.extend(prefix.iter());
+        result.extend(suffix);
+
+        // it would be more proper to use `stream.total_in` here, but the slice helpers hide the
+        // stream so we're cheating a bit here
+        let len1 = input1.len() as u32;
+        let len2 = u32::from_ne_bytes(len2.try_into().unwrap());
+        assert_eq!(len2 as usize, input2.len());
+
+        let crc1 = crate::crc32(0, input1.as_bytes());
+        let crc = crate::crc32_combine(crc1, crc2, len2 as u64);
+
+        // combined crc of the parts should be the crc of the whole
+        let crc_cheating = crate::crc32(0, input.as_bytes());
+        assert_eq!(crc, crc_cheating);
+
+        // write the trailer
+        result.extend(crc.to_le_bytes());
+        result.extend((len1 + len2).to_le_bytes());
+
+        let mut output = vec![0; 128];
+        let (output, err) = crate::inflate::uncompress_slice(&mut output, &result, inflate_config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        assert_eq!(output, input.as_bytes());
+    }
 }
