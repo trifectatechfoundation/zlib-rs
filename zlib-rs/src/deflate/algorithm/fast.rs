@@ -4,10 +4,10 @@ use crate::{
     deflate::{
         fill_window, BlockState, DeflateStream, MIN_LOOKAHEAD, STD_MIN_MATCH, WANT_MIN_MATCH,
     },
-    flush_block, Flush,
+    flush_block, DeflateFlush,
 };
 
-pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut bflush; /* set if current block must be flushed */
     let mut dist;
     let mut match_len = 0;
@@ -19,7 +19,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         // string following the next match.
         if stream.state.lookahead < MIN_LOOKAHEAD {
             fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
             if stream.state.lookahead == 0 {
@@ -96,7 +96,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         STD_MIN_MATCH - 1
     };
 
-    if flush == Flush::Finish {
+    if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
         return BlockState::FinishDone;
     }

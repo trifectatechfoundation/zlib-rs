@@ -5,10 +5,10 @@ use crate::{
         compare256::compare256_rle_slice, fill_window, BlockState, DeflateStream, MIN_LOOKAHEAD,
         STD_MAX_MATCH, STD_MIN_MATCH,
     },
-    flush_block, Flush,
+    flush_block, DeflateFlush,
 };
 
-pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_rle(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut match_len = 0;
     let mut bflush;
 
@@ -19,7 +19,7 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         // string following the next match.
         if stream.state.lookahead < MIN_LOOKAHEAD {
             fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
             if stream.state.lookahead == 0 {
@@ -70,7 +70,7 @@ pub fn deflate_rle(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     stream.state.insert = 0;
 
-    if flush == Flush::Finish {
+    if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
         return BlockState::FinishDone;
     }

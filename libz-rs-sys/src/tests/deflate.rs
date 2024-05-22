@@ -15,7 +15,7 @@ use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,
     deflate::{DeflateConfig, Method, Strategy},
     inflate::InflateConfig,
-    Flush, ReturnCode,
+    DeflateFlush, ReturnCode,
 };
 
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
@@ -104,12 +104,12 @@ pub mod quick {
         stream.avail_in = 554;
         stream.avail_out = 31;
 
-        let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+        let err = unsafe { deflate(&mut stream, DeflateFlush::Finish as i32) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         stream.avail_in = 0;
         stream.avail_out = 498;
-        let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+        let err = unsafe { deflate(&mut stream, DeflateFlush::Finish as i32) };
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = unsafe { deflateEnd(&mut stream) };
@@ -200,7 +200,7 @@ pub mod quick {
                 stream.avail_out = 38;
             }
 
-            let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+            let err = unsafe { deflate(&mut stream, DeflateFlush::Finish as i32) };
             if ReturnCode::from(err) == ReturnCode::StreamEnd {
                 break;
             }
@@ -298,7 +298,7 @@ pub mod quick {
                 stream.avail_out = 38;
             }
 
-            let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+            let err = unsafe { deflate(&mut stream, DeflateFlush::Finish as i32) };
             if ReturnCode::from(err) == ReturnCode::StreamEnd {
                 break;
             }
@@ -396,7 +396,7 @@ pub mod quick {
                 stream.avail_out = 38;
             }
 
-            let err = unsafe { deflate(&mut stream, Flush::Finish as i32) };
+            let err = unsafe { deflate(&mut stream, DeflateFlush::Finish as i32) };
             if ReturnCode::from(err) == ReturnCode::StreamEnd {
                 break;
             }
@@ -777,7 +777,7 @@ fn test_compress_param() {
         stream.next_in = input.as_ptr() as *mut u8;
         stream.avail_in = offset as _;
 
-        let err = libz_rs_sys::deflate(stream, Flush::NoFlush as i32);
+        let err = libz_rs_sys::deflate(stream, DeflateFlush::NoFlush as i32);
         assert_eq!(err, 0);
 
         let err = libz_rs_sys::deflateParams(stream, 8, Strategy::Rle as i32);
@@ -787,7 +787,7 @@ fn test_compress_param() {
 
         stream.avail_in = (input.len() - offset) as _;
 
-        let err = libz_rs_sys::deflate(stream, Flush::Finish as i32);
+        let err = libz_rs_sys::deflate(stream, DeflateFlush::Finish as i32);
         assert_eq!(err, ReturnCode::StreamEnd as i32);
 
         let err = libz_rs_sys::deflateEnd(stream);
@@ -831,7 +831,7 @@ fn test_compress_param() {
         stream.next_in = input.as_ptr() as *mut u8;
         stream.avail_in = offset as _;
 
-        let err = libz_ng_sys::deflate(stream, Flush::NoFlush as i32);
+        let err = libz_ng_sys::deflate(stream, DeflateFlush::NoFlush as i32);
         assert_eq!(err, 0);
 
         let err = libz_ng_sys::deflateParams(stream, 8, Strategy::Rle as i32);
@@ -841,7 +841,7 @@ fn test_compress_param() {
 
         stream.avail_in = (input.len() - offset) as _;
 
-        let err = libz_ng_sys::deflate(stream, Flush::Finish as i32);
+        let err = libz_ng_sys::deflate(stream, DeflateFlush::Finish as i32);
         assert_eq!(err, ReturnCode::StreamEnd as i32);
 
         let err = libz_ng_sys::deflateEnd(stream);
@@ -895,7 +895,7 @@ fn test_dict_deflate() {
         strm.next_in = HELLO.as_ptr() as *mut u8;
         strm.avail_in = HELLO.len() as _;
 
-        let err = deflate(strm, Flush::Finish as i32);
+        let err = deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = deflateEnd(strm);
@@ -936,7 +936,7 @@ fn test_dict_deflate() {
         strm.next_in = HELLO.as_ptr() as *mut u8;
         strm.avail_in = HELLO.len() as _;
 
-        let err = libz_ng_sys::deflate(strm, Flush::Finish as i32);
+        let err = libz_ng_sys::deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_ng_sys::deflateEnd(strm);
@@ -1019,7 +1019,7 @@ fn test_deflate_prime() {
         strm.next_out = compr.as_mut_ptr();
         strm.avail_out = compr.len() as _;
 
-        err = libz_rs_sys::deflate(strm, Flush::Finish as i32);
+        err = libz_rs_sys::deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(err, ReturnCode::StreamEnd as i32);
 
         dbg!(strm.total_out);
@@ -1064,7 +1064,7 @@ fn test_deflate_prime() {
 
         // the crc checksum is not actually in the buffer, so the check of the checksum will error
         // out with a BufError because there is insufficient input.
-        let err = libz_rs_sys::inflate(strm, Flush::Finish as i32);
+        let err = libz_rs_sys::inflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::BufError);
         assert_eq!(&uncompr[..strm.total_out as usize], HELLO.as_bytes())
     }
@@ -1119,7 +1119,7 @@ fn small_window() {
         strm.next_out = compr.as_mut_ptr();
         strm.avail_out = compr.len() as _;
 
-        let err = deflate(strm, Flush::Finish as i32);
+        let err = deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = deflateEnd(strm);
@@ -1152,7 +1152,7 @@ fn small_window() {
         strm.next_out = plain_again.as_mut_ptr();
         strm.avail_out = plain_again.len() as _;
 
-        let err = libz_rs_sys::inflate(strm, Flush::NoFlush as i32);
+        let err = libz_rs_sys::inflate(strm, DeflateFlush::NoFlush as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_rs_sys::inflateEnd(strm);
@@ -1193,7 +1193,7 @@ fn small_window() {
         strm.next_out = compr.as_mut_ptr();
         strm.avail_out = compr.len() as _;
 
-        let err = libz_ng_sys::deflate(strm, Flush::Finish as i32);
+        let err = libz_ng_sys::deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_ng_sys::deflateEnd(strm);
@@ -1226,7 +1226,7 @@ fn small_window() {
         strm.next_out = plain_again.as_mut_ptr();
         strm.avail_out = plain_again.len() as _;
 
-        let err = libz_ng_sys::inflate(strm, Flush::NoFlush as i32);
+        let err = libz_ng_sys::inflate(strm, DeflateFlush::NoFlush as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_ng_sys::inflateEnd(strm);
@@ -1272,7 +1272,7 @@ fn test_deflate_pending() {
         for (_, _) in it_in.zip(&mut it_out) {
             strm.avail_in = 1;
             strm.avail_out = 1;
-            let err = deflate(strm, Flush::NoFlush as i32);
+            let err = deflate(strm, DeflateFlush::NoFlush as i32);
             assert_eq!(err, 0);
         }
 
@@ -1309,7 +1309,7 @@ fn test_deflate_pending() {
     }
 }
 
-/// test deflate() with Flush::Full
+/// test deflate() with DeflateFlush::Full
 #[test]
 fn test_flush() {
     let config = DeflateConfig::default();
@@ -1341,14 +1341,14 @@ fn test_flush() {
         stream.avail_in = 3;
         stream.avail_out = compr.len() as _;
 
-        let err = libz_rs_sys::deflate(stream, Flush::FullFlush as i32);
+        let err = libz_rs_sys::deflate(stream, DeflateFlush::FullFlush as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         // force an error in the first compressed block
         compr[3] += 1;
         stream.avail_in = (HELLO.len() - 3) as _;
 
-        let err = libz_rs_sys::deflate(stream, Flush::Finish as i32);
+        let err = libz_rs_sys::deflate(stream, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_rs_sys::deflateEnd(stream);
@@ -1383,14 +1383,14 @@ fn test_sync(compr: &[u8]) {
         stream.next_out = uncompr.as_mut_ptr();
         stream.avail_out = uncompr.len() as _;
 
-        let err = libz_rs_sys::inflate(stream, Flush::NoFlush as i32);
+        let err = libz_rs_sys::inflate(stream, DeflateFlush::NoFlush as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         stream.avail_in = (compr.len() - 2) as _; // read all compressed data
         let err = libz_rs_sys::inflateSync(stream); // but skip the damaged part (at index 3)
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let err = libz_rs_sys::inflate(stream, Flush::Finish as i32);
+        let err = libz_rs_sys::inflate(stream, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
         let err = libz_rs_sys::inflateEnd(stream);
@@ -1525,13 +1525,13 @@ fn test_deflate_copy() {
             strm.avail_in = 1;
             strm.avail_out = 1;
 
-            let err = libz_rs_sys::deflate(strm, Flush::NoFlush as i32);
+            let err = libz_rs_sys::deflate(strm, DeflateFlush::NoFlush as i32);
             assert_eq!(err, 0);
         }
 
         loop {
             strm.avail_out = 1;
-            let err = libz_rs_sys::deflate(strm, Flush::Finish as i32);
+            let err = libz_rs_sys::deflate(strm, DeflateFlush::Finish as i32);
 
             if ReturnCode::from(err) == ReturnCode::StreamEnd {
                 break;

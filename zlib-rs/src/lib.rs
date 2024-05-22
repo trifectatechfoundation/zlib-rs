@@ -48,29 +48,102 @@ pub const MAX_WBITS: i32 = 15; // 32kb LZ77 window
 pub(crate) const DEF_WBITS: i32 = MAX_WBITS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Flush {
+pub enum DeflateFlush {
+    #[default]
+    /// if flush is set to `NoFlush`, that allows deflate to decide how much data
+    /// to accumulate before producing output, in order to maximize compression.
+    NoFlush = 0,
+
+    /// If flush is set to `PartialFlush`, all pending output is flushed to the
+    /// output buffer, but the output is not aligned to a byte boundary.  All of the
+    /// input data so far will be available to the decompressor, as for Z_SYNC_FLUSH.
+    /// This completes the current deflate block and follows it with an empty fixed
+    /// codes block that is 10 bits long.  This assures that enough bytes are output
+    /// in order for the decompressor to finish the block before the empty fixed
+    /// codes block.
+    PartialFlush = 1,
+
+    /// If the parameter flush is set to `SyncFlush`, all pending output is
+    /// flushed to the output buffer and the output is aligned on a byte boundary, so
+    /// that the decompressor can get all input data available so far.  (In
+    /// particular avail_in is zero after the call if enough output space has been
+    /// provided before the call.) Flushing may degrade compression for some
+    /// compression algorithms and so it should be used only when necessary.  This
+    /// completes the current deflate block and follows it with an empty stored block
+    /// that is three bits plus filler bits to the next byte, followed by four bytes
+    /// (00 00 ff ff).
+    SyncFlush = 2,
+
+    /// If flush is set to `FullFlush`, all output is flushed as with
+    /// Z_SYNC_FLUSH, and the compression state is reset so that decompression can
+    /// restart from this point if previous compressed data has been damaged or if
+    /// random access is desired.  Using `FullFlush` too often can seriously degrade
+    /// compression.
+    FullFlush = 3,
+
+    /// If the parameter flush is set to `Finish`, pending input is processed,
+    /// pending output is flushed and deflate returns with `StreamEnd` if there was
+    /// enough output space.  If deflate returns with `Ok` or `BufError`, this
+    /// function must be called again with `Finish` and more output space (updated
+    /// avail_out) but no more input data, until it returns with `StreamEnd` or an
+    /// error.  After deflate has returned `StreamEnd`, the only possible operations
+    /// on the stream are deflateReset or deflateEnd.
+    ///
+    /// `Finish` can be used in the first deflate call after deflateInit if all the
+    /// compression is to be done in a single step.  In order to complete in one
+    /// call, avail_out must be at least the value returned by deflateBound (see
+    /// below).  Then deflate is guaranteed to return `StreamEnd`.  If not enough
+    /// output space is provided, deflate will not return `StreamEnd`, and it must
+    /// be called again as described above.
+    Finish = 4,
+
+    /// If flush is set to `Block`, a deflate block is completed and emitted, as
+    /// for `SyncFlush`, but the output is not aligned on a byte boundary, and up to
+    /// seven bits of the current block are held to be written as the next byte after
+    /// the next deflate block is completed.  In this case, the decompressor may not
+    /// be provided enough bits at this point in order to complete decompression of
+    /// the data provided so far to the compressor.  It may need to wait for the next
+    /// block to be emitted.  This is for advanced applications that need to control
+    /// the emission of deflate blocks.
+    Block = 5,
+}
+
+impl TryFrom<i32> for DeflateFlush {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::NoFlush),
+            1 => Ok(Self::PartialFlush),
+            2 => Ok(Self::SyncFlush),
+            3 => Ok(Self::FullFlush),
+            4 => Ok(Self::Finish),
+            5 => Ok(Self::Block),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InflateFlush {
     #[default]
     NoFlush = 0,
-    PartialFlush = 1,
     SyncFlush = 2,
-    FullFlush = 3,
     Finish = 4,
     Block = 5,
     Trees = 6,
 }
 
-impl TryFrom<i32> for Flush {
+impl TryFrom<i32> for InflateFlush {
     type Error = ();
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Flush::NoFlush),
-            1 => Ok(Flush::PartialFlush),
-            2 => Ok(Flush::SyncFlush),
-            3 => Ok(Flush::FullFlush),
-            4 => Ok(Flush::Finish),
-            5 => Ok(Flush::Block),
-            6 => Ok(Flush::Trees),
+            0 => Ok(Self::NoFlush),
+            2 => Ok(Self::SyncFlush),
+            4 => Ok(Self::Finish),
+            5 => Ok(Self::Block),
+            6 => Ok(Self::Trees),
             _ => Err(()),
         }
     }

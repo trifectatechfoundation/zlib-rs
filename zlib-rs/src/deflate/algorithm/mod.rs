@@ -1,6 +1,6 @@
 use crate::{
     deflate::{BlockState, DeflateStream, Strategy},
-    Flush,
+    DeflateFlush,
 };
 
 use self::{huff::deflate_huff, rle::deflate_rle, stored::deflate_stored};
@@ -27,7 +27,7 @@ macro_rules! flush_block {
     };
 }
 
-pub fn run(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn run(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     match stream.state.strategy {
         _ if stream.state.level == 0 => deflate_stored(stream, flush),
         Strategy::HuffmanOnly => deflate_huff(stream, flush),
@@ -38,7 +38,7 @@ pub fn run(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     }
 }
 
-type CompressFunc = fn(&mut DeflateStream, flush: Flush) -> BlockState;
+type CompressFunc = fn(&mut DeflateStream, flush: DeflateFlush) -> BlockState;
 
 #[allow(unused)]
 pub struct Config {

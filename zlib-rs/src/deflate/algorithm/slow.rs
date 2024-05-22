@@ -5,10 +5,10 @@ use crate::{
         fill_window, flush_block_only, BlockState, DeflateStream, Strategy, MIN_LOOKAHEAD,
         STD_MIN_MATCH, WANT_MIN_MATCH,
     },
-    flush_block, Flush,
+    flush_block, DeflateFlush,
 };
 
-pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut hash_head; /* head of hash chain */
     let mut bflush; /* set if current block must be flushed */
     let mut dist;
@@ -29,7 +29,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
          */
         if stream.state.lookahead < MIN_LOOKAHEAD {
             fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
 
@@ -135,7 +135,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         }
     }
 
-    assert_ne!(flush, Flush::NoFlush, "no flush?");
+    assert_ne!(flush, DeflateFlush::NoFlush, "no flush?");
 
     let state = &mut stream.state;
 
@@ -147,7 +147,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
 
-    if flush == Flush::Finish {
+    if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
         return BlockState::FinishDone;
     }

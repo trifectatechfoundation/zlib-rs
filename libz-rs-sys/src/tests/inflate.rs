@@ -239,7 +239,7 @@ fn gzip_header_check() {
     stream.avail_out = len as _;
     stream.next_out = out.as_mut_ptr();
 
-    let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+    let ret = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
 
     if let Some(err) = err {
         if err != 9 {
@@ -331,7 +331,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         stream.avail_out = len as _;
         stream.next_out = out.as_mut_ptr();
 
-        let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+        let ret = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
 
         if let Some(err) = err {
             assert_eq!(ret, err)
@@ -355,7 +355,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
             let ret = unsafe { inflateSetDictionary(&mut stream, out.as_ptr(), 0) };
             assert_eq!(ret, Z_OK);
 
-            let ret = unsafe { inflate(&mut stream, Flush::NoFlush as _) };
+            let ret = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
             assert_eq!(ret, Z_BUF_ERROR);
         }
 
@@ -463,9 +463,9 @@ fn cover_wrap() {
     strm.avail_out = 1;
     strm.next_out = (&mut ret) as *mut _ as *mut u8;
     mem_limit(&mut strm, 1);
-    ret = unsafe { inflate(&mut strm, Flush::NoFlush as _) };
+    ret = unsafe { inflate(&mut strm, InflateFlush::NoFlush as _) };
     assert_eq!(ret, Z_MEM_ERROR);
-    ret = unsafe { inflate(&mut strm, Flush::NoFlush as _) };
+    ret = unsafe { inflate(&mut strm, InflateFlush::NoFlush as _) };
     assert_eq!(ret, Z_MEM_ERROR);
     mem_limit(&mut strm, 0);
 
@@ -487,7 +487,7 @@ fn cover_wrap() {
     ret = unsafe { inflateSync(&mut strm) };
     assert_eq!(ret, Z_DATA_ERROR);
 
-    ret = unsafe { inflate(&mut strm, Flush::NoFlush as _) };
+    ret = unsafe { inflate(&mut strm, InflateFlush::NoFlush as _) };
     assert_eq!(ret, Z_STREAM_ERROR);
 
     let mut input = [0u8, 0, 0xFF, 0xFF];
@@ -664,7 +664,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
         strm.avail_out = size as _;
         strm.next_out = out.as_mut_ptr();
 
-        ret = unsafe { inflate(&mut strm, Flush::Trees as _) };
+        ret = unsafe { inflate(&mut strm, InflateFlush::Trees as _) };
         assert!(!matches!(ret, Z_STREAM_ERROR | Z_MEM_ERROR));
 
         if matches!(ret, Z_DATA_ERROR | Z_NEED_DICT) {
@@ -1264,12 +1264,12 @@ fn gzip_chunked(chunk_size: usize) {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { deflate(stream, Flush::NoFlush as _) };
+        let err = unsafe { deflate(stream, InflateFlush::NoFlush as _) };
 
         assert_eq!(err, ReturnCode::Ok as i32, "{:?}", stream.msg);
     }
 
-    let err = unsafe { libz_rs_sys::deflate(stream, Flush::Finish as _) };
+    let err = unsafe { libz_rs_sys::deflate(stream, InflateFlush::Finish as _) };
     assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
     let output_rs = &mut output_rs[..stream.total_out as usize];
@@ -1331,7 +1331,7 @@ fn gzip_chunked(chunk_size: usize) {
             stream.next_in = chunk.as_mut_ptr();
             stream.avail_in = chunk.len() as _;
 
-            let err = unsafe { inflate(stream, Flush::NoFlush as _) };
+            let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
 
             if err == ReturnCode::StreamEnd as i32 {
                 break;
@@ -1384,7 +1384,7 @@ fn chunked_output_rs() {
     stream.next_out = output.as_mut_ptr();
     stream.avail_out = 32;
 
-    let err = unsafe { inflate(stream, Flush::NoFlush as _) };
+    let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
     assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
     assert_eq!(stream.avail_out, 0);
@@ -1392,7 +1392,7 @@ fn chunked_output_rs() {
 
     stream.avail_out = 1;
 
-    let err = unsafe { inflate(stream, Flush::Finish as _) };
+    let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
     assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
     assert_eq!(stream.total_out, 33);
