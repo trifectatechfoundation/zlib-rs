@@ -945,7 +945,7 @@ impl<'a> State<'a> {
 
         match self.bit_reader.bits(2) {
             0 => {
-                // eprintln!("inflate:     stored block{last}");
+                // eprintln!("inflate:     stored block (last = {last})");
 
                 self.bit_reader.drop_bits(2);
 
@@ -953,7 +953,7 @@ impl<'a> State<'a> {
                 self.stored()
             }
             1 => {
-                // eprintln!("inflate:     fixed codes block{last}");
+                // eprintln!("inflate:     fixed codes block (last = {last})");
 
                 self.len_table = Table {
                     codes: Codes::Fixed(&self::inffixed_tbl::LENFIX),
@@ -975,7 +975,7 @@ impl<'a> State<'a> {
                 }
             }
             2 => {
-                // eprintln!("inflate:     dynamic codes block{last}");
+                // eprintln!("inflate:     dynamic codes block (last = {last})");
 
                 self.bit_reader.drop_bits(2);
 
@@ -983,8 +983,7 @@ impl<'a> State<'a> {
                 self.table()
             }
             3 => {
-                #[cfg(feature = "std")]
-                eprintln!("inflate:     invalid block type");
+                // eprintln!("inflate:     invalid block type");
 
                 self.bit_reader.drop_bits(2);
 
