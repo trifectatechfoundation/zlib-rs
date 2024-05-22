@@ -165,6 +165,7 @@ pub fn compress_slice<'a>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compress_slice_with_flush<'a>(
     output: &'a mut [u8],
     input: &[u8],
@@ -191,6 +192,7 @@ pub fn compress_slice_with_flush<'a>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compress_with_flush<'a>(
     output: &'a mut [MaybeUninit<u8>],
     input: &[u8],
