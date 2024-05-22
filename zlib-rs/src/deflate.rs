@@ -2637,6 +2637,28 @@ pub fn compress<'a>(
     input: &[u8],
     config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
+    compress_with_flush(output, input, config, DeflateFlush::Finish)
+}
+
+pub fn compress_slice_with_flush<'a>(
+    output: &'a mut [u8],
+    input: &[u8],
+    config: DeflateConfig,
+    flush: DeflateFlush,
+) -> (&'a mut [u8], ReturnCode) {
+    let output_uninit = unsafe {
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+    };
+
+    compress_with_flush(output_uninit, input, config, flush)
+}
+
+pub fn compress_with_flush<'a>(
+    output: &'a mut [MaybeUninit<u8>],
+    input: &[u8],
+    config: DeflateConfig,
+    final_flush: DeflateFlush,
+) -> (&'a mut [u8], ReturnCode) {
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
         avail_in: 0, // for special logic in the first  iteration
@@ -2678,7 +2700,7 @@ pub fn compress<'a>(
         let flush = if source_len > 0 {
             DeflateFlush::NoFlush
         } else {
-            DeflateFlush::Finish
+            final_flush
         };
 
         let err = if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
