@@ -117,9 +117,6 @@ unsafe fn deflateInit2(
 ) -> std::ffi::c_int {
     const LIBZ_NG_SO: &str = "/home/folkertdev/rust/zlib-ng/libz-ng.so";
 
-    const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-    const STREAM_SIZE: c_int = std::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
-
     let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
 
     type Func = unsafe extern "C" fn(
@@ -142,8 +139,8 @@ unsafe fn deflateInit2(
         windowBits,
         memLevel,
         strategy,
-        VERSION,
-        STREAM_SIZE,
+        "2.1.4".as_ptr().cast(),
+        104,
     )
 }
 
@@ -155,6 +152,54 @@ pub fn compress_slice<'a>(
     window_bits: i32,
     mem_level: i32,
     strategy: i32,
+) -> (&'a mut [u8], i32) {
+    compress_slice_with_flush(
+        output,
+        input,
+        level,
+        method,
+        window_bits,
+        mem_level,
+        strategy,
+        libz_ng_sys::Z_FINISH,
+    )
+}
+
+pub fn compress_slice_with_flush<'a>(
+    output: &'a mut [u8],
+    input: &[u8],
+    level: i32,
+    method: i32,
+    window_bits: i32,
+    mem_level: i32,
+    strategy: i32,
+    final_flush: i32,
+) -> (&'a mut [u8], i32) {
+    let output_uninit = unsafe {
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
+    };
+
+    compress_with_flush(
+        output_uninit,
+        input,
+        level,
+        method,
+        window_bits,
+        mem_level,
+        strategy,
+        final_flush,
+    )
+}
+
+pub fn compress_with_flush<'a>(
+    output: &'a mut [MaybeUninit<u8>],
+    input: &[u8],
+    level: i32,
+    method: i32,
+    window_bits: i32,
+    mem_level: i32,
+    strategy: i32,
+    final_flush: i32,
 ) -> (&'a mut [u8], i32) {
     let mut stream = MaybeUninit::zeroed();
 
@@ -175,16 +220,49 @@ pub fn compress_slice<'a>(
 
     let stream = unsafe { stream.assume_init_mut() };
 
-    let error = unsafe { deflate(stream, libz_ng_sys::Z_FINISH) };
+    stream.next_in = input.as_ptr() as *mut u8;
+    stream.next_out = output.as_mut_ptr() as *mut u8;
 
-    assert_eq!(libz_ng_sys::Z_STREAM_END, error);
+    let max = core::ffi::c_uint::MAX as usize;
+
+    let mut left = output.len();
+    let mut source_len = input.len();
+
+    loop {
+        if stream.avail_out == 0 {
+            stream.avail_out = Ord::min(left, max) as _;
+            left -= stream.avail_out as usize;
+        }
+
+        if stream.avail_in == 0 {
+            stream.avail_in = Ord::min(source_len, max) as _;
+            source_len -= stream.avail_in as usize;
+        }
+
+        let flush = if source_len > 0 {
+            libz_ng_sys::Z_NO_FLUSH
+        } else {
+            final_flush
+        };
+
+        let err = unsafe { deflate(stream, flush) };
+
+        if err != libz_ng_sys::Z_OK {
+            break;
+        }
+    }
+
+    // SAFETY: we have now initialized these bytes
+    let output_slice = unsafe {
+        core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
+    };
 
     unsafe {
         let err = libz_ng_sys::deflateEnd(stream);
         assert_eq!(libz_ng_sys::Z_OK, err);
     }
 
-    (&mut output[..stream.total_out as usize], libz_ng_sys::Z_OK)
+    (output_slice, libz_ng_sys::Z_OK)
 }
 
 pub unsafe fn crc32(start: u32, buf: *const u8, len: usize) -> u32 {
