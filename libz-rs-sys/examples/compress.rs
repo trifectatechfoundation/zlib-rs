@@ -5,7 +5,7 @@ use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use zlib_rs::{deflate::DeflateConfig, Flush, ReturnCode};
+use zlib_rs::{deflate::DeflateConfig, DeflateFlush, ReturnCode};
 
 use std::ffi::{c_int, c_uint};
 
@@ -172,9 +172,9 @@ fn compress_rs(
         }
 
         let flush = if source_len > 0 {
-            Flush::NoFlush
+            DeflateFlush::NoFlush
         } else {
-            Flush::Finish
+            DeflateFlush::Finish
         };
 
         let err = unsafe { deflate(&mut stream, flush as i32) };
@@ -253,9 +253,9 @@ fn compress_ng(
         }
 
         let flush = if source_len > 0 {
-            Flush::NoFlush
+            DeflateFlush::NoFlush
         } else {
-            Flush::Finish
+            DeflateFlush::Finish
         };
 
         let err = unsafe { deflate(&mut stream, flush as i32) };

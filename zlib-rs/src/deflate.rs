@@ -6,7 +6,8 @@ use crate::{
     c_api::{gz_header, internal_state, z_checksum, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
-    trace, Flush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
+    trace, DeflateFlush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS,
+    MIN_WBITS,
 };
 
 use self::{
@@ -410,7 +411,7 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
         && state.last_flush != -2
     {
         // Flush the last buffer.
-        let err = deflate(stream, Flush::Block);
+        let err = deflate(stream, DeflateFlush::Block);
         if err == ReturnCode::StreamError {
             return err;
         }
@@ -2298,10 +2299,10 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
     ControlFlow::Continue(())
 }
 
-pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
+pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     if stream.next_out.is_null()
         || (stream.avail_in != 0 && stream.next_in.is_null())
-        || (stream.state.status == Status::Finish && flush != Flush::Finish)
+        || (stream.state.status == Status::Finish && flush != DeflateFlush::Finish)
     {
         let err = ReturnCode::StreamError;
         stream.msg = error_message(err);
@@ -2337,7 +2338,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
          */
     } else if stream.avail_in == 0
         && rank_flush(flush as i32) <= rank_flush(old_flush)
-        && flush != Flush::Finish
+        && flush != DeflateFlush::Finish
     {
         let err = ReturnCode::BufError;
         stream.msg = error_message(err);
@@ -2498,7 +2499,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
     let state = &mut stream.state;
     if stream.avail_in != 0
         || state.lookahead != 0
-        || (flush != Flush::NoFlush && state.status != Status::Finish)
+        || (flush != DeflateFlush::NoFlush && state.status != Status::Finish)
     {
         let bstate = self::algorithm::run(stream, flush);
 
@@ -2523,10 +2524,10 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                  */
             }
             BlockState::BlockDone => {
-                if flush == Flush::PartialFlush {
+                if flush == DeflateFlush::PartialFlush {
                     // zng_tr_align(s);
                     todo!()
-                } else if flush != Flush::Block {
+                } else if flush != DeflateFlush::Block {
                     /* FULL_FLUSH or SYNC_FLUSH */
 
                     zng_tr_stored_block(state, 0..0, false);
@@ -2534,7 +2535,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
                     /* For a full flush, this empty block will be recognized
                      * as a special marker by inflate_sync().
                      */
-                    if flush == Flush::FullFlush {
+                    if flush == DeflateFlush::FullFlush {
                         state.head.fill(0); // forget history
 
                         if state.lookahead == 0 {
@@ -2556,7 +2557,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: Flush) -> ReturnCode {
         }
     }
 
-    if flush != Flush::Finish {
+    if flush != DeflateFlush::Finish {
         return ReturnCode::Ok;
     }
 
@@ -2667,9 +2668,9 @@ pub fn compress<'a>(
         }
 
         let flush = if source_len > 0 {
-            Flush::NoFlush
+            DeflateFlush::NoFlush
         } else {
-            Flush::Finish
+            DeflateFlush::Finish
         };
 
         let err = if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
@@ -2999,7 +3000,10 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
 
 #[cfg(test)]
 mod test {
-    use crate::inflate::{uncompress_slice, InflateConfig, InflateStream};
+    use crate::{
+        inflate::{uncompress_slice, InflateConfig, InflateStream},
+        InflateFlush,
+    };
 
     use super::*;
 
@@ -3249,7 +3253,7 @@ mod test {
         stream.avail_out = output.len() as _;
 
         // the deflate is fine
-        assert_eq!(deflate(stream, Flush::NoFlush), ReturnCode::Ok);
+        assert_eq!(deflate(stream, DeflateFlush::NoFlush), ReturnCode::Ok);
 
         // but end is not
         assert!(end(stream).is_err());
@@ -3269,14 +3273,14 @@ mod test {
         let output = &mut [0; 1024];
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = output.len() as _;
-        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+        assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::StreamEnd);
 
         assert_eq!(reset_keep(stream), ReturnCode::Ok);
 
         let output = &mut [0; 1024];
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = output.len() as _;
-        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+        assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::StreamEnd);
     }
 
     #[test]
@@ -3422,9 +3426,9 @@ mod test {
             }
 
             let flush = if source_len > 0 {
-                Flush::NoFlush
+                DeflateFlush::NoFlush
             } else {
-                Flush::Finish
+                DeflateFlush::Finish
             };
 
             let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
@@ -3716,11 +3720,11 @@ mod test {
         // but there is insufficient output space to flush (only 100 bytes)
         stream.state.pending.extend(&[0; 500]);
 
-        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::Ok);
+        assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::Ok);
 
         // now try that again but with sufficient output space
         stream.avail_out = output.len() as _;
-        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+        assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::StreamEnd);
 
         let n = stream.total_out as usize;
 
@@ -3775,7 +3779,7 @@ mod test {
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = output.len() as _;
 
-        assert_eq!(deflate(stream, Flush::Finish), ReturnCode::StreamEnd);
+        assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::StreamEnd);
 
         let n = stream.total_out as usize;
 
@@ -3834,7 +3838,7 @@ mod test {
             stream.next_out = output.as_mut_ptr();
             stream.avail_out = output.len() as _;
 
-            let err = unsafe { libz_ng_sys::deflate(stream, Flush::Finish as _) };
+            let err = unsafe { libz_ng_sys::deflate(stream, DeflateFlush::Finish as _) };
             assert_eq!(err, ReturnCode::StreamEnd as i32);
 
             let n = stream.total_out;
@@ -3893,7 +3897,7 @@ mod test {
             let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
             assert_eq!(err, 0);
 
-            let err = unsafe { libz_ng_sys::inflate(stream, Flush::NoFlush as _) };
+            let err = unsafe { libz_ng_sys::inflate(stream, DeflateFlush::NoFlush as _) };
             assert_eq!(
                 err,
                 ReturnCode::StreamEnd as i32,
@@ -3976,7 +3980,7 @@ mod test {
             );
 
             assert_eq!(
-                unsafe { crate::inflate::inflate(stream, Flush::Finish) },
+                unsafe { crate::inflate::inflate(stream, InflateFlush::Finish) },
                 ReturnCode::StreamEnd
             );
 

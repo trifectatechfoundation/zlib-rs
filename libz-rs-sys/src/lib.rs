@@ -27,7 +27,7 @@ use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
 use zlib_rs::{
     deflate::{DeflateConfig, DeflateStream, Method, Strategy},
     inflate::{InflateConfig, InflateStream},
-    Flush, ReturnCode,
+    DeflateFlush, InflateFlush, ReturnCode,
 };
 
 pub use zlib_rs::c_api::*;
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn uncompress(
 
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        let flush = crate::Flush::try_from(flush).unwrap_or_default();
+        let flush = InflateFlush::try_from(flush).unwrap_or_default();
         zlib_rs::inflate::inflate(stream, flush) as _
     } else {
         ReturnCode::StreamError as _
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
 
 pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
-        match crate::Flush::try_from(flush) {
+        match DeflateFlush::try_from(flush) {
             Ok(flush) => zlib_rs::deflate::deflate(stream, flush) as _,
             Err(()) => ReturnCode::StreamError as _,
         }

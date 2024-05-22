@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 
 use zlib_rs::deflate::DeflateConfig;
 use zlib_rs::inflate::InflateConfig;
-use zlib_rs::{Flush, ReturnCode};
+use zlib_rs::{DeflateFlush, InflateFlush, ReturnCode};
 
 use std::ffi::c_uint;
 
@@ -138,9 +138,9 @@ fn compress_slice_ng<'a>(
         }
 
         let flush = if source_len > 0 {
-            Flush::NoFlush
+            DeflateFlush::NoFlush
         } else {
-            Flush::Finish
+            DeflateFlush::Finish
         };
 
         let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
@@ -226,7 +226,7 @@ fn uncompress_slice_ng<'a>(
             len -= stream.avail_in as u64;
         }
 
-        let err = unsafe { libz_ng_sys::inflate(&mut stream, Flush::NoFlush as _) };
+        let err = unsafe { libz_ng_sys::inflate(&mut stream, InflateFlush::NoFlush as _) };
         let err = ReturnCode::from(err);
 
         if err != ReturnCode::Ok as _ {

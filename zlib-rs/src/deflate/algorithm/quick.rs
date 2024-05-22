@@ -5,7 +5,7 @@ use crate::{
         fill_window, flush_pending, BlockState, BlockType, DeflateStream, State, StaticTreeDesc,
         MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH, WANT_MIN_MATCH,
     },
-    Flush,
+    DeflateFlush,
 };
 
 #[inline(always)]
@@ -13,10 +13,10 @@ fn memcmp_n_slice<const N: usize>(src0: &[u8], src1: &[u8]) -> bool {
     src0[..N] != src1[..N]
 }
 
-pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut state = &mut stream.state;
 
-    let last = matches!(flush, Flush::Finish);
+    let last = matches!(flush, DeflateFlush::Finish);
 
     macro_rules! quick_start_block {
         () => {
@@ -81,7 +81,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: Flush) -> BlockState {
             fill_window(stream);
             state = &mut stream.state;
 
-            if state.lookahead < MIN_LOOKAHEAD && matches!(flush, Flush::NoFlush) {
+            if state.lookahead < MIN_LOOKAHEAD && matches!(flush, DeflateFlush::NoFlush) {
                 return BlockState::NeedMore;
             }
             if state.lookahead == 0 {

@@ -4,10 +4,10 @@ use crate::{
     deflate::{
         fill_window, BlockState, DeflateStream, State, MIN_LOOKAHEAD, STD_MIN_MATCH, WANT_MIN_MATCH,
     },
-    flush_block, Flush,
+    flush_block, DeflateFlush,
 };
 
-pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut state = &mut stream.state;
 
     // For levels below 5, don't check the next position for a better match
@@ -37,7 +37,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         if stream.state.lookahead < MIN_LOOKAHEAD {
             fill_window(stream);
 
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == Flush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
 
@@ -158,7 +158,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH - 1);
 
-    if flush == Flush::Finish {
+    if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
         return BlockState::FinishDone;
     }

@@ -2,10 +2,10 @@ use crate::{
     deflate::{
         flush_pending, read_buf_window, zng_tr_stored_block, BlockState, DeflateStream, MAX_STORED,
     },
-    Flush,
+    DeflateFlush,
 };
 
-pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     // Smallest worthy block size when not flushing or finishing. By default
     // this is 32K. This can be as small as 507 bytes for memLevel == 1. For
     // large input and output buffers, the stored block size will be larger.
@@ -48,8 +48,8 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
         // copying to the window and the pending buffer instead. Also don't
         // write an empty block when flushing -- deflate() does that.
         if len < min_block
-            && ((len == 0 && flush != Flush::Finish)
-                || flush == Flush::NoFlush
+            && ((len == 0 && flush != DeflateFlush::Finish)
+                || flush == DeflateFlush::NoFlush
                 || len != left + stream.avail_in as usize)
         {
             break;
@@ -57,7 +57,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
         // Make a dummy stored block in pending to get the header bytes,
         // including any pending bits. This also updates the debugging counts.
-        last = flush == Flush::Finish && len == left + stream.avail_in as usize;
+        last = flush == DeflateFlush::Finish && len == left + stream.avail_in as usize;
         zng_tr_stored_block(stream.state, 0..0, last);
 
         /* Replace the lengths in the dummy stored block with len. */
@@ -144,8 +144,8 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     }
 
     // If flushing and all input has been consumed, then done.
-    if flush != Flush::NoFlush
-        && flush != Flush::Finish
+    if flush != DeflateFlush::NoFlush
+        && flush != DeflateFlush::Finish
         && stream.avail_in == 0
         && stream.state.strstart as isize == stream.state.block_start
     {
@@ -197,13 +197,13 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: Flush) -> BlockState {
     let left = state.strstart as isize - state.block_start;
 
     if left >= min_block as isize
-        || ((left > 0 || flush == Flush::Finish)
-            && flush != Flush::NoFlush
+        || ((left > 0 || flush == DeflateFlush::Finish)
+            && flush != DeflateFlush::NoFlush
             && stream.avail_in == 0
             && left <= have as isize)
     {
         let len = Ord::min(left as usize, have); // TODO wrapping?
-        last = flush == Flush::Finish && stream.avail_in == 0 && len == (left as usize);
+        last = flush == DeflateFlush::Finish && stream.avail_in == 0 && len == (left as usize);
 
         let range = state.block_start as usize..state.block_start as usize + len;
         zng_tr_stored_block(state, range, last);

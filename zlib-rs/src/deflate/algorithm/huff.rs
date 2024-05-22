@@ -2,10 +2,10 @@
 
 use crate::{
     deflate::{fill_window, BlockState, DeflateStream},
-    flush_block, Flush,
+    flush_block, DeflateFlush,
 };
 
-pub fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
+pub fn deflate_huff(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     loop {
         /* Make sure that we have a literal to write. */
         if stream.state.lookahead == 0 {
@@ -13,7 +13,7 @@ pub fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
             if stream.state.lookahead == 0 {
                 match flush {
-                    Flush::NoFlush => return BlockState::NeedMore,
+                    DeflateFlush::NoFlush => return BlockState::NeedMore,
                     _ => break, /* flush the current block */
                 }
             }
@@ -32,7 +32,7 @@ pub fn deflate_huff(stream: &mut DeflateStream, flush: Flush) -> BlockState {
 
     stream.state.insert = 0;
 
-    if flush == Flush::Finish {
+    if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
         return BlockState::FinishDone;
     }

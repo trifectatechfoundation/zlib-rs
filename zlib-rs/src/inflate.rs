@@ -16,7 +16,7 @@ use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
     read_buf::ReadBuf,
-    Code, Flush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
+    Code, InflateFlush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
 use crate::crc32::{crc32, Crc32Fold};
@@ -201,7 +201,7 @@ pub fn uncompress<'a>(
             len -= stream.avail_in as u64;
         }
 
-        let err = unsafe { inflate(stream, Flush::NoFlush) };
+        let err = unsafe { inflate(stream, InflateFlush::NoFlush) };
 
         if err != ReturnCode::Ok as _ {
             break err;
@@ -361,7 +361,7 @@ pub(crate) struct State<'a> {
     work: [u16; 288],
 
     error_message: Option<&'static str>,
-    flush: Flush,
+    flush: InflateFlush,
 
     checksum: u32,
     crc_fold: Crc32Fold,
@@ -381,7 +381,7 @@ impl<'a> State<'a> {
         let out_available = writer.capacity();
 
         Self {
-            flush: Flush::NoFlush,
+            flush: InflateFlush::NoFlush,
 
             last: false,
             wrap: 0,
@@ -924,11 +924,11 @@ impl<'a> State<'a> {
     }
 
     fn type_(&mut self) -> ReturnCode {
-        use Flush::*;
+        use InflateFlush::*;
 
         match self.flush {
             Block | Trees => self.inflate_leave(ReturnCode::Ok),
-            NoFlush | PartialFlush | SyncFlush | FullFlush | Finish => self.type_do(),
+            NoFlush | SyncFlush | Finish => self.type_do(),
         }
     }
 
@@ -967,7 +967,7 @@ impl<'a> State<'a> {
 
                 self.bit_reader.drop_bits(2);
 
-                if let Flush::Trees = self.flush {
+                if let InflateFlush::Trees = self.flush {
                     self.inflate_leave(ReturnCode::Ok)
                 } else {
                     self.mode = Mode::Len;
@@ -1014,7 +1014,7 @@ impl<'a> State<'a> {
 
         self.bit_reader.init_bits();
 
-        if let Flush::Trees = self.flush {
+        if let InflateFlush::Trees = self.flush {
             self.inflate_leave(ReturnCode::Ok)
         } else {
             self.mode = Mode::CopyBlock;
@@ -1457,7 +1457,7 @@ impl<'a> State<'a> {
 
         self.mode = Mode::Len;
 
-        if matches!(self.flush, Flush::Trees) {
+        if matches!(self.flush, InflateFlush::Trees) {
             return self.inflate_leave(ReturnCode::Ok);
         }
 
@@ -1835,7 +1835,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     ReturnCode::Ok
 }
 
-pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
+pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return ReturnCode::StreamError as _;
     }
@@ -1879,7 +1879,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
     let must_update_window = state.window.size() != 0
         || (out_written != 0
             && valid_mode(state.mode)
-            && (not_done(state.mode) || !matches!(state.flush, Flush::Finish)));
+            && (not_done(state.mode) || !matches!(state.flush, InflateFlush::Finish)));
 
     let update_checksum = state.wrap & 4 != 0;
 
@@ -1912,7 +1912,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: Flush) -> ReturnCode {
         stream.msg = msg.as_ptr() as *mut u8 as *mut core::ffi::c_char;
     }
 
-    if ((in_read == 0 && out_written == 0) || flush == Flush::Finish as _)
+    if ((in_read == 0 && out_written == 0) || flush == InflateFlush::Finish as _)
         && err == (ReturnCode::Ok as _)
     {
         ReturnCode::BufError as _
