@@ -2524,18 +2524,24 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                  */
             }
             BlockState::BlockDone => {
-                if flush == DeflateFlush::PartialFlush {
-                    // zng_tr_align(s);
-                    todo!()
-                } else if flush != DeflateFlush::Block {
-                    /* FULL_FLUSH or SYNC_FLUSH */
+                match flush {
+                    DeflateFlush::NoFlush => unreachable!("condition of inner surrounding if"),
+                    DeflateFlush::PartialFlush => {
+                        // zng_tr_align(s);
+                        todo!()
+                    }
+                    DeflateFlush::SyncFlush => {
+                        // add an empty stored block that is marked as not final. This is useful for
+                        // parallel deflate where we want to make sure the intermediate blocks are not
+                        // marked as "last block".
+                        zng_tr_stored_block(state, 0..0, false);
+                    }
+                    DeflateFlush::FullFlush => {
+                        // add an empty stored block that is marked as not final. This is useful for
+                        // parallel deflate where we want to make sure the intermediate blocks are not
+                        // marked as "last block".
+                        zng_tr_stored_block(state, 0..0, false);
 
-                    zng_tr_stored_block(state, 0..0, false);
-
-                    /* For a full flush, this empty block will be recognized
-                     * as a special marker by inflate_sync().
-                     */
-                    if flush == DeflateFlush::FullFlush {
                         state.head.fill(0); // forget history
 
                         if state.lookahead == 0 {
@@ -2544,6 +2550,8 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                             state.insert = 0;
                         }
                     }
+                    DeflateFlush::Block => { /* fall through */ }
+                    DeflateFlush::Finish => unreachable!("condition of outer surrounding if"),
                 }
 
                 flush_pending(stream);
