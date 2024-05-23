@@ -14,6 +14,7 @@ use self::{
     algorithm::CONFIGURATION_TABLE,
     hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
     pending::Pending,
+    trees_tbl::STATIC_LTREE,
     window::Window,
 };
 
@@ -1278,6 +1279,14 @@ impl<'a> State<'a> {
         self.send_bits(node.code() as u64, node.len() as u8)
     }
 
+    /// Send one empty static block to give enough lookahead for inflate.
+    /// This takes 10 bits, of which 7 may remain in the bit buffer.
+    pub fn align(&mut self) {
+        self.emit_tree(BlockType::StaticTrees, false);
+        self.emit_end_block(&STATIC_LTREE, false);
+        self.flush_bits();
+    }
+
     pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
         let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
         self.send_bits(header_bits, 3);
@@ -2527,8 +2536,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                 match flush {
                     DeflateFlush::NoFlush => unreachable!("condition of inner surrounding if"),
                     DeflateFlush::PartialFlush => {
-                        // zng_tr_align(s);
-                        todo!()
+                        state.align();
                     }
                     DeflateFlush::SyncFlush => {
                         // add an empty stored block that is marked as not final. This is useful for
@@ -2719,12 +2727,17 @@ pub fn compress_with_flush<'a>(
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, stream.total_out as usize)
     };
 
-    if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
-        // error gets ignored here
-        let _ = end(stream);
-    }
+    // may DataError if insufficient output space
+    let return_code = if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
+        match end(stream) {
+            Ok(_) => ReturnCode::Ok,
+            Err(_) => ReturnCode::DataError,
+        }
+    } else {
+        ReturnCode::Ok
+    };
 
-    (output_slice, ReturnCode::Ok)
+    (output_slice, return_code)
 }
 
 pub const fn compress_bound(source_len: usize) -> usize {
@@ -3402,6 +3415,15 @@ mod test {
         input: &[u8],
         config: DeflateConfig,
     ) -> (&'a mut [u8], ReturnCode) {
+        compress_slice_with_flush_ng(output, input, config, DeflateFlush::Finish)
+    }
+
+    fn compress_slice_with_flush_ng<'a>(
+        output: &'a mut [u8],
+        input: &[u8],
+        config: DeflateConfig,
+        final_flush: DeflateFlush,
+    ) -> (&'a mut [u8], ReturnCode) {
         let mut stream = libz_ng_sys::z_stream {
             next_in: input.as_ptr() as *mut u8,
             avail_in: 0, // for special logic in the first  iteration
@@ -3458,7 +3480,7 @@ mod test {
             let flush = if source_len > 0 {
                 DeflateFlush::NoFlush
             } else {
-                DeflateFlush::Finish
+                final_flush
             };
 
             let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
@@ -3468,14 +3490,11 @@ mod test {
             }
         }
 
-        unsafe {
-            let err = libz_ng_sys::deflateEnd(&mut stream);
-            let return_code: ReturnCode = ReturnCode::from(err);
-            // may DataError if there was insufficient output space
-            assert_eq!(ReturnCode::Ok, return_code);
-        }
+        // may DataError if there was insufficient output space
+        let err = unsafe { libz_ng_sys::deflateEnd(&mut stream) };
+        let return_code: ReturnCode = ReturnCode::from(err);
 
-        (&mut output[..stream.total_out as usize], ReturnCode::Ok)
+        (&mut output[..stream.total_out as usize], return_code)
     }
 
     fn cve_test(input: &[u8]) {
@@ -4087,6 +4106,53 @@ mod test {
         assert_eq!(helper(&mut output), ReturnCode::Ok);
     }
 
+    fn test_flush(flush: DeflateFlush) {
+        let input = b"Hello World!\n";
+
+        let config = DeflateConfig {
+            level: 6, // use gzip
+            method: Method::Deflated,
+            window_bits: 16 + crate::MAX_WBITS,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let mut output_rs = vec![0; 128];
+        let mut output_ng = vec![0; 128];
+
+        // with the flush modes that we test here, the deflate process still has `Status::Busy`,
+        // and the `deflateEnd` function will return `DataError`.
+        let expected = ReturnCode::DataError;
+
+        let (rs, err) = compress_slice_with_flush(&mut output_rs, input, config, flush);
+        assert_eq!(expected, err);
+
+        let (ng, err) = compress_slice_with_flush_ng(&mut output_ng, input, config, flush);
+        assert_eq!(expected, err);
+
+        assert_eq!(rs, ng);
+    }
+
+    #[test]
+    fn sync_flush() {
+        test_flush(DeflateFlush::SyncFlush)
+    }
+
+    #[test]
+    fn partial_flush() {
+        test_flush(DeflateFlush::PartialFlush);
+    }
+
+    #[test]
+    fn full_flush() {
+        test_flush(DeflateFlush::FullFlush);
+    }
+
+    #[test]
+    fn block_flush() {
+        test_flush(DeflateFlush::Block);
+    }
+
     #[test]
     // splits the input into two, deflates them seperately and then joins the deflated byte streams
     // into something that can be correctly inflated again. This is the basic idea behind pigz, and
@@ -4115,7 +4181,7 @@ mod test {
             config,
             DeflateFlush::SyncFlush,
         );
-        assert_eq!(err, ReturnCode::Ok);
+        assert_eq!(err, ReturnCode::DataError);
 
         let (output2, err) = compress_slice_with_flush(
             &mut output2,
