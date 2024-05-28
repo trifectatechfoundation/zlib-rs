@@ -3254,6 +3254,8 @@ mod test {
         let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
         assert_eq!(stream.state.level, 6);
 
+        assert!(end(stream).is_ok());
+
         // window_bits of 8 gets turned into 9 internally
         let mut stream = z_stream::default();
         let config = DeflateConfig {
@@ -3263,6 +3265,8 @@ mod test {
         assert_eq!(init(&mut stream, config), ReturnCode::Ok);
         let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
         assert_eq!(stream.state.w_bits, 9);
+
+        assert!(end(stream).is_ok());
 
         // window bits too low
         let mut stream = z_stream::default();
