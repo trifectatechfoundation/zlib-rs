@@ -204,8 +204,8 @@ impl Accumulator {
         *src = &src[N * 16..];
 
         if COPY {
-            for (s, d) in input[..N].iter().zip(dst.chunks_exact(16)) {
-                unsafe { _mm_storeu_si128(d.as_ptr() as *mut __m128i, *s) };
+            for (s, d) in input[..N].iter().zip(dst.chunks_exact_mut(16)) {
+                unsafe { _mm_storeu_si128(d.as_mut_ptr() as *mut __m128i, *s) };
             }
         } else if *init_crc != CRC32_INITIAL_VALUE {
             let xmm_initial = reg([*init_crc, 0, 0, 0]);
