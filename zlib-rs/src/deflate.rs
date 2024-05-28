@@ -3127,14 +3127,14 @@ mod test {
             let mut stream = z_stream::default();
             assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
 
-            stream.zalloc = Some(crate::allocate::zalloc_c);
-            stream.zfree = Some(crate::allocate::zfree_c);
-
             // state is still NULL
             assert!(DeflateStream::from_stream_mut(&mut stream).is_none());
 
             init(&mut stream, DeflateConfig::default());
-            assert!(DeflateStream::from_stream_mut(&mut stream).is_some());
+            let stream = DeflateStream::from_stream_mut(&mut stream);
+            assert!(stream.is_some());
+
+            assert!(end(stream.unwrap()).is_ok());
         }
     }
 
