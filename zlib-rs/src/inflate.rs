@@ -1853,7 +1853,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let mut err = state.dispatch();
 
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
-    let out_written = state.writer.as_mut_ptr() as usize - stream.next_out as usize;
+    let out_written = state.writer.next_out() as usize - stream.next_out as usize;
 
     stream.total_in += in_read as z_size;
     stream.total_out += out_written as z_size;
@@ -1863,7 +1863,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     stream.next_in = state.bit_reader.as_ptr() as *mut u8;
 
     stream.avail_out = (state.writer.capacity() - state.writer.len()) as u32;
-    stream.next_out = state.writer.as_mut_ptr() as *mut u8;
+    stream.next_out = state.writer.next_out() as *mut u8;
 
     stream.adler = state.checksum as z_checksum;
 

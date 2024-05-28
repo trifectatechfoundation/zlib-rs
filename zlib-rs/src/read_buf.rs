@@ -57,9 +57,16 @@ impl<'a> ReadBuf<'a> {
         }
     }
 
+    /// Pointer to where the next byte will be written
+    #[inline]
+    pub fn next_out(&mut self) -> *mut MaybeUninit<u8> {
+        self.buf[self.filled..].as_mut_ptr()
+    }
+
+    /// Pointer to the start of the `ReadBuf`
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<u8> {
-        self.buf[self.filled..].as_mut_ptr()
+        self.buf.as_mut_ptr()
     }
 
     /// Creates a new `ReadBuf` from a fully uninitialized buffer.
