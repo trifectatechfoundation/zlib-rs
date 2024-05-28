@@ -3146,6 +3146,9 @@ mod test {
         let count = unsafe { &*(opaque as *const AtomicUsize) };
 
         if count.fetch_add(1, core::sync::atomic::Ordering::Relaxed) != N {
+            // must use the C allocator internally because (de)allocation is based on function
+            // pointer values and because we don't use the rust allocator directly, the allocation
+            // logic will store the pointer to the start at the start of the allocation.
             crate::allocate::zalloc_c(opaque, items, size)
         } else {
             core::ptr::null_mut()
@@ -3157,6 +3160,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<0>),
+                zfree: Some(crate::allocate::zfree_c),
                 opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3169,6 +3173,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<3>),
+                zfree: Some(crate::allocate::zfree_c),
                 opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3181,6 +3186,7 @@ mod test {
         {
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<5>),
+                zfree: Some(crate::allocate::zfree_c),
                 opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3198,6 +3204,7 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<0>);
+            stream.zfree = Some(crate::allocate::zfree_c);
             stream.opaque =
                 (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
@@ -3214,6 +3221,7 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<3>);
+            stream.zfree = Some(crate::allocate::zfree_c);
             stream.opaque =
                 (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
@@ -3230,6 +3238,7 @@ mod test {
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
             stream.zalloc = Some(fail_nth_allocation::<5>);
+            stream.zfree = Some(crate::allocate::zfree_c);
             stream.opaque =
                 (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
             let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
