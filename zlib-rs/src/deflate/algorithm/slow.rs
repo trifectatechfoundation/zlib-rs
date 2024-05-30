@@ -20,6 +20,8 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         crate::deflate::longest_match::longest_match_slow
     };
 
+    let valid_distance_range = 1..=stream.state.max_dist() as isize;
+
     /* Process the input block. */
     loop {
         /* Make sure that we always have enough lookahead, except
@@ -54,8 +56,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         match_len = STD_MIN_MATCH - 1;
         dist = state.strstart as isize - hash_head as isize;
 
-        if dist <= state.max_dist() as isize
-            && dist > 0
+        if valid_distance_range.contains(&dist)
             && state.prev_length < state.max_lazy_match
             && hash_head != 0
         {
