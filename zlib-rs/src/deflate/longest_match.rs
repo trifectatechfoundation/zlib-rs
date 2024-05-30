@@ -4,18 +4,12 @@ type Pos = u16;
 
 const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
-pub fn longest_match(state: &mut crate::deflate::State, cur_match: u16) -> usize {
-    let (best_len, match_start) = longest_match_help::<false>(state, cur_match);
-    state.match_start = match_start;
-
-    best_len
+pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, usize) {
+    longest_match_help::<false>(state, cur_match)
 }
 
-pub fn longest_match_slow(state: &mut crate::deflate::State, cur_match: u16) -> usize {
-    let (best_len, match_start) = longest_match_help::<true>(state, cur_match);
-    state.match_start = match_start;
-
-    best_len
+pub fn longest_match_slow(state: &crate::deflate::State, cur_match: u16) -> (usize, usize) {
+    longest_match_help::<true>(state, cur_match)
 }
 
 fn longest_match_help<const SLOW: bool>(

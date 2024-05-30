@@ -62,8 +62,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             // To simplify the code, we prevent matches with the string
             // of window index 0 (in particular we have to avoid a match
             // of the string with itself at the start of the input file).
-            match_len = (longest_match)(state, hash_head);
-            /* longest_match() sets match_start */
+            (match_len, state.match_start) = (longest_match)(state, hash_head);
 
             if match_len <= 5 && (state.strategy == Strategy::Filtered) {
                 /* If prev_match is also WANT_MIN_MATCH, match_start is garbage
