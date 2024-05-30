@@ -28,6 +28,10 @@ impl<'a> Window<'a> {
         }
     }
 
+    pub fn into_inner(self) -> &'a mut [MaybeUninit<u8>] {
+        self.buf
+    }
+
     pub fn is_empty(&self) -> bool {
         self.buf.len() == 0
     }
@@ -166,13 +170,6 @@ impl<'a> Window<'a> {
             have: self.have,
             next: self.next,
         })
-    }
-
-    pub unsafe fn drop_in(mut self, alloc: &Allocator) {
-        if !self.buf.is_empty() {
-            let buf = core::mem::take(&mut self.buf);
-            alloc.deallocate(buf.as_mut_ptr(), buf.len());
-        }
     }
 
     // padding required so that SIMD operations going out-of-bounds are not a problem
