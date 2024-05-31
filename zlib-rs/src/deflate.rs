@@ -369,7 +369,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         match_start: 0,
         match_length: 0,
         prev_match: 0,
-        match_available: 0,
+        match_available: false,
         prev_length: 0,
 
         // just provide a valid default; gets set properly later
@@ -503,7 +503,7 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     state.insert = state.lookahead;
     state.lookahead = 0;
     state.prev_length = 0;
-    state.match_available = 0;
+    state.match_available = false;
 
     // restore the state
     stream.next_in = next;
@@ -775,7 +775,7 @@ fn lm_init(state: &mut State) {
     state.lookahead = 0;
     state.insert = 0;
     state.prev_length = 0;
-    state.match_available = 0;
+    state.match_available = false;
     state.match_start = 0;
     state.ins_h = 0;
 }
@@ -926,11 +926,11 @@ pub(crate) struct State<'a> {
 
     pub(crate) bl_count: [u16; MAX_BITS + 1],
 
-    pub(crate) match_length: usize,    /* length of best match */
-    pub(crate) prev_match: u16,        /* previous match */
-    pub(crate) match_available: isize, /* set if previous match exists */
-    pub(crate) strstart: usize,        /* start of string to insert */
-    pub(crate) match_start: usize,     /* start of matching string */
+    pub(crate) match_length: usize,   /* length of best match */
+    pub(crate) prev_match: u16,       /* previous match */
+    pub(crate) match_available: bool, /* set if previous match exists */
+    pub(crate) strstart: usize,       /* start of string to insert */
+    pub(crate) match_start: usize,    /* start of matching string */
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
