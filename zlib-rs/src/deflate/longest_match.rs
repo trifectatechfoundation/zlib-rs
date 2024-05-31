@@ -32,6 +32,9 @@ fn longest_match_help<const SLOW: bool>(
     let lookahead = state.lookahead;
     let mut match_offset = 0;
 
+    let mut scan_start = [0u8; 8];
+    let mut scan_end = [0u8; 8];
+
     macro_rules! goto_next_in_chain {
         () => {
             chain_length -= 1;
@@ -59,15 +62,16 @@ fn longest_match_help<const SLOW: bool>(
     let mut offset = best_len - 1;
 
     // we're assuming we can do a fast(ish) unaligned 64-bit read
-    if best_len >= core::mem::size_of::<u32>() {
-        offset -= 2;
-        if best_len >= core::mem::size_of::<u64>() {
-            offset -= 4;
-        }
+    if best_len >= core::mem::size_of::<u64>() {
+        offset -= 4;
     }
 
-    let scan_start = scan;
-    let mut scan_end = &scan[offset..];
+    if best_len >= core::mem::size_of::<u32>() {
+        offset -= 2;
+    }
+
+    scan_start.copy_from_slice(&scan[..core::mem::size_of::<u64>()]);
+    scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
 
     let mut mbase_start = window.as_ptr();
     let mut mbase_end = window[offset..].as_ptr();
@@ -89,24 +93,26 @@ fn longest_match_help<const SLOW: bool>(
 
         if best_len >= STD_MIN_MATCH {
             /* We're continuing search (lazy evaluation). */
-            let mut hash;
             let mut pos: Pos;
 
-            /* Find a most distant chain starting from scan with index=1 (index=0 corresponds
-             * to cur_match). We cannot use s->prev[strstart+1,...] immediately, because
-             * these strings are not yet inserted into the hash table.
-             */
+            // Find a most distant chain starting from scan with index=1 (index=0 corresponds
+            // to cur_match). We cannot use s->prev[strstart+1,...] immediately, because
+            // these strings are not yet inserted into the hash table.
+            let Some([_cur_match, scan1, scan2, scanrest @ ..]) = scan.get(..best_len + 1) else {
+                panic!("invalid scan");
+            };
 
-            hash = (state.update_hash)(0, scan[1] as u32);
-            hash = (state.update_hash)(hash, scan[2] as u32);
+            let mut hash = 0;
+            hash = (state.update_hash)(hash, *scan1 as u32);
+            hash = (state.update_hash)(hash, *scan2 as u32);
 
-            for (i, b) in scan.iter().enumerate().take(best_len + 1).skip(3) {
+            for (i, b) in scanrest.iter().enumerate() {
                 hash = (state.update_hash)(hash, *b as u32);
 
                 /* If we're starting with best_len >= 3, we can use offset search. */
                 pos = state.head[hash as usize];
                 if pos < cur_match {
-                    match_offset = (i - 2) as Pos;
+                    match_offset = (i + 1) as Pos;
                     cur_match = pos;
                 }
             }
@@ -237,7 +243,7 @@ fn longest_match_help<const SLOW: bool>(
                 }
             }
 
-            scan_end = &scan[offset..];
+            scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
 
             // Look for a better string offset
             if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
@@ -269,12 +275,14 @@ fn longest_match_help<const SLOW: bool>(
                  * us include one more byte into hash - the byte which will be checked
                  * in main loop now, and which allows to grow match by 1.
                  */
-                let scan_endstr = &scan[len - (STD_MIN_MATCH + 1)..];
+                let [scan0, scan1, scan2, ..] = scan[len - (STD_MIN_MATCH + 1)..] else {
+                    panic!("index out of bounds");
+                };
 
-                let mut hash;
-                hash = (state.update_hash)(0, scan_endstr[0] as u32);
-                hash = (state.update_hash)(hash, scan_endstr[1] as u32);
-                hash = (state.update_hash)(hash, scan_endstr[2] as u32);
+                let mut hash = 0;
+                hash = (state.update_hash)(hash, scan0 as u32);
+                hash = (state.update_hash)(hash, scan1 as u32);
+                hash = (state.update_hash)(hash, scan2 as u32);
 
                 pos = state.head[hash as usize];
                 if pos < cur_match {
