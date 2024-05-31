@@ -95,10 +95,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
 
             let mov_fwd = state.prev_length - 1;
             if max_insert > state.strstart {
-                let mut insert_cnt = mov_fwd;
-                if insert_cnt > max_insert - state.strstart {
-                    insert_cnt = max_insert - state.strstart;
-                }
+                let insert_cnt = Ord::min(mov_fwd, max_insert - state.strstart);
                 (state.insert_string)(state, state.strstart + 1, insert_cnt);
             }
             state.prev_length = 0;
