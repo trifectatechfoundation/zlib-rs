@@ -14,12 +14,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
     let mut dist;
     let mut match_len;
 
-    let longest_match = if stream.state.max_chain_length <= 1024 {
-        crate::deflate::longest_match::longest_match
-    } else {
-        crate::deflate::longest_match::longest_match_slow
-    };
-
+    let use_longest_match_slow = stream.state.max_chain_length > 1024;
     let valid_distance_range = 1..=stream.state.max_dist() as isize;
 
     /* Process the input block. */
@@ -63,7 +58,11 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             // To simplify the code, we prevent matches with the string
             // of window index 0 (in particular we have to avoid a match
             // of the string with itself at the start of the input file).
-            (match_len, state.match_start) = (longest_match)(state, hash_head);
+            (match_len, state.match_start) = if use_longest_match_slow {
+                crate::deflate::longest_match::longest_match_slow(state, hash_head)
+            } else {
+                crate::deflate::longest_match::longest_match(state, hash_head)
+            };
 
             if match_len <= 5 && (state.strategy == Strategy::Filtered) {
                 /* If prev_match is also WANT_MIN_MATCH, match_start is garbage
