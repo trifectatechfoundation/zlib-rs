@@ -102,13 +102,13 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
                 (state.insert_string)(state, state.strstart + 1, insert_cnt);
             }
             state.prev_length = 0;
-            state.match_available = 0;
+            state.match_available = false;
             state.strstart += mov_fwd + 1;
 
             if bflush {
                 flush_block!(stream, false);
             }
-        } else if state.match_available > 0 {
+        } else if state.match_available {
             // If there was no match at the previous position, output a
             // single literal. If there was a match but the current match
             // is longer, truncate the previous match to a single literal.
@@ -128,7 +128,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             // There is no previous match to compare with, wait for
             // the next step to decide.
             state.prev_length = match_len;
-            state.match_available = 1;
+            state.match_available = true;
             state.strstart += 1;
             state.lookahead -= 1;
         }
@@ -138,10 +138,10 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
 
     let state = &mut stream.state;
 
-    if state.match_available > 0 {
+    if state.match_available {
         let lc = state.window.filled()[state.strstart - 1];
         let _ = state.tally_lit(lc);
-        state.match_available = 0;
+        state.match_available = false;
     }
 
     state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
