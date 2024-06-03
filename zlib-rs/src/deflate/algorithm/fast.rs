@@ -33,7 +33,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         // dictionary, and set hash_head to the head of the hash chain:
 
         if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = (state.quick_insert_string)(state, state.strstart);
+            let hash_head = state.quick_insert_string(state.strstart);
             dist = state.strstart as isize - hash_head as isize;
 
             /* Find the longest match, discarding those <= prev_length.
@@ -66,11 +66,11 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
                 match_len -= 1; /* string at strstart already in table */
                 state.strstart += 1;
 
-                (state.insert_string)(state, state.strstart, match_len);
+                state.insert_string(state.strstart, match_len);
                 state.strstart += match_len;
             } else {
                 state.strstart += match_len;
-                (state.quick_insert_string)(state, state.strstart + 2 - STD_MIN_MATCH);
+                state.quick_insert_string(state.strstart + 2 - STD_MIN_MATCH);
 
                 /* If lookahead < STD_MIN_MATCH, ins_h is garbage, but it does not
                  * matter since it will be recomputed at next deflate call.

@@ -1,5 +1,12 @@
 use crate::deflate::{State, HASH_SIZE, STD_MIN_MATCH};
 
+#[derive(Debug, Clone, Copy)]
+pub enum HashCalcVariant {
+    Standard,
+    Crc32,
+    Roll,
+}
+
 pub trait HashCalc {
     const HASH_CALC_OFFSET: usize;
     const HASH_CALC_MASK: u32;

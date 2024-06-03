@@ -12,7 +12,7 @@ use crate::{
 
 use self::{
     algorithm::CONFIGURATION_TABLE,
-    hash_calc::{Crc32HashCalc, HashCalc, RollHashCalc, StandardHashCalc},
+    hash_calc::{Crc32HashCalc, HashCalc, HashCalcVariant, RollHashCalc, StandardHashCalc},
     pending::Pending,
     trees_tbl::STATIC_LTREE,
     window::Window,
@@ -374,9 +374,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         prev_length: 0,
 
         // just provide a valid default; gets set properly later
-        update_hash: StandardHashCalc::update_hash,
-        insert_string: StandardHashCalc::insert_string,
-        quick_insert_string: StandardHashCalc::quick_insert_string,
+        hash_calc_variant: HashCalcVariant::Standard,
     };
 
     let state = state_allocation.write(state);
@@ -491,7 +489,7 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     while stream.state.lookahead >= STD_MIN_MATCH {
         let str = stream.state.strstart;
         let n = stream.state.lookahead - (STD_MIN_MATCH - 1);
-        (stream.state.insert_string)(stream.state, str, n);
+        stream.state.insert_string(str, n);
         stream.state.strstart = str + n;
         stream.state.lookahead = STD_MIN_MATCH - 1;
         fill_window(stream);
@@ -664,9 +662,7 @@ pub fn copy<'a>(
         head,
         ins_h: source_state.ins_h,
         heap: source_state.heap.clone(),
-        update_hash: source_state.update_hash,
-        insert_string: source_state.insert_string,
-        quick_insert_string: source_state.quick_insert_string,
+        hash_calc_variant: source_state.hash_calc_variant,
         crc_fold: source_state.crc_fold,
         gzhead: None,
         gzindex: source_state.gzindex,
@@ -793,19 +789,13 @@ fn lm_set_level(state: &mut State, level: i8) {
     // Use rolling hash for deflate_slow algorithm with level 9. It allows us to
     // properly lookup different hash chains to speed up longest_match search. Since hashing
     // method changes depending on the level we cannot put this into functable. */
-    if state.max_chain_length > 1024 {
-        state.update_hash = RollHashCalc::update_hash;
-        state.insert_string = RollHashCalc::insert_string;
-        state.quick_insert_string = RollHashCalc::quick_insert_string;
+    state.hash_calc_variant = if state.max_chain_length > 1024 {
+        HashCalcVariant::Roll
     } else if Crc32HashCalc::is_supported() {
-        state.update_hash = Crc32HashCalc::update_hash;
-        state.insert_string = Crc32HashCalc::insert_string;
-        state.quick_insert_string = Crc32HashCalc::quick_insert_string;
+        HashCalcVariant::Crc32
     } else {
-        state.update_hash = StandardHashCalc::update_hash;
-        state.insert_string = StandardHashCalc::insert_string;
-        state.quick_insert_string = StandardHashCalc::quick_insert_string;
-    }
+        HashCalcVariant::Standard
+    };
 
     state.level = level;
 }
@@ -1248,9 +1238,7 @@ pub(crate) struct State<'a> {
 
     heap: Heap,
 
-    pub(crate) update_hash: fn(h: u32, val: u32) -> u32,
-    pub(crate) insert_string: fn(state: &mut State, string: usize, count: usize),
-    pub(crate) quick_insert_string: fn(state: &mut State, string: usize) -> u16,
+    pub(crate) hash_calc_variant: HashCalcVariant,
 
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
@@ -1307,6 +1295,30 @@ impl<'a> State<'a> {
     /// not the number of bytes that are actually in `pending`!
     pub(crate) fn pending_buf_size(&self) -> usize {
         self.lit_bufsize * 4
+    }
+
+    pub(crate) fn update_hash(&self, h: u32, val: u32) -> u32 {
+        match self.hash_calc_variant {
+            HashCalcVariant::Standard => StandardHashCalc::update_hash(h, val),
+            HashCalcVariant::Crc32 => Crc32HashCalc::update_hash(h, val),
+            HashCalcVariant::Roll => RollHashCalc::update_hash(h, val),
+        }
+    }
+
+    pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
+        match self.hash_calc_variant {
+            HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
+            HashCalcVariant::Crc32 => Crc32HashCalc::quick_insert_string(self, string),
+            HashCalcVariant::Roll => RollHashCalc::quick_insert_string(self, string),
+        }
+    }
+
+    pub(crate) fn insert_string(&mut self, string: usize, count: usize) {
+        match self.hash_calc_variant {
+            HashCalcVariant::Standard => StandardHashCalc::insert_string(self, string, count),
+            HashCalcVariant::Crc32 => Crc32HashCalc::insert_string(self, string, count),
+            HashCalcVariant::Roll => RollHashCalc::insert_string(self, string, count),
+        }
     }
 
     pub(crate) fn tally_lit(&mut self, unmatched: u8) -> bool {
@@ -1671,16 +1683,16 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             if state.max_chain_length > 1024 {
                 let v0 = state.window.filled()[string] as u32;
                 let v1 = state.window.filled()[string + 1] as u32;
-                state.ins_h = (state.update_hash)(v0, v1) as usize;
+                state.ins_h = state.update_hash(v0, v1) as usize;
             } else if string >= 1 {
-                (state.quick_insert_string)(state, string + 2 - STD_MIN_MATCH);
+                state.quick_insert_string(string + 2 - STD_MIN_MATCH);
             }
             let mut count = state.insert;
             if state.lookahead == 1 {
                 count -= 1;
             }
             if count > 0 {
-                (state.insert_string)(state, string, count);
+                state.insert_string(string, count);
                 state.insert -= count;
             }
         }

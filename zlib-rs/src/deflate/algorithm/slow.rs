@@ -43,7 +43,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
          * dictionary, and set hash_head to the head of the hash chain:
          */
         hash_head = if state.lookahead >= WANT_MIN_MATCH {
-            (state.quick_insert_string)(state, state.strstart)
+            state.quick_insert_string(state.strstart)
         } else {
             0
         };
@@ -98,7 +98,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             let mov_fwd = state.prev_length - 1;
             if max_insert > state.strstart {
                 let insert_cnt = Ord::min(mov_fwd, max_insert - state.strstart);
-                (state.insert_string)(state, state.strstart + 1, insert_cnt);
+                state.insert_string(state.strstart + 1, insert_cnt);
             }
             state.prev_length = 0;
             state.match_available = false;

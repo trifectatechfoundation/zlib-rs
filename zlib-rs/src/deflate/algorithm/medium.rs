@@ -60,7 +60,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         } else {
             hash_head = 0;
             if state.lookahead >= WANT_MIN_MATCH {
-                hash_head = (state.quick_insert_string)(state, state.strstart);
+                hash_head = state.quick_insert_string(state.strstart);
             }
 
             current_match.strstart = state.strstart as u16;
@@ -104,7 +104,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 < (state.window_size - MIN_LOOKAHEAD)
         {
             state.strstart = (current_match.strstart + current_match.match_length) as usize;
-            hash_head = (state.quick_insert_string)(state, state.strstart);
+            hash_head = state.quick_insert_string(state.strstart);
 
             next_match.strstart = state.strstart as u16;
             next_match.orgstart = next_match.strstart;
@@ -222,13 +222,9 @@ fn insert_match(state: &mut State, mut m: Match) {
         m.match_length -= 1;
         if m.match_length > 0 && m.strstart >= m.orgstart {
             if m.strstart + m.match_length > m.orgstart {
-                (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
+                state.insert_string(m.strstart as usize, m.match_length as usize);
             } else {
-                (state.insert_string)(
-                    state,
-                    m.strstart as usize,
-                    (m.orgstart - m.strstart + 1) as usize,
-                );
+                state.insert_string(m.strstart as usize, (m.orgstart - m.strstart + 1) as usize);
             }
             m.strstart += m.match_length;
             m.match_length = 0;
@@ -247,17 +243,12 @@ fn insert_match(state: &mut State, mut m: Match) {
 
         if m.strstart >= m.orgstart {
             if m.strstart + m.match_length > m.orgstart {
-                (state.insert_string)(state, m.strstart as usize, m.match_length as usize);
+                state.insert_string(m.strstart as usize, m.match_length as usize);
             } else {
-                (state.insert_string)(
-                    state,
-                    m.strstart as usize,
-                    (m.orgstart - m.strstart + 1) as usize,
-                );
+                state.insert_string(m.strstart as usize, (m.orgstart - m.strstart + 1) as usize);
             }
         } else if m.orgstart < m.strstart + m.match_length {
-            (state.insert_string)(
-                state,
+            state.insert_string(
                 m.orgstart as usize,
                 (m.strstart + m.match_length - m.orgstart) as usize,
             );
@@ -269,7 +260,7 @@ fn insert_match(state: &mut State, mut m: Match) {
         m.match_length = 0;
 
         if (m.strstart as usize) >= (STD_MIN_MATCH - 2) {
-            (state.quick_insert_string)(state, m.strstart as usize + 2 - STD_MIN_MATCH);
+            state.quick_insert_string(m.strstart as usize + 2 - STD_MIN_MATCH);
         }
 
         /* If lookahead < WANT_MIN_MATCH, ins_h is garbage, but it does not
