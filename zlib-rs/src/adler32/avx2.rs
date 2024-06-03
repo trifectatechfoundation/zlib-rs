@@ -29,7 +29,8 @@ const DOT3V: __m256i = __m256i_literal([
 const ZERO: __m256i = __m256i_literal([0; 32]);
 
 // 32 bit horizontal sum, adapted from Agner Fog's vector library.
-fn hsum256(x: __m256i) -> u32 {
+#[target_feature(enable = "avx2")]
+unsafe fn hsum256(x: __m256i) -> u32 {
     unsafe {
         let sum1 = _mm_add_epi32(_mm256_extracti128_si256(x, 1), _mm256_castsi256_si128(x));
         let sum2 = _mm_add_epi32(sum1, _mm_unpackhi_epi64(sum1, sum1));
@@ -38,7 +39,8 @@ fn hsum256(x: __m256i) -> u32 {
     }
 }
 
-fn partial_hsum256(x: __m256i) -> u32 {
+#[target_feature(enable = "avx2")]
+unsafe fn partial_hsum256(x: __m256i) -> u32 {
     const PERM_VEC: __m256i = __m256i_literal([
         0, 0, 0, 0, //
         2, 0, 0, 0, //
@@ -60,14 +62,17 @@ fn partial_hsum256(x: __m256i) -> u32 {
 }
 
 pub fn adler32_avx2(adler: u32, src: &[u8]) -> u32 {
-    adler32_avx2_help::<false>(adler, &mut [], src)
+    assert!(std::is_x86_feature_detected!("avx2"));
+    unsafe { adler32_avx2_help::<false>(adler, &mut [], src) }
 }
 
 pub fn adler32_fold_copy_avx2(adler: u32, dst: &mut [MaybeUninit<u8>], src: &[u8]) -> u32 {
-    adler32_avx2_help::<true>(adler, dst, src)
+    assert!(std::is_x86_feature_detected!("avx2"));
+    unsafe { adler32_avx2_help::<true>(adler, dst, src) }
 }
 
-fn adler32_avx2_help<const COPY: bool>(
+#[target_feature(enable = "avx2")]
+unsafe fn adler32_avx2_help<const COPY: bool>(
     adler: u32,
     mut dst: &mut [MaybeUninit<u8>],
     src: &[u8],
@@ -133,7 +138,7 @@ fn adler32_avx2_help<const COPY: bool>(
     adler0 | (adler1 << 16)
 }
 
-#[inline(always)]
+#[target_feature(enable = "avx2")]
 unsafe fn helper_32_bytes<const COPY: bool>(
     mut adler0: u32,
     mut adler1: u32,
