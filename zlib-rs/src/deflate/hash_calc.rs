@@ -71,9 +71,8 @@ impl HashCalc for RollHashCalc {
     }
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
-        let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
+        let val = state.window.filled()[string + Self::HASH_CALC_OFFSET] as u32;
 
-        let val = slice[0] as u32;
         state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
         state.ins_h &= Self::HASH_CALC_MASK as usize;
 
