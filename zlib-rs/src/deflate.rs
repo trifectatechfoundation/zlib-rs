@@ -1331,9 +1331,8 @@ impl<'a> State<'a> {
     }
 
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
-        self.sym_buf.push(dist as u8);
-        self.sym_buf.push((dist >> 8) as u8);
-        self.sym_buf.push(len as u8);
+        let symbols = [dist as u8, (dist >> 8) as u8, len as u8];
+        self.sym_buf.extend(&symbols);
 
         self.matches += 1;
         dist -= 1;

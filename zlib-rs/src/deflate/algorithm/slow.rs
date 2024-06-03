@@ -17,6 +17,8 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
     let use_longest_match_slow = stream.state.max_chain_length > 1024;
     let valid_distance_range = 1..=stream.state.max_dist() as isize;
 
+    let mut match_available = stream.state.match_available;
+
     /* Process the input block. */
     loop {
         /* Make sure that we always have enough lookahead, except
@@ -100,12 +102,13 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             }
             state.prev_length = 0;
             state.match_available = false;
+            match_available = false;
             state.strstart += mov_fwd + 1;
 
             if bflush {
                 flush_block!(stream, false);
             }
-        } else if state.match_available {
+        } else if match_available {
             // If there was no match at the previous position, output a
             // single literal. If there was a match but the current match
             // is longer, truncate the previous match to a single literal.
@@ -126,6 +129,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             // the next step to decide.
             state.prev_length = match_len;
             state.match_available = true;
+            match_available = true;
             state.strstart += 1;
             state.lookahead -= 1;
         }
