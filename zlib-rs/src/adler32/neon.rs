@@ -18,7 +18,13 @@ const TAPS: [uint16x8x4_t; 2] = unsafe {
     ])
 };
 
-pub fn adler32_neon(mut adler: u32, buf: &[u8]) -> u32 {
+pub fn adler32_neon(adler: u32, buf: &[u8]) -> u32 {
+    assert!(std::arch::is_aarch64_feature_detected!("neon"));
+    unsafe { adler32_neon_internal(adler, buf) }
+}
+
+#[target_feature(enable = "neon")]
+unsafe fn adler32_neon_internal(mut adler: u32, buf: &[u8]) -> u32 {
     /* split Adler-32 into component sums */
     let sum2 = (adler >> 16) & 0xffff;
     adler &= 0xffff;
@@ -75,6 +81,7 @@ fn handle_tail(mut pair: (u32, u32), buf: &[u8]) -> (u32, u32) {
     pair
 }
 
+#[target_feature(enable = "neon")]
 unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let mut adacc = vdupq_n_u32(0);
     let mut s2acc = vdupq_n_u32(0);

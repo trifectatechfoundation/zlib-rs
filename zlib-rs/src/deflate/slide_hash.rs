@@ -34,6 +34,12 @@ mod neon {
     };
 
     pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        assert!(std::arch::is_aarch64_feature_detected!("neon"));
+        unsafe { slide_hash_chain_internal(table, wsize) }
+    }
+
+    #[target_feature(enable = "neon")]
+    unsafe fn slide_hash_chain_internal(table: &mut [u16], wsize: u16) {
         debug_assert_eq!(table.len() % 32, 0);
 
         let v = unsafe { vdupq_n_u16(wsize) };
@@ -47,6 +53,7 @@ mod neon {
         }
     }
 
+    #[target_feature(enable = "neon")]
     unsafe fn vqsubq_u16_x4_x1(a: uint16x8x4_t, b: uint16x8_t) -> uint16x8x4_t {
         uint16x8x4_t(
             vqsubq_u16(a.0, b),
@@ -64,6 +71,12 @@ mod avx2 {
     };
 
     pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        assert!(std::is_x86_feature_detected!("avx2"));
+        unsafe { slide_hash_chain_internal(table, wsize) }
+    }
+
+    #[target_feature(enable = "avx2")]
+    unsafe fn slide_hash_chain_internal(table: &mut [u16], wsize: u16) {
         debug_assert_eq!(table.len() % 16, 0);
 
         let ymm_wsize = unsafe { _mm256_set1_epi16(wsize as i16) };
