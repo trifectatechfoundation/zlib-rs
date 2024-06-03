@@ -103,11 +103,11 @@ fn longest_match_help<const SLOW: bool>(
             };
 
             let mut hash = 0;
-            hash = (state.update_hash)(hash, *scan1 as u32);
-            hash = (state.update_hash)(hash, *scan2 as u32);
+            hash = state.update_hash(hash, *scan1 as u32);
+            hash = state.update_hash(hash, *scan2 as u32);
 
             for (i, b) in scanrest.iter().enumerate() {
-                hash = (state.update_hash)(hash, *b as u32);
+                hash = state.update_hash(hash, *b as u32);
 
                 /* If we're starting with best_len >= 3, we can use offset search. */
                 pos = state.head[hash as usize];
@@ -280,9 +280,9 @@ fn longest_match_help<const SLOW: bool>(
                 };
 
                 let mut hash = 0;
-                hash = (state.update_hash)(hash, scan0 as u32);
-                hash = (state.update_hash)(hash, scan1 as u32);
-                hash = (state.update_hash)(hash, scan2 as u32);
+                hash = state.update_hash(hash, scan0 as u32);
+                hash = state.update_hash(hash, scan1 as u32);
+                hash = state.update_hash(hash, scan2 as u32);
 
                 pos = state.head[hash as usize];
                 if pos < cur_match {

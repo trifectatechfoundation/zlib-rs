@@ -93,7 +93,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         }
 
         if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = (state.quick_insert_string)(state, state.strstart);
+            let hash_head = state.quick_insert_string(state.strstart);
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
