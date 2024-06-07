@@ -20,24 +20,20 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
-    pub fn from_slice(slice: &'a mut [u8]) -> Self {
-        Self {
-            buf: unsafe { slice_to_uninit_mut(slice) },
-            have: 0,
-            next: 0,
-        }
-    }
-
     pub fn into_inner(self) -> &'a mut [MaybeUninit<u8>] {
         self.buf
     }
 
     pub fn is_empty(&self) -> bool {
-        self.buf.len() == 0
+        self.size() == 0
     }
 
     pub fn size(&self) -> usize {
-        self.buf.len()
+        if self.buf.is_empty() {
+            0
+        } else {
+            self.buf.len() - Self::padding()
+        }
     }
 
     /// number of bytes in the window. Saturates at `Self::capacity`.
@@ -51,7 +47,11 @@ impl<'a> Window<'a> {
     }
 
     pub fn empty() -> Self {
-        Self::from_slice(&mut [])
+        Self {
+            buf: &mut [],
+            have: 0,
+            next: 0,
+        }
     }
 
     pub fn clear(&mut self) {
@@ -94,14 +94,13 @@ impl<'a> Window<'a> {
             if update_checksum {
                 if flags != 0 {
                     crc_fold.fold(non_window_slice, 0);
-                    crc_fold.fold_copy(self.buf, window_slice);
+                    crc_fold.fold_copy(&mut self.buf[..wsize], window_slice);
                 } else {
                     *checksum = adler32(*checksum, non_window_slice);
                     *checksum = adler32_fold_copy(*checksum, self.buf, window_slice);
                 }
             } else {
-                self.buf
-                    .copy_from_slice(unsafe { slice_to_uninit(window_slice) });
+                self.buf[..wsize].copy_from_slice(unsafe { slice_to_uninit(window_slice) });
             }
 
             self.next = 0;
@@ -182,10 +181,6 @@ unsafe fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
     &*(slice as *const [u8] as *const [MaybeUninit<u8>])
 }
 
-unsafe fn slice_to_uninit_mut(slice: &mut [u8]) -> &mut [MaybeUninit<u8>] {
-    &mut *(slice as *mut [u8] as *mut [MaybeUninit<u8>])
-}
-
 // TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
 unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
     &*(slice as *const [MaybeUninit<u8>] as *const [u8])
@@ -195,26 +190,34 @@ unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
 mod test {
     use super::*;
 
+    fn test_window(window_bits_log2: usize) -> Window<'static> {
+        let mut window =
+            Window::new_in(&crate::allocate::Allocator::RUST, window_bits_log2).unwrap();
+        window.buf.fill(MaybeUninit::new(0));
+        window.have = 0;
+        window.next = 0;
+        window
+    }
+
     #[test]
     fn extend_in_bounds() {
         let mut checksum = 0;
 
-        let mut buf = [0; 12];
-        let mut window = Window::from_slice(&mut buf);
+        let mut window = test_window(4);
 
         window.extend_adler32(&[1; 5], &mut checksum);
         assert_eq!(window.have, 5);
         assert_eq!(window.next, 5);
 
-        let slice = unsafe { slice_assume_init(window.buf) };
-        assert_eq!(&[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0], slice);
+        let slice = unsafe { slice_assume_init(&window.buf[..window.size()]) };
+        assert_eq!(&[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], slice);
 
         window.extend_adler32(&[2; 7], &mut checksum);
         assert_eq!(window.have, 12);
-        assert_eq!(window.next, 0);
+        assert_eq!(window.next, 12);
 
-        let slice = unsafe { slice_assume_init(window.buf) };
-        assert_eq!(&[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], slice);
+        let slice = unsafe { slice_assume_init(&window.buf[..window.size()]) };
+        assert_eq!(&[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], slice);
 
         assert_eq!(checksum, 6946835);
     }
@@ -223,40 +226,39 @@ mod test {
     fn extend_crosses_bounds() {
         let mut checksum = 0;
 
-        let mut buf = [0; 5];
-        let mut window = Window::from_slice(&mut buf);
+        let mut window = test_window(2);
 
         window.extend_adler32(&[1; 3], &mut checksum);
         assert_eq!(window.have, 3);
         assert_eq!(window.next, 3);
 
-        let slice = unsafe { slice_assume_init(window.buf) };
-        assert_eq!(&[1, 1, 1, 0, 0], slice);
+        let slice = unsafe { slice_assume_init(&window.buf[..window.size()]) };
+        assert_eq!(&[1, 1, 1, 0], slice);
 
-        window.extend_adler32(&[2; 4], &mut checksum);
-        assert_eq!(window.have, 5);
+        window.extend_adler32(&[2; 3], &mut checksum);
+        assert_eq!(window.have, 4);
         assert_eq!(window.next, 2);
 
-        let slice = unsafe { slice_assume_init(window.buf) };
-        assert_eq!(&[2, 2, 1, 2, 2], slice);
+        let slice = unsafe { slice_assume_init(&window.buf[..window.size()]) };
+        assert_eq!(&[2, 2, 1, 2], slice);
 
-        assert_eq!(checksum, 2490379);
+        assert_eq!(checksum, 1769481);
     }
 
     #[test]
     fn extend_out_of_bounds() {
         let mut checksum = 0;
 
-        let mut buf = [0; 5];
-        let mut window = Window::from_slice(&mut buf);
+        let mut window = test_window(3);
 
-        window.extend_adler32(&[1, 2, 3, 4, 5, 6, 7], &mut checksum);
-        assert_eq!(window.have, 5);
+        // adds 9 numbers, that won't fit into a window of size 8
+        window.extend_adler32(&[1, 2, 3, 4, 5, 6, 7, 8, 9], &mut checksum);
+        assert_eq!(window.have, 8);
         assert_eq!(window.next, 0);
 
-        let slice = unsafe { slice_assume_init(window.buf) };
-        assert_eq!(&[3, 4, 5, 6, 7], slice);
+        let slice = unsafe { slice_assume_init(&window.buf[..window.size()]) };
+        assert_eq!(&[2, 3, 4, 5, 6, 7, 8, 9], slice);
 
-        assert_eq!(checksum, 5505052);
+        assert_eq!(checksum, 10813485);
     }
 }
