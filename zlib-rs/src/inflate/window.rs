@@ -59,6 +59,11 @@ impl<'a> Window<'a> {
         self.next = 0;
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        // safety: the slice is always from the initialized part of buf
+        unsafe { slice_assume_init(&self.buf[..self.have]) }
+    }
+
     pub fn copy(&self, copy: usize) -> &[u8] {
         let start = if copy > self.next {
             self.size() - (copy - self.next)
