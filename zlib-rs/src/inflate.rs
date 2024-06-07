@@ -1218,7 +1218,7 @@ impl<'a> State<'a> {
                 "BufError: read_buf is full ({} bytes)",
                 self.writer.capacity()
             );
-            return self.inflate_leave(ReturnCode::BufError);
+            return self.inflate_leave(ReturnCode::Ok);
         }
 
         // this is not quite right. not sure when that matters
@@ -1521,6 +1521,8 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     // TODO verify if this is relevant for us
     let extra_safe = false;
 
+    let window_size = state.window.size();
+
     let mut bad = None;
 
     if bit_reader.bits_in_buffer() < 10 {
@@ -1592,23 +1594,32 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                                 panic!("INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR")
                             }
 
-                            // horrible reuse of this variable; find a good name
-                            let op = dist as usize - written;
+                            let mut op = dist as usize - written;
+                            let mut from = 0;
 
                             if state.window.next() == 0 {
-                                // very common case (TODO: why?)
-                                todo!()
+                                from += window_size - op;
                             } else if state.window.next() >= op {
-                                let slice = &state.window.copy(op)[..Ord::min(op, len as usize)];
-                                writer.extend(slice);
+                                from += state.window.next() - op;
                             } else {
-                                // wrap around in window
-                                todo!()
+                                op -= state.window.next();
+                                from += window_size - op;
+
+                                if op < len as usize {
+                                    todo!("deliberately not implemented because no tests hit this");
+                                }
                             }
 
                             // may need some bytes from the output
                             if op < len as usize {
-                                writer.copy_match(dist as usize, len as usize - op);
+                                let mut len = len as usize;
+                                len -= op;
+
+                                writer.extend(&state.window.as_slice()[from..][..op]);
+
+                                writer.copy_match(dist as usize, len);
+                            } else {
+                                writer.extend(&state.window.as_slice()[from..][..len as usize]);
                             }
                         } else if extra_safe {
                             todo!()
