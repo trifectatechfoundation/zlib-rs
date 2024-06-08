@@ -694,7 +694,8 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
     // deallocate in reverse order of allocations
     unsafe {
         // safety: we make sure that these fields are not used (by invalidating the state pointer)
-        stream.state.sym_buf.drop_in(&alloc);
+        let mut sym_buf = core::mem::replace(&mut stream.state.sym_buf, ReadBuf::new(&mut []));
+        alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity());
         stream.state.bit_writer.pending.drop_in(&alloc);
         alloc.deallocate(stream.state.head, 1);
         if !stream.state.prev.is_empty() {
@@ -3089,10 +3090,6 @@ mod test {
         sync::atomic::AtomicUsize,
     };
 
-    const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
-    const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
-    const LCET10: &str = include_str!("deflate/test-data/lcet10.txt");
-
     #[test]
     fn detect_data_type_basic() {
         let empty = || [Value::new(0, 0); LITERALS];
@@ -3116,11 +3113,16 @@ mod test {
         assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
     }
 
+    const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
+    const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
+    const LCET10: &str = include_str!("deflate/test-data/lcet10.txt");
+
     #[test]
     #[cfg_attr(
         target_arch = "aarch64",
         ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
     )]
+    #[cfg_attr(miri, ignore)]
     fn compress_lcet10() {
         fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
     }
@@ -3130,6 +3132,7 @@ mod test {
         target_arch = "aarch64",
         ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
     )]
+    #[cfg_attr(miri, ignore)]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
 
@@ -3144,6 +3147,7 @@ mod test {
         target_arch = "aarch64",
         ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
     )]
+    #[cfg_attr(miri, ignore)]
     fn compress_fireworks() {
         let mut config = DeflateConfig::default();
 
@@ -3192,10 +3196,11 @@ mod test {
     #[test]
     fn init_invalid_allocator() {
         {
+            let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<0>),
                 zfree: Some(crate::allocate::zfree_c),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
+                opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3205,10 +3210,11 @@ mod test {
         }
 
         {
+            let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<3>),
                 zfree: Some(crate::allocate::zfree_c),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
+                opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3218,10 +3224,11 @@ mod test {
         }
 
         {
+            let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<5>),
                 zfree: Some(crate::allocate::zfree_c),
-                opaque: (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _,
+                opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
             assert_eq!(
@@ -3232,57 +3239,69 @@ mod test {
     }
 
     #[test]
-    fn copy_invalid_allocator() {
-        {
-            let mut stream = z_stream::default();
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+    fn copy_invalid_allocator_fail_0() {
+        let mut stream = z_stream::default();
 
-            stream.zalloc = Some(fail_nth_allocation::<0>);
-            stream.zfree = Some(crate::allocate::zfree_c);
-            stream.opaque =
-                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
+        let atomic = AtomicUsize::new(0);
+        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+        stream.zalloc = Some(fail_nth_allocation::<6>);
+        stream.zfree = Some(crate::allocate::zfree_c);
 
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-        }
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
 
-        {
-            let mut stream = z_stream::default();
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
 
-            stream.zalloc = Some(fail_nth_allocation::<3>);
-            stream.zfree = Some(crate::allocate::zfree_c);
-            stream.opaque =
-                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
+        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
 
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+        assert!(end(stream).is_ok());
+    }
 
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-        }
+    #[test]
+    fn copy_invalid_allocator_fail_3() {
+        let mut stream = z_stream::default();
 
-        {
-            let mut stream = z_stream::default();
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let atomic = AtomicUsize::new(0);
+        stream.zalloc = Some(fail_nth_allocation::<{ 6 + 3 }>);
+        stream.zfree = Some(crate::allocate::zfree_c);
+        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
 
-            stream.zalloc = Some(fail_nth_allocation::<5>);
-            stream.zfree = Some(crate::allocate::zfree_c);
-            stream.opaque =
-                (&AtomicUsize::new(0)) as *const _ as *const core::ffi::c_void as *mut _;
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
 
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-        }
+        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+
+        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+
+        assert!(end(stream).is_ok());
+    }
+
+    #[test]
+    fn copy_invalid_allocator_fail_5() {
+        let mut stream = z_stream::default();
+
+        let atomic = AtomicUsize::new(0);
+        stream.zalloc = Some(fail_nth_allocation::<{ 6 + 5 }>);
+        stream.zfree = Some(crate::allocate::zfree_c);
+        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
+
+        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+
+        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+
+        assert!(end(stream).is_ok());
     }
 
     #[test]
@@ -3371,6 +3390,8 @@ mod test {
         stream.next_out = output.as_mut_ptr();
         stream.avail_out = output.len() as _;
         assert_eq!(deflate(stream, DeflateFlush::Finish), ReturnCode::StreamEnd);
+
+        assert!(end(stream).is_ok());
     }
 
     #[test]
@@ -3570,36 +3591,41 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn zlib_ng_cve_2018_25032_default() {
         const DEFAULT: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
         cve_test(DEFAULT.as_bytes())
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn zlib_ng_cve_2018_25032_fixed() {
         const FIXED: &str = include_str!("deflate/test-data/zlib-ng/CVE-2018-25032/fixed.txt");
         cve_test(FIXED.as_bytes())
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn zlib_ng_gh_382() {
         const DEFNEG: &[u8] = include_bytes!("deflate/test-data/zlib-ng/GH-382/defneg3.dat");
         cve_test(DEFNEG)
     }
 
     fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
-        let mut output_ng = [0; 1 << 17];
-        let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
-        assert_eq!(err, ReturnCode::Ok);
-
         let mut output_rs = [0; 1 << 17];
         let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        assert_eq!(output_ng, output_rs);
+        if !cfg!(miri) {
+            let mut output_ng = [0; 1 << 17];
+            let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
+            assert_eq!(err, ReturnCode::Ok);
 
-        if !expected.is_empty() {
-            assert_eq!(output_rs, expected);
+            assert_eq!(output_ng, output_rs);
+
+            if !expected.is_empty() {
+                assert_eq!(output_rs, expected);
+            }
         }
     }
 
@@ -3885,6 +3911,7 @@ mod test {
 
         assert_eq!(output_rs.len(), 81);
 
+        #[cfg(not(miri))]
         {
             let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
 
@@ -3945,6 +3972,7 @@ mod test {
             assert_eq!(&output[..n], output_rs);
         }
 
+        #[cfg(not(miri))]
         {
             let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
 
@@ -4080,6 +4108,8 @@ mod test {
                 ReturnCode::StreamEnd
             );
 
+            crate::inflate::end(stream);
+
             assert!(!header.comment.is_null());
             assert_eq!(
                 unsafe { CStr::from_ptr(header.comment.cast()) }
@@ -4106,6 +4136,7 @@ mod test {
         }
     }
 
+    #[cfg(not(miri))]
     quickcheck::quickcheck! {
         fn rs_is_ng(bytes: Vec<u8>) -> bool {
             fuzz_based_test(&bytes, DeflateConfig::default(), &[]);
@@ -4174,10 +4205,12 @@ mod test {
         let (rs, err) = compress_slice_with_flush(&mut output_rs, input, config, flush);
         assert_eq!(expected, err);
 
-        let (ng, err) = compress_slice_with_flush_ng(&mut output_ng, input, config, flush);
-        assert_eq!(expected, err);
+        if !cfg!(miri) {
+            let (ng, err) = compress_slice_with_flush_ng(&mut output_ng, input, config, flush);
+            assert_eq!(expected, err);
 
-        assert_eq!(rs, ng);
+            assert_eq!(rs, ng);
+        }
     }
 
     #[test]
