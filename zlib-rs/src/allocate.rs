@@ -130,7 +130,7 @@ impl Allocator<'static> {
 }
 
 impl<'a> Allocator<'a> {
-    fn allocate_layout(&self, layout: Layout) -> *mut c_void {
+    pub fn allocate_layout(&self, layout: Layout) -> *mut c_void {
         // Special case for the Rust `alloc` backed allocator
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
@@ -283,11 +283,10 @@ mod tests {
         assert_eq!(expected, ptr)
     }
 
-    #[test]
-    fn unaligned_allocator() {
+    fn unaligned_allocator_help<T>() {
         let mut buf = [0u8; 1024];
 
-        for i in 0..256 {
+        for i in 0..64 {
             let ptr = unsafe { buf.as_mut_ptr().add(i).cast() };
             PTR.store(ptr, Ordering::Relaxed);
 
@@ -298,27 +297,56 @@ mod tests {
                 _marker: PhantomData,
             };
 
-            macro_rules! test_alignments {
-                ($($ty:ty),*) => {
-                    $(
-                        let ptr = allocator.allocate::<$ty>().unwrap();
-                        assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<$ty>(), 0);
-                        unsafe { allocator.deallocate(ptr, 1) }
+            let ptr = allocator.allocate::<T>().unwrap();
+            assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<T>(), 0);
+            unsafe { allocator.deallocate(ptr, 1) }
 
-                        let ptr = allocator.allocate_slice::<$ty>(10).unwrap();
-                        assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<$ty>(), 0);
-                        unsafe { allocator.deallocate(ptr.as_mut_ptr(), 10) }
-                    )*
-                };
-            }
-
-            #[repr(C, align(16))]
-            struct Align16<T>(T);
-
-            #[repr(C, align(64))]
-            struct Align64<T>(T);
-
-            test_alignments!((), u8, u16, u32, u64, u128, Align16<()>, Align64<()>);
+            let ptr = allocator.allocate_slice::<T>(10).unwrap();
+            assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<T>(), 0);
+            unsafe { allocator.deallocate(ptr.as_mut_ptr(), 10) }
         }
+    }
+
+    #[test]
+    fn unaligned_allocator_0() {
+        unaligned_allocator_help::<()>()
+    }
+
+    #[test]
+    fn unaligned_allocator_1() {
+        unaligned_allocator_help::<u8>()
+    }
+
+    #[test]
+    fn unaligned_allocator_2() {
+        unaligned_allocator_help::<u16>()
+    }
+    #[test]
+    fn unaligned_allocator_4() {
+        unaligned_allocator_help::<u32>()
+    }
+    #[test]
+    fn unaligned_allocator_8() {
+        unaligned_allocator_help::<u64>()
+    }
+    #[test]
+    fn unaligned_allocator_16() {
+        unaligned_allocator_help::<u128>()
+    }
+
+    #[test]
+    fn unaligned_allocator_32() {
+        #[repr(C, align(32))]
+        struct Align32(u8);
+
+        unaligned_allocator_help::<Align32>()
+    }
+
+    #[test]
+    fn unaligned_allocator_64() {
+        #[repr(C, align(64))]
+        struct Align64(u8);
+
+        unaligned_allocator_help::<Align64>()
     }
 }
