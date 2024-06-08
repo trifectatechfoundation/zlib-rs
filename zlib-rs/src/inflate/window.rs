@@ -195,9 +195,10 @@ unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
 mod test {
     use super::*;
 
-    fn test_window(window_bits_log2: usize) -> Window<'static> {
-        let mut window =
-            Window::new_in(&crate::allocate::Allocator::RUST, window_bits_log2).unwrap();
+    use crate::allocate::Allocator;
+
+    fn init_window(window_bits_log2: usize) -> Window<'static> {
+        let mut window = Window::new_in(&Allocator::RUST, window_bits_log2).unwrap();
         window.buf.fill(MaybeUninit::new(0));
         window.have = 0;
         window.next = 0;
@@ -208,7 +209,7 @@ mod test {
     fn extend_in_bounds() {
         let mut checksum = 0;
 
-        let mut window = test_window(4);
+        let mut window = init_window(4);
 
         window.extend_adler32(&[1; 5], &mut checksum);
         assert_eq!(window.have, 5);
@@ -225,13 +226,15 @@ mod test {
         assert_eq!(&[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], slice);
 
         assert_eq!(checksum, 6946835);
+
+        unsafe { Allocator::RUST.deallocate(window.buf.as_mut_ptr(), window.buf.len()) }
     }
 
     #[test]
     fn extend_crosses_bounds() {
         let mut checksum = 0;
 
-        let mut window = test_window(2);
+        let mut window = init_window(2);
 
         window.extend_adler32(&[1; 3], &mut checksum);
         assert_eq!(window.have, 3);
@@ -248,13 +251,15 @@ mod test {
         assert_eq!(&[2, 2, 1, 2], slice);
 
         assert_eq!(checksum, 1769481);
+
+        unsafe { Allocator::RUST.deallocate(window.buf.as_mut_ptr(), window.buf.len()) }
     }
 
     #[test]
     fn extend_out_of_bounds() {
         let mut checksum = 0;
 
-        let mut window = test_window(3);
+        let mut window = init_window(3);
 
         // adds 9 numbers, that won't fit into a window of size 8
         window.extend_adler32(&[1, 2, 3, 4, 5, 6, 7, 8, 9], &mut checksum);
@@ -265,5 +270,7 @@ mod test {
         assert_eq!(&[2, 3, 4, 5, 6, 7, 8, 9], slice);
 
         assert_eq!(checksum, 10813485);
+
+        unsafe { Allocator::RUST.deallocate(window.buf.as_mut_ptr(), window.buf.len()) }
     }
 }
