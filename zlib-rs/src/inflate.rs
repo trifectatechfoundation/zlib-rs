@@ -863,7 +863,7 @@ impl<'a> State<'a> {
 
     fn lit(&mut self) -> ReturnCode {
         if self.writer.remaining() == 0 {
-            #[cfg(feature = "std")]
+            #[cfg(all(test, feature = "std"))]
             eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
             return self.inflate_leave(ReturnCode::Ok);
         }
@@ -1096,7 +1096,7 @@ impl<'a> State<'a> {
         if here.op == 0 {
             if self.writer.remaining() == 0 {
                 self.mode = Mode::Lit;
-                #[cfg(feature = "std")]
+                #[cfg(all(test, feature = "std"))]
                 eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
                 return self.inflate_leave(ReturnCode::Ok);
             }
@@ -1213,7 +1213,7 @@ impl<'a> State<'a> {
 
     fn match_(&mut self) -> ReturnCode {
         if self.writer.remaining() == 0 {
-            #[cfg(feature = "std")]
+            #[cfg(all(feature = "std", test))]
             eprintln!(
                 "BufError: read_buf is full ({} bytes)",
                 self.writer.capacity()
@@ -1552,7 +1552,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                 writer.push(here.val as u8);
             } else if op & 16 != 0 {
                 let op = op & MAX_BITS;
-                let len = here.val + bit_reader.bits(op as usize) as u16;
+                let mut len = here.val + bit_reader.bits(op as usize) as u16;
                 bit_reader.drop_bits(op as usize);
 
                 here = dcode[(bit_reader.hold() & dmask) as usize];
@@ -1597,16 +1597,21 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             let mut op = dist as usize - written;
                             let mut from = 0;
 
-                            if state.window.next() == 0 {
+                            let window_next = state.window.next();
+
+                            if window_next == 0 {
                                 from += window_size - op;
-                            } else if state.window.next() >= op {
-                                from += state.window.next() - op;
+                            } else if window_next >= op {
+                                from += window_next - op;
                             } else {
-                                op -= state.window.next();
+                                op -= window_next;
                                 from += window_size - op;
 
                                 if op < len as usize {
-                                    todo!("deliberately not implemented because no tests hit this");
+                                    len -= op as u16;
+                                    writer.extend(&state.window.as_slice()[from..][..op]);
+                                    from = 0;
+                                    op = window_next;
                                 }
                             }
 
