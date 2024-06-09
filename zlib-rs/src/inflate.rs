@@ -1242,11 +1242,20 @@ impl<'a> State<'a> {
                 panic!("INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR")
             }
 
-            let slice = self.window.copy(copy);
-            copy = Ord::min(slice.len(), self.length);
+            let wnext = self.window.next();
+            let wsize = self.window.size();
+
+            let from = if copy > wnext {
+                copy -= wnext;
+                wsize - copy
+            } else {
+                wnext - copy
+            };
+
+            copy = Ord::min(copy, self.length);
             copy = Ord::min(copy, left);
 
-            self.writer.extend(&slice[..copy]);
+            self.writer.extend(&self.window.as_slice()[from..][..copy]);
 
             copy
         } else {
