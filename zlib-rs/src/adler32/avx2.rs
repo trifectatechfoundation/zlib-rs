@@ -226,6 +226,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn large_input() {
         const DEFAULT: &str =
             include_str!("../deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");

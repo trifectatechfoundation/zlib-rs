@@ -694,8 +694,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
     // deallocate in reverse order of allocations
     unsafe {
         // safety: we make sure that these fields are not used (by invalidating the state pointer)
-        let mut sym_buf = core::mem::replace(&mut stream.state.sym_buf, ReadBuf::new(&mut []));
-        alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity());
+        stream.state.sym_buf.drop_in(&alloc);
         stream.state.bit_writer.pending.drop_in(&alloc);
         alloc.deallocate(stream.state.head, 1);
         if !stream.state.prev.is_empty() {
@@ -3238,113 +3237,132 @@ mod test {
         }
     }
 
-    #[test]
-    fn copy_invalid_allocator_fail_0() {
-        let mut stream = z_stream::default();
+    mod copy_invalid_allocator {
+        use super::*;
 
-        let atomic = AtomicUsize::new(0);
-        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
-        stream.zalloc = Some(fail_nth_allocation::<6>);
-        stream.zfree = Some(crate::allocate::zfree_c);
+        #[test]
+        fn fail_0() {
+            let mut stream = z_stream::default();
 
-        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+            let atomic = AtomicUsize::new(0);
+            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+            stream.zalloc = Some(fail_nth_allocation::<6>);
+            stream.zfree = Some(crate::allocate::zfree_c);
 
-        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-            unreachable!()
-        };
+            // init performs 6 allocations; we don't want those to fail
+            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+                unreachable!()
+            };
 
-        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
 
-        assert!(end(stream).is_ok());
+            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+
+            assert!(end(stream).is_ok());
+        }
+
+        #[test]
+        fn fail_3() {
+            let mut stream = z_stream::default();
+
+            let atomic = AtomicUsize::new(0);
+            stream.zalloc = Some(fail_nth_allocation::<{ 6 + 3 }>);
+            stream.zfree = Some(crate::allocate::zfree_c);
+            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+
+            // init performs 6 allocations; we don't want those to fail
+            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+                unreachable!()
+            };
+
+            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+
+            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+
+            assert!(end(stream).is_ok());
+        }
+
+        #[test]
+        fn fail_5() {
+            let mut stream = z_stream::default();
+
+            let atomic = AtomicUsize::new(0);
+            stream.zalloc = Some(fail_nth_allocation::<{ 6 + 5 }>);
+            stream.zfree = Some(crate::allocate::zfree_c);
+            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+
+            // init performs 6 allocations; we don't want those to fail
+            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+
+            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+                unreachable!()
+            };
+
+            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+
+            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+
+            assert!(end(stream).is_ok());
+        }
     }
 
-    #[test]
-    fn copy_invalid_allocator_fail_3() {
-        let mut stream = z_stream::default();
+    mod invalid_deflate_config {
+        use super::*;
 
-        let atomic = AtomicUsize::new(0);
-        stream.zalloc = Some(fail_nth_allocation::<{ 6 + 3 }>);
-        stream.zfree = Some(crate::allocate::zfree_c);
-        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+        #[test]
+        fn sanity_check() {
+            let mut stream = z_stream::default();
+            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+            assert!(stream.zalloc.is_some());
+            assert!(stream.zfree.is_some());
 
-        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-            unreachable!()
-        };
+            // this should be the default level
+            let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+            assert_eq!(stream.state.level, 6);
 
-        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+            assert!(end(stream).is_ok());
+        }
 
-        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
+        #[test]
+        fn window_bits_correction() {
+            // window_bits of 8 gets turned into 9 internally
+            let mut stream = z_stream::default();
+            let config = DeflateConfig {
+                window_bits: 8,
+                ..Default::default()
+            };
+            assert_eq!(init(&mut stream, config), ReturnCode::Ok);
+            let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
+            assert_eq!(stream.state.w_bits, 9);
 
-        assert!(end(stream).is_ok());
-    }
+            assert!(end(stream).is_ok());
+        }
 
-    #[test]
-    fn copy_invalid_allocator_fail_5() {
-        let mut stream = z_stream::default();
+        #[test]
+        fn window_bits_too_low() {
+            let mut stream = z_stream::default();
+            let config = DeflateConfig {
+                window_bits: -16,
+                ..Default::default()
+            };
+            assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+        }
 
-        let atomic = AtomicUsize::new(0);
-        stream.zalloc = Some(fail_nth_allocation::<{ 6 + 5 }>);
-        stream.zfree = Some(crate::allocate::zfree_c);
-        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
-
-        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
-
-        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-            unreachable!()
-        };
-
-        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
-
-        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-
-        assert!(end(stream).is_ok());
-    }
-
-    #[test]
-    fn invalid_deflate_config() {
-        let mut stream = z_stream::default();
-        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
-
-        assert!(stream.zalloc.is_some());
-        assert!(stream.zfree.is_some());
-
-        // this should be the default level
-        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
-        assert_eq!(stream.state.level, 6);
-
-        assert!(end(stream).is_ok());
-
-        // window_bits of 8 gets turned into 9 internally
-        let mut stream = z_stream::default();
-        let config = DeflateConfig {
-            window_bits: 8,
-            ..Default::default()
-        };
-        assert_eq!(init(&mut stream, config), ReturnCode::Ok);
-        let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
-        assert_eq!(stream.state.w_bits, 9);
-
-        assert!(end(stream).is_ok());
-
-        // window bits too low
-        let mut stream = z_stream::default();
-        let config = DeflateConfig {
-            window_bits: -16,
-            ..Default::default()
-        };
-        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
-
-        // window bits too high
-        let mut stream = z_stream::default();
-        let config = DeflateConfig {
-            window_bits: 42,
-            ..Default::default()
-        };
-        assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+        #[test]
+        fn window_bits_too_high() {
+            // window bits too high
+            let mut stream = z_stream::default();
+            let config = DeflateConfig {
+                window_bits: 42,
+                ..Default::default()
+            };
+            assert_eq!(init(&mut stream, config), ReturnCode::StreamError);
+        }
     }
 
     #[test]

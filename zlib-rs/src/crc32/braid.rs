@@ -154,18 +154,21 @@ mod test {
             crc32_words(&v[..], start) == h.finalize()
         }
 
+        #[cfg_attr(miri, ignore)]
         fn braid_4_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);
             crc32_braid::<4>(start, &v[..]) == h.finalize()
         }
 
+        #[cfg_attr(miri, ignore)]
         fn braid_5_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);
             crc32_braid::<5>(start, &v[..]) == h.finalize()
         }
 
+        #[cfg_attr(miri, ignore)]
         fn braid_6_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
             h.update(&v[..]);

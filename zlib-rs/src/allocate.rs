@@ -265,10 +265,12 @@ impl<'a> Allocator<'a> {
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::{AtomicPtr, Ordering};
+    use std::sync::Mutex;
 
     use super::*;
 
     static PTR: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+    static MUTEX: Mutex<()> = Mutex::new(());
 
     unsafe extern "C" fn unaligned_alloc(
         _opaque: *mut c_void,
@@ -285,6 +287,9 @@ mod tests {
 
     fn unaligned_allocator_help<T>() {
         let mut buf = [0u8; 1024];
+
+        // we don't want anyone else messing with the PTR static
+        let _guard = MUTEX.lock().unwrap();
 
         for i in 0..64 {
             let ptr = unsafe { buf.as_mut_ptr().add(i).cast() };
