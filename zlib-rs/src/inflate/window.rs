@@ -64,17 +64,6 @@ impl<'a> Window<'a> {
         unsafe { slice_assume_init(&self.buf[..self.have]) }
     }
 
-    pub fn copy(&self, copy: usize) -> &[u8] {
-        let start = if copy > self.next {
-            self.size() - (copy - self.next)
-        } else {
-            self.next - copy
-        };
-
-        // safety: the slice is always from the initialized part of buf
-        unsafe { slice_assume_init(&self.buf[start..self.have]) }
-    }
-
     #[cfg(test)]
     fn extend_adler32(&mut self, slice: &[u8], checksum: &mut u32) {
         self.extend(slice, 0, true, checksum, &mut Crc32Fold::new());

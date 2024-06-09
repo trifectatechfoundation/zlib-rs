@@ -1528,6 +1528,98 @@ fn issue_109() {
 }
 
 #[test]
+fn window_match_bug() {
+    // this hit some invalid logic in the inflate `match_` function where invalid bytes were copied
+    // to the current output position.
+    let input = &include_bytes!("test-data/window-match-bug.zraw");
+
+    let window_bits = -10;
+
+    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
+    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
+
+    let mut buf = [0; 402];
+
+    {
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let err = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+
+        loop {
+            stream.next_out = buf.as_mut_ptr();
+            stream.avail_out = buf.len() as _;
+
+            let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
+
+            output_rs.extend(&buf[..buf.len() - stream.avail_out as usize]);
+
+            match ReturnCode::from(err) {
+                ReturnCode::BufError => {
+                    assert_eq!(stream.avail_out, 0);
+                    stream.avail_out = buf.len() as _;
+                }
+                ReturnCode::StreamEnd => break,
+                other => panic!("unexpected {:?}", other),
+            }
+        }
+    }
+
+    {
+        use libz_sys::*;
+
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let err = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        stream.next_in = input.as_ptr() as *mut u8;
+        stream.avail_in = input.len() as _;
+
+        while stream.avail_in != 0 {
+            stream.next_out = buf.as_mut_ptr();
+            stream.avail_out = buf.len() as _;
+
+            let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
+
+            output_ng.extend(&buf[..buf.len() - stream.avail_out as usize]);
+
+            match ReturnCode::from(err) {
+                ReturnCode::BufError => {
+                    assert_eq!(stream.avail_out, 0);
+                    stream.avail_out = buf.len() as _;
+                }
+                ReturnCode::StreamEnd => break,
+                other => panic!("unexpected {:?}", other),
+            }
+        }
+    }
+
+    assert_eq!(output_rs, output_ng);
+}
+
+#[test]
 fn op_len_edge_case() {
     let window_bits = -9;
 
