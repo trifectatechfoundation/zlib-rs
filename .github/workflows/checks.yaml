@@ -160,7 +160,7 @@ jobs:
         run: |
           cargo fuzz build ${{ matrix.features }}
           for target in $(cargo fuzz list ${{ matrix.features }}) ; do
-            cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
+            RUST_BACKTRACE=1 cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
           done
 
   fuzz-aarch64:
@@ -190,5 +190,5 @@ jobs:
         run: |
           cargo fuzz build ${{ matrix.features }}
           for target in $(cargo fuzz list ${{ matrix.features }}) ; do
-            cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
+            RUST_BACKTRACE=1 cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
           done
