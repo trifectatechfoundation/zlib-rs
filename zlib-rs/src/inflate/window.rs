@@ -30,6 +30,8 @@ impl<'a> Window<'a> {
 
     pub fn size(&self) -> usize {
         if self.buf.is_empty() {
+            // an empty `buf` is used when the window has not yet been allocated,
+            // or when it has been deallocated.
             0
         } else {
             self.buf.len() - Self::padding()
