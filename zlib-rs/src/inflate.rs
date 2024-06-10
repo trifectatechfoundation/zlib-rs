@@ -1604,19 +1604,33 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             }
 
                             let mut op = dist as usize - written;
-                            let mut from = 0;
+                            let mut from;
 
                             let window_next = state.window.next();
 
                             if window_next == 0 {
-                                from += window_size - op;
+                                // This case is hit when the window has just wrapped around
+                                // by logic in `Window::extend`. It is special-cased because
+                                // apparently this is quite common.
+                                //
+                                // the match is at the end of the window, even though the next
+                                // position has now wrapped around.
+                                from = window_size - op;
                             } else if window_next >= op {
-                                from += window_next - op;
+                                // the standard case: a contiguous copy from the window, no wrapping
+                                from = window_next - op;
                             } else {
+                                // This case is hit when the window has recently wrapped around
+                                // by logic in `Window::extend`.
+                                //
+                                // The match is (partially) at the end of the window
                                 op -= window_next;
-                                from += window_size - op;
+                                from = window_size - op;
 
                                 if op < len as usize {
+                                    // This case is hit when part of the match is at the end of the
+                                    // window, and part of it has wrapped around to the start. Copy
+                                    // the end section here, the start section will be copied below.
                                     len -= op as u16;
                                     writer.extend(&state.window.as_slice()[from..][..op]);
                                     from = 0;
@@ -1624,16 +1638,12 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                                 }
                             }
 
-                            // may need some bytes from the output
+                            let copy = Ord::min(op, len as usize);
+                            writer.extend(&state.window.as_slice()[from..][..copy]);
+
                             if op < len as usize {
-                                let mut len = len as usize;
-                                len -= op;
-
-                                writer.extend(&state.window.as_slice()[from..][..op]);
-
-                                writer.copy_match(dist as usize, len);
-                            } else {
-                                writer.extend(&state.window.as_slice()[from..][..len as usize]);
+                                // here we need some bytes from the output itself
+                                writer.copy_match(dist as usize, len as usize - op);
                             }
                         } else if extra_safe {
                             todo!()
