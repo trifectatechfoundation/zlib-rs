@@ -105,6 +105,16 @@ pub unsafe fn deflate(strm: *mut libz_ng_sys::z_stream, flush: i32) -> std::ffi:
     f(strm, flush)
 }
 
+pub unsafe fn deflateEnd(strm: *mut libz_ng_sys::z_stream) -> std::ffi::c_int {
+    let lib = libloading::Library::new(LIBZ_NG_SO).unwrap();
+
+    type Func = unsafe extern "C" fn(strm: *mut libz_ng_sys::z_stream) -> i32;
+
+    let f: libloading::Symbol<Func> = lib.get(b"zng_deflateEnd").unwrap();
+
+    f(strm)
+}
+
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 unsafe fn deflateInit2(
@@ -260,7 +270,7 @@ pub fn compress_with_flush<'a>(
     };
 
     unsafe {
-        let err = libz_ng_sys::deflateEnd(stream);
+        let err = deflateEnd(stream);
         assert_eq!(libz_ng_sys::Z_OK, err);
     }
 
