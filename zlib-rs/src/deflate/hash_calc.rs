@@ -57,7 +57,7 @@ pub struct StandardHashCalc;
 impl HashCalc for StandardHashCalc {
     const HASH_CALC_OFFSET: usize = 0;
 
-    const HASH_CALC_MASK: u32 = 32768 - 1;
+    const HASH_CALC_MASK: u32 = (HASH_SIZE - 1) as u32;
 
     fn hash_calc(_: u32, val: u32) -> u32 {
         const HASH_SLIDE: u32 = 16;
@@ -70,7 +70,7 @@ pub struct RollHashCalc;
 impl HashCalc for RollHashCalc {
     const HASH_CALC_OFFSET: usize = STD_MIN_MATCH - 1;
 
-    const HASH_CALC_MASK: u32 = 32768 - 1;
+    const HASH_CALC_MASK: u32 = (1 << 15) - 1;
 
     fn hash_calc(h: u32, val: u32) -> u32 {
         const HASH_SLIDE: u32 = 5;
@@ -121,8 +121,10 @@ impl Crc32HashCalc {
             return true;
         }
 
+        // zlib-ng no longer special-cases on aarch64
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
-        return std::arch::is_aarch64_feature_detected!("crc");
+        // return std::arch::is_aarch64_feature_detected!("crc");
+        return false;
 
         #[allow(unreachable_code)]
         false
@@ -198,5 +200,10 @@ mod tests {
         assert_eq!(RollHashCalc::hash_calc(6205, 32), 198528);
         assert_eq!(RollHashCalc::hash_calc(3826, 117), 122421);
         assert_eq!(RollHashCalc::hash_calc(24117, 101), 771781);
+    }
+
+    #[test]
+    fn standard_hash_calc() {
+        assert_eq!(StandardHashCalc::hash_calc(0, 721420288), 47872);
     }
 }
