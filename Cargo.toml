@@ -12,7 +12,7 @@ resolver = "2"
 
 # Global settings for our crates
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "Zlib"
 repository = "https://github.com/memorysafety/zlib-rs"
@@ -34,6 +34,6 @@ libz-sys = { version = "1.1.12", default-features = false, features = ["zlib-ng"
 arbitrary = { version = "1.0" }
 quickcheck = { version = "1.0.3", default-features = false, features = [] }
 
-zlib-rs = { version = "0.1.1", path = "./zlib-rs", default-features = false }
+zlib-rs = { version = "0.2.0", path = "./zlib-rs", default-features = false }
 load-dynamic-libz-ng = { path = "./load-dynamic-libz-ng" }
 
