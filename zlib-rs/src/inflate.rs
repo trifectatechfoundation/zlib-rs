@@ -252,6 +252,7 @@ pub enum Mode {
     Stored,
     CopyBlock,
     Check,
+    Len_,
     Len,
     Lit,
     LenExt,
@@ -505,6 +506,7 @@ impl<'a> State<'a> {
             Mode::CopyBlock => self.copy_block(),
             Mode::Check => self.check(),
             Mode::Len => self.len(),
+            Mode::Len_ => self.len_(),
             Mode::LenExt => self.len_ext(),
             Mode::Lit => self.lit(),
             Mode::Dist => self.dist(),
@@ -965,13 +967,14 @@ impl<'a> State<'a> {
                     bits: 5,
                 };
 
+                self.mode = Mode::Len_;
+
                 self.bit_reader.drop_bits(2);
 
                 if let InflateFlush::Trees = self.flush {
                     self.inflate_leave(ReturnCode::Ok)
                 } else {
-                    self.mode = Mode::Len;
-                    self.len()
+                    self.len_()
                 }
             }
             2 => {
@@ -1044,6 +1047,11 @@ impl<'a> State<'a> {
 
         self.mode = Mode::Type;
         self.type_()
+    }
+
+    fn len_(&mut self) -> ReturnCode {
+        self.mode = Mode::Len;
+        self.len()
     }
 
     fn len(&mut self) -> ReturnCode {
@@ -1463,13 +1471,13 @@ impl<'a> State<'a> {
         self.dist_table.bits = root;
         self.dist_table.codes = Codes::Dist;
 
-        self.mode = Mode::Len;
+        self.mode = Mode::Len_;
 
         if matches!(self.flush, InflateFlush::Trees) {
             return self.inflate_leave(ReturnCode::Ok);
         }
 
-        self.len()
+        self.len_()
     }
 
     fn dict_id(&mut self) -> ReturnCode {
@@ -1499,7 +1507,7 @@ impl<'a> State<'a> {
     }
 
     fn bad(&mut self, msg: &'static str) -> ReturnCode {
-        #[cfg(feature = "std")]
+        #[cfg(all(feature = "std", test))]
         dbg!(msg);
         self.error_message = Some(msg);
         self.inflate_leave(ReturnCode::DataError)
@@ -1521,7 +1529,7 @@ impl<'a> State<'a> {
 
         let mode = match self.mode {
             Mode::Type => 128,
-            Mode::Len | Mode::CopyBlock => 256,
+            Mode::Len_ | Mode::CopyBlock => 256,
             _ => 0,
         };
 
@@ -1896,6 +1904,13 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let dest_slice = core::slice::from_raw_parts_mut(stream.next_out, stream.avail_out as usize);
 
     let state = &mut stream.state;
+
+    // skip check
+    if let Mode::Type = state.mode {
+        state.mode = Mode::TypeDo;
+    }
+
+    state.flush = flush;
 
     state.bit_reader.update_slice(source_slice);
     state.writer = ReadBuf::new(dest_slice);
