@@ -1698,3 +1698,115 @@ fn op_len_edge_case() {
 
     assert_eq!(output_rs, output_ng);
 }
+
+// Fills the provided buffer with pseudorandom bytes based on the given seed
+// Duplicates bytes by `step` in a row
+fn prng_bytes(seed: u64, bytes: &mut [u8], step: usize) {
+    const M: u64 = 2u64.pow(32);
+    const A: u64 = 1664525;
+    const C: u64 = 1013904223;
+    let mut state = seed;
+    for chunk in bytes.chunks_mut(4 * step) {
+        state = (A * state + C) % M;
+        let rand_bytes = state.to_le_bytes();
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = rand_bytes[i / step];
+        }
+    }
+}
+
+#[test]
+fn test_inflate_flush_block() {
+    let window_bits = -15; // Raw
+    const CHUNK: usize = 16384;
+
+    // Create a compressed vector of random data that's bigger then the zlib block size
+    let mut data = vec![0u8; 160000];
+    prng_bytes(314159, &mut data, 4);
+    let config = DeflateConfig {
+        window_bits,
+        ..DeflateConfig::default()
+    };
+    let mut output = vec![0u8; 80000];
+    // Compress the data
+    let (compressed_data, return_code) = compress_slice(&mut output, &data, config);
+    assert_eq!(return_code, ReturnCode::Ok);
+
+    // Log the stream positions and data_type output from libz
+    let mut zlib_log = Vec::new();
+    {
+        let mut stream = MaybeUninit::<libz_sys::z_stream>::zeroed();
+
+        let ret = unsafe {
+            libz_sys::inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                libz_sys::zlibVersion(),
+                core::mem::size_of::<libz_sys::z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        let mut output = vec![0u8; CHUNK * 2];
+        let stream = unsafe { stream.assume_init_mut() };
+        stream.next_in = compressed_data.as_ptr() as *mut u8;
+        stream.avail_in = compressed_data.len() as _;
+        loop {
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
+
+            let ret = unsafe { libz_sys::inflate(stream, InflateFlush::Block as i32) };
+
+            let log = format!(
+                "In:{} Out:{} DT:{}",
+                stream.avail_in, stream.avail_out, stream.data_type
+            );
+            zlib_log.push(log);
+
+            assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+            if stream.avail_in == 0 {
+                break;
+            }
+        }
+    }
+
+    // Log the stream positions and data_type output from libz_rs and compare
+    {
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let ret = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        let mut output = vec![0u8; CHUNK * 2];
+        let stream = unsafe { stream.assume_init_mut() };
+        stream.next_in = compressed_data.as_ptr() as *mut u8;
+        stream.avail_in = compressed_data.len() as _;
+        loop {
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
+
+            let ret = unsafe { inflate(stream, InflateFlush::Block as i32) };
+
+            let log = format!(
+                "In:{} Out:{} DT:{}",
+                stream.avail_in, stream.avail_out, stream.data_type
+            );
+            // Compare log entries
+            assert_eq!(zlib_log.remove(0), log);
+
+            assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+            if stream.avail_in == 0 {
+                break;
+            }
+        }
+    }
+}
