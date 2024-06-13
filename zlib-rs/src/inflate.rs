@@ -1511,6 +1511,22 @@ impl<'a> State<'a> {
         // actual logic is in `inflate` itself
         return_code
     }
+
+    /// Stored in the `z_stream.data_type` field
+    fn decoding_state(&self) -> i32 {
+        let bit_reader_bits = self.bit_reader.bits_in_buffer() as i32;
+        debug_assert!(bit_reader_bits < 64);
+
+        let last = if self.last { 64 } else { 0 };
+
+        let mode = match self.mode {
+            Mode::Type => 128,
+            Mode::Len | Mode::CopyBlock => 256,
+            _ => 0,
+        };
+
+        bit_reader_bits | last | mode
+    }
 }
 
 fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
@@ -1922,31 +1938,33 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     if must_update_window {
         'blk: {
             // initialize the window if needed
-            if stream.state.window.size() == 0 {
-                match Window::new_in(&stream.alloc, stream.state.wbits) {
-                    Some(window) => stream.state.window = window,
+            if state.window.size() == 0 {
+                match Window::new_in(&stream.alloc, state.wbits) {
+                    Some(window) => state.window = window,
                     None => {
-                        stream.state.mode = Mode::Mem;
+                        state.mode = Mode::Mem;
                         err = ReturnCode::MemError;
                         break 'blk;
                     }
                 }
             }
 
-            stream.state.window.extend(
-                &stream.state.writer.filled()[..out_written],
-                stream.state.flags,
+            state.window.extend(
+                &state.writer.filled()[..out_written],
+                state.flags,
                 update_checksum,
-                &mut stream.state.checksum,
-                &mut stream.state.crc_fold,
+                &mut state.checksum,
+                &mut state.crc_fold,
             );
         }
     }
 
-    if let Some(msg) = stream.state.error_message {
+    if let Some(msg) = state.error_message {
         assert!(msg.ends_with(|c| c == '\0'));
         stream.msg = msg.as_ptr() as *mut u8 as *mut core::ffi::c_char;
     }
+
+    stream.data_type = state.decoding_state();
 
     if ((in_read == 0 && out_written == 0) || flush == InflateFlush::Finish as _)
         && err == (ReturnCode::Ok as _)
