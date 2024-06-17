@@ -163,19 +163,13 @@ pub fn uncompress<'a>(
 
     let mut stream = z_stream {
         next_in: input.as_ptr() as *mut u8,
-        avail_in: input.len() as _,
-        total_in: 0,
-        next_out: dest,
-        avail_out: output.len() as _,
-        total_out: 0,
-        msg: core::ptr::null_mut(),
-        state: core::ptr::null_mut(),
+        avail_in: 0,
+
         zalloc: None,
         zfree: None,
         opaque: core::ptr::null_mut(),
-        data_type: 0,
-        adler: 0,
-        reserved: 0,
+
+        ..z_stream::default()
     };
 
     let err = init(&mut stream, config);
@@ -196,7 +190,7 @@ pub fn uncompress<'a>(
             left -= stream.avail_out as u64;
         }
 
-        if stream.avail_out == 0 {
+        if stream.avail_in == 0 {
             stream.avail_in = Ord::min(len, u32::MAX as u64) as u32;
             len -= stream.avail_in as u64;
         }
