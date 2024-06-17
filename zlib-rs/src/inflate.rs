@@ -892,7 +892,10 @@ impl<'a> State<'a> {
                 zswap32(self.bit_reader.hold() as u32)
             };
 
-            if self.wrap & 4 != 0 && given_checksum != self.checksum {
+            // useful in some fuzzing scenarios where we can compare the partial output (modulo the
+            // checksum) with other rust implementations that also support `cfg!(fuzzing)`.
+            #[allow(unexpected_cfgs)]
+            if !cfg!(fuzzing) && self.wrap & 4 != 0 && given_checksum != self.checksum {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
             }
@@ -1501,8 +1504,12 @@ impl<'a> State<'a> {
     }
 
     fn bad(&mut self, msg: &'static str) -> ReturnCode {
-        #[cfg(all(feature = "std", test))]
-        dbg!(msg);
+        #[allow(unexpected_cfgs)]
+        {
+            #[cfg(all(feature = "std", any(test, fuzzing_repro)))]
+            dbg!(msg);
+        }
+
         self.error_message = Some(msg);
         self.inflate_leave(ReturnCode::DataError)
     }
