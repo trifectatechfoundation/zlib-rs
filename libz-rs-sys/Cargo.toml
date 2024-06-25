@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys"
-readme.workspace = true
+readme = "README.md"
 description.workspace = true
 version.workspace = true
 edition.workspace = true
