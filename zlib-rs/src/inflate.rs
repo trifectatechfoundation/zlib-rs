@@ -197,14 +197,14 @@ pub fn uncompress<'a>(
 
         let err = unsafe { inflate(stream, InflateFlush::NoFlush) };
 
-        if err != ReturnCode::Ok as _ {
+        if err != ReturnCode::Ok {
             break err;
         }
     };
 
     if !output.is_empty() {
         dest_len_ptr = stream.total_out;
-    } else if stream.total_out != 0 && err == ReturnCode::BufError as _ {
+    } else if stream.total_out != 0 && err == ReturnCode::BufError {
         left = 1;
     }
 
@@ -1795,7 +1795,7 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         ReturnCode::StreamError
     };
 
-    if ret != ReturnCode::Ok as _ {
+    if ret != ReturnCode::Ok {
         let ptr = stream.state;
         stream.state = core::ptr::null_mut();
         // SAFETY: we assume deallocation does not cause UB
@@ -2006,7 +2006,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     let state = &mut stream.state;
 
     if stream.avail_in == 0 && state.bit_reader.bits_in_buffer() < 8 {
-        return ReturnCode::BufError as _;
+        return ReturnCode::BufError;
     }
     /* if first time, start search in bit buffer */
     if !matches!(state.mode, Mode::Sync) {
@@ -2028,7 +2028,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
 
     /* return no joy or set up to restart inflate() on a new block */
     if state.have != 4 {
-        return ReturnCode::DataError as _;
+        return ReturnCode::DataError;
     }
 
     if state.flags == -1 {
@@ -2049,7 +2049,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     stream.state.flags = flags;
     stream.state.mode = Mode::Type;
 
-    ReturnCode::Ok as _
+    ReturnCode::Ok
 }
 
 /*
