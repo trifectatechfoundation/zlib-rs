@@ -5,4 +5,3 @@ edition = "2021"
 
 [dependencies]
 libloading.workspace = true
-libz-sys.workspace = true
