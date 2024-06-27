@@ -26,6 +26,6 @@ zlib-rs = { workspace = true, default-features = false }
 zlib-rs = { workspace = true, default-features = false, features = ["std", "__internal-test"] }
 libz-sys.workspace = true
 libloading.workspace = true
-load-dynamic-libz-ng.workspace = true
+dynamic-libz-sys.workspace = true
 quickcheck.workspace = true
 crc32fast = "1.3.2"
