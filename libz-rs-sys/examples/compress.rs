@@ -279,7 +279,7 @@ fn compress_dynamic(
     level: i32,
 ) -> ReturnCode {
     let config = DeflateConfig::new(level);
-    let (output, err) = load_dynamic_libz_ng::compress_slice(
+    let (output, err) = dynamic_libz_sys::compress_slice(
         dest,
         source,
         config.level,
