@@ -18,6 +18,7 @@ default = ["std", "rust-allocator"] # when used as a rust crate, use the rust al
 c-allocator = ["zlib-rs/c-allocator"] # by default, use malloc/free for memory allocation
 rust-allocator = ["zlib-rs/rust-allocator"] # by default, use the rust global alloctor for memory allocation
 std = ["zlib-rs/std"] # assume `::std` is available
+custom-prefix = [] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
