@@ -32,14 +32,21 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
-#[cfg(not(test))]
+#[cfg(feature = "custom-prefix")]
+macro_rules! prefix {
+    ($name:expr) => {
+        concat!(env!("LIBZ_RS_SYS_PREFIX"), stringify!($name))
+    };
+}
+
+#[cfg(all(not(feature = "custom-prefix"), not(test)))]
 macro_rules! prefix {
     ($name:expr) => {
         stringify!($name)
     };
 }
 
-#[cfg(test)]
+#[cfg(all(not(feature = "custom-prefix"), test))]
 macro_rules! prefix {
     ($name:expr) => {
         concat!("LIBZ_RS_SYS_", stringify!($name))

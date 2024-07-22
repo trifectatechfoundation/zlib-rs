@@ -3,6 +3,38 @@ This crate is a C API for [zlib-rs](https://docs.rs/zlib-rs/latest/zlib_rs/). Th
 From a rust perspective, this API is not very ergonomic. Use the [`flate2`](https://crates.io/crates/flate2) crate for a more
 ergonomic rust interface to zlib.
 
+# Features
+
+**`custom-prefix`**
+
+Add a custom prefix to all exported symbols.
+
+The value of the `LIBZ_RS_SYS_PREFIX` is used as a prefix for all exported symbols. For example:
+
+```
+> LIBZ_RS_SYS_PREFIX="MY_CUSTOM_PREFIX" cargo build -p libz-rs-sys --features=custom-prefix
+   Compiling libz-rs-sys v0.2.1 (/home/folkertdev/rust/zlib-rs/libz-rs-sys)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.21s
+> objdump -tT target/debug/liblibz_rs_sys.so | grep "uncompress"
+0000000000081028 l     O .got	0000000000000000              _ZN7zlib_rs7inflate10uncompress17he7d985e55c58a189E$got
+000000000002c570 l     F .text	00000000000001ef              _ZN7zlib_rs7inflate10uncompress17he7d985e55c58a189E
+0000000000024330 g     F .text	000000000000008e              MY_CUSTOM_PREFIXuncompress
+0000000000024330 g    DF .text	000000000000008e  Base        MY_CUSTOM_PREFIXuncompress
+```
+
+**`c-allocator`, `rust-allocator`**
+
+Pick the default allocator implementation that is used if no `zalloc` and `zfree` are configured in the input `z_stream`.
+
+- `c-allocator`: use `malloc`/`free` for the implementation of `zalloc` and `zfree`
+- `rust-allocator`: the rust global allocator for the implementation of `zalloc` and `zfree`
+
+The `rust-allocator` is the default when this crate is used as a rust dependency, and slightly more efficient because alignment is handled by the allocator. When building a dynamic library, it may make sense to use `c-allocator` instead. 
+
+**`std`**
+
+Assume that `std` is available. When this feature is turned off, this crate is compatible with `#![no_std]`.
+
 # Example
 
 This example compresses ("deflates") the string `"Hello, World!"` and then decompresses
