@@ -32,6 +32,20 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+#[cfg(not(test))]
+macro_rules! prefix {
+    ($name:expr) => {
+        stringify!($name)
+    };
+}
+
+#[cfg(test)]
+macro_rules! prefix {
+    ($name:expr) => {
+        concat!("LIBZ_RS_SYS_", stringify!($name))
+    };
+}
+
 #[cfg(all(feature = "rust-allocator", feature = "c-allocator"))]
 const _: () =
     compile_error!("Only one of `rust-allocator` and `c-allocator` can be enabled at a time");
@@ -66,20 +80,24 @@ const DEFAULT_ZFREE: Option<free_func> = '_blk: {
 // issues with it, we can either special-case or add a feature flag to force a particular width
 pub type z_off_t = c_long;
 
+#[export_name = prefix!(crc32)]
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
     zlib_rs::crc32(crc as u32, buf) as c_ulong
 }
 
+#[export_name = prefix!(crc32_combine)]
 pub unsafe extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
     zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
+#[export_name = prefix!(adler32)]
 pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
     zlib_rs::adler32(adler as u32, buf) as c_ulong
 }
 
+#[export_name = prefix!(adler32_combine)]
 pub unsafe extern "C" fn adler32_combine(
     adler1: c_ulong,
     adler2: c_ulong,
@@ -107,6 +125,7 @@ pub unsafe extern "C" fn adler32_combine(
 /// - `dest` must point to `*destLen` consecutive properly initialized values of type `u8`.
 /// - while this function runs, both read and write actions to the `source` and `dest` memory
 /// ranges are forbidden
+#[export_name = prefix!(uncompress)]
 pub unsafe extern "C" fn uncompress(
     dest: *mut u8,
     destLen: *mut c_ulong,
@@ -128,6 +147,7 @@ pub unsafe extern "C" fn uncompress(
     err as c_int
 }
 
+#[export_name = prefix!(inflate)]
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let flush = InflateFlush::try_from(flush).unwrap_or_default();
@@ -137,6 +157,7 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     }
 }
 
+#[export_name = prefix!(inflateEnd)]
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     match InflateStream::from_stream_mut(strm) {
         Some(stream) => {
@@ -147,6 +168,7 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[export_name = prefix!(inflateBackInit_)]
 pub unsafe extern "C" fn inflateBackInit_(
     _strm: z_streamp,
     _windowBits: c_int,
@@ -157,6 +179,7 @@ pub unsafe extern "C" fn inflateBackInit_(
     todo!("inflateBack is not implemented yet")
 }
 
+#[export_name = prefix!(inflateBack)]
 pub unsafe extern "C" fn inflateBack(
     _strm: z_streamp,
     _in: in_func,
@@ -167,10 +190,12 @@ pub unsafe extern "C" fn inflateBack(
     todo!("inflateBack is not implemented yet")
 }
 
+#[export_name = prefix!(inflateBackEnd)]
 pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
     todo!("inflateBack is not implemented yet")
 }
 
+#[export_name = prefix!(inflateCopy)]
 pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
     if dest.is_null() {
         return ReturnCode::StreamError as _;
@@ -183,6 +208,7 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
     }
 }
 
+#[export_name = prefix!(inflateMark)]
 pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     if let Some(stream) = InflateStream::from_stream_ref(strm) {
         zlib_rs::inflate::mark(stream)
@@ -191,6 +217,7 @@ pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     }
 }
 
+#[export_name = prefix!(inflateSync)]
 pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::sync(stream) as _
@@ -200,6 +227,7 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
 }
 
 // undocumented
+#[export_name = prefix!(inflateSyncPoint)]
 pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::sync_point(stream) as i32
@@ -208,6 +236,7 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[export_name = prefix!(inflateInit_)]
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
     version: *const c_char,
@@ -222,6 +251,7 @@ pub unsafe extern "C" fn inflateInit_(
     }
 }
 
+#[export_name = prefix!(inflateInit2_)]
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
     windowBits: c_int,
@@ -235,6 +265,7 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
+#[export_name = prefix!(inflateInit2)]
 pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
         ReturnCode::StreamError as _
@@ -258,6 +289,7 @@ pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_i
     }
 }
 
+#[export_name = prefix!(inflatePrime)]
 pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::prime(stream, bits, value) as _
@@ -266,6 +298,7 @@ pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32
     }
 }
 
+#[export_name = prefix!(inflateReset)]
 pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::reset(stream) as _
@@ -274,6 +307,7 @@ pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[export_name = prefix!(inflateReset2)]
 pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let config = InflateConfig {
@@ -285,6 +319,7 @@ pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -
     }
 }
 
+#[export_name = prefix!(inflateSetDictionary)]
 pub unsafe extern "C" fn inflateSetDictionary(
     strm: *mut z_stream,
     dictionary: *const u8,
@@ -304,6 +339,7 @@ pub unsafe extern "C" fn inflateSetDictionary(
 }
 
 // part of gzip
+#[export_name = prefix!(inflateGetHeader)]
 pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let header = if head.is_null() {
@@ -319,6 +355,7 @@ pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> 
 }
 
 // undocumented but exposed function
+#[export_name = prefix!(inflateUndermine)]
 pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::undermine(stream, subvert) as i32
@@ -328,6 +365,7 @@ pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> 
 }
 
 // undocumented but exposed function
+#[export_name = prefix!(inflateResetKeep)]
 pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::reset_keep(stream) as _
@@ -337,10 +375,12 @@ pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
 }
 
 // undocumented but exposed function
+#[export_name = prefix!(inflateCodesUsed)]
 pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
     todo!()
 }
 
+#[export_name = prefix!(deflate)]
 pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
         match DeflateFlush::try_from(flush) {
@@ -352,6 +392,7 @@ pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     }
 }
 
+#[export_name = prefix!(deflateSetHeader)]
 pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
         zlib_rs::deflate::set_header(
@@ -367,10 +408,12 @@ pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp)
     }
 }
 
+#[export_name = prefix!(deflateBound)]
 pub unsafe extern "C" fn deflateBound(strm: *mut z_stream, sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::bound(DeflateStream::from_stream_mut(strm), sourceLen as usize) as c_ulong
 }
 
+#[export_name = prefix!(compress)]
 pub unsafe extern "C" fn compress(
     dest: *mut Bytef,
     destLen: *mut c_ulong,
@@ -386,6 +429,7 @@ pub unsafe extern "C" fn compress(
     )
 }
 
+#[export_name = prefix!(compress2)]
 pub unsafe extern "C" fn compress2(
     dest: *mut Bytef,
     destLen: *mut c_ulong,
@@ -409,10 +453,12 @@ pub unsafe extern "C" fn compress2(
     err as c_int
 }
 
+#[export_name = prefix!(compressBound)]
 pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::compress_bound(sourceLen as usize) as c_ulong
 }
 
+#[export_name = prefix!(deflateEnd)]
 pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => match zlib_rs::deflate::end(stream) {
@@ -423,6 +469,7 @@ pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[export_name = prefix!(deflateReset)]
 pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::deflate::reset(stream) as _,
@@ -430,6 +477,7 @@ pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[export_name = prefix!(deflateParams)]
 pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: c_int) -> c_int {
     let Ok(strategy) = Strategy::try_from(strategy) else {
         return ReturnCode::StreamError as _;
@@ -441,6 +489,7 @@ pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: 
     }
 }
 
+#[export_name = prefix!(deflateSetDictionary)]
 pub unsafe extern "C" fn deflateSetDictionary(
     strm: z_streamp,
     dictionary: *const Bytef,
@@ -454,6 +503,7 @@ pub unsafe extern "C" fn deflateSetDictionary(
     }
 }
 
+#[export_name = prefix!(deflatePrime)]
 pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int) -> c_int {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::deflate::prime(stream, bits, value) as _,
@@ -461,6 +511,7 @@ pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int
     }
 }
 
+#[export_name = prefix!(deflatePending)]
 pub unsafe extern "C" fn deflatePending(
     strm: z_streamp,
     pending: *mut c_uint,
@@ -484,6 +535,7 @@ pub unsafe extern "C" fn deflatePending(
     }
 }
 
+#[export_name = prefix!(deflateCopy)]
 pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
     let dest = if dest.is_null() {
         return ReturnCode::StreamError as _;
@@ -497,6 +549,7 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
     }
 }
 
+#[export_name = prefix!(deflateInit_)]
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
@@ -523,6 +576,7 @@ pub unsafe extern "C" fn deflateInit_(
     }
 }
 
+#[export_name = prefix!(deflateInit2_)]
 pub unsafe extern "C" fn deflateInit2_(
     strm: z_streamp,
     level: c_int,
@@ -569,6 +623,7 @@ pub unsafe extern "C" fn deflateInit2_(
     }
 }
 
+#[export_name = prefix!(deflateTune)]
 pub unsafe extern "C" fn deflateTune(
     strm: z_streamp,
     good_length: c_int,
