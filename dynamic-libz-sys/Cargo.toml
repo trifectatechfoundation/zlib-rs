@@ -5,3 +5,10 @@ edition = "2021"
 
 [dependencies]
 libloading.workspace = true
+
+[features]
+libc = []
+
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(zng)'] }
