@@ -650,16 +650,18 @@ pub unsafe extern "C" fn deflateTune(
     }
 }
 
-const LIBZ_RS_SYS_VERSION: &str = env!("CARGO_PKG_VERSION");
+// the first part of this version specifies the zlib that we're compatible with (in terms of
+// supported functions). In practice in most cases only the major version is checked, unless
+// specific functions that were added later are used.
+const LIBZ_RS_SYS_VERSION: &str = concat!("1.3.0-zlib-rs-", env!("CARGO_PKG_VERSION"), "\0");
 
 unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> bool {
     if version.is_null() {
         return false;
     }
 
-    let cstr = core::ffi::CStr::from_ptr(version);
-
-    if LIBZ_RS_SYS_VERSION.as_bytes()[0] != cstr.to_bytes()[0] {
+    let expected_major_version = core::ptr::read(version);
+    if expected_major_version as u8 != LIBZ_RS_SYS_VERSION.as_bytes()[0] {
         return false;
     }
 
@@ -667,19 +669,5 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
 }
 
 pub const extern "C" fn zlibVersion() -> *const c_char {
-    const BUF: [u8; 16] = {
-        let mut buf = [0; 16];
-
-        let mut i = 0;
-        while i < LIBZ_RS_SYS_VERSION.len() {
-            buf[i] = LIBZ_RS_SYS_VERSION.as_bytes()[i];
-            i += 1;
-        }
-
-        assert!(matches!(buf.last(), Some(0)));
-
-        buf
-    };
-
-    BUF.as_ptr() as *const c_char
+    LIBZ_RS_SYS_VERSION.as_ptr() as *const c_char
 }

@@ -192,3 +192,37 @@ jobs:
           for target in $(cargo fuzz list ${{ matrix.features }}) ; do
             RUST_BACKTRACE=1 cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
           done
+
+  link-c-dynamic-library:
+    name: dynamic library
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+        features:
+          - ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: stable
+          targets: ${{matrix.target}}
+      - name: Rust cache
+        uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
+        with:
+            shared-key: "stable-${{matrix.target}}"
+      - name: get zpipe.c
+        run: wget https://www.zlib.net/zpipe.c
+      - name: cargo build
+        run: cargo build --target ${{matrix.target}} -p libz-rs-sys --release
+      - name: cc
+        run: cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/liblibz_rs_sys.so
+      - name: execute
+        run: cat Cargo.toml | ./zpipe | ./zpipe -d > out.txt
+      - name: compare
+        run: cmp -s Cargo.toml out.txt
