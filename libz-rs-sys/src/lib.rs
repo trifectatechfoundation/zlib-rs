@@ -125,13 +125,13 @@ pub unsafe extern "C" fn adler32_combine(
 /// Behavior is undefined if any of the following conditions are violated:
 ///
 /// - `source` must be [valid](https://doc.rust-lang.org/std/ptr/index.html#safety) for reads for
-/// `sourceLen` bytes. The entity of `source` must be contained in one allocated object!
+///   `sourceLen` bytes. The entity of `source` must be contained in one allocated object!
 /// - `source` must point to `sourceLen` consecutive properly initialized values of type `u8`.
 /// - `dest` must be [valid](https://doc.rust-lang.org/std/ptr/index.html#safety) for reads for
-/// `*destLen` bytes. The entity of `source` must be contained in one allocated object!
+///   `*destLen` bytes. The entity of `source` must be contained in one allocated object!
 /// - `dest` must point to `*destLen` consecutive properly initialized values of type `u8`.
 /// - while this function runs, both read and write actions to the `source` and `dest` memory
-/// ranges are forbidden
+///   ranges are forbidden
 #[export_name = prefix!(uncompress)]
 pub unsafe extern "C" fn uncompress(
     dest: *mut u8,
