@@ -6,7 +6,7 @@ This repository contains two public crates:
 
 * `zlib-rs`, a Rust implementation based on [zlib](https://www.zlib.net/manual.html)
   with a safe rust API
-* `libz-rs-sys`, an unsafe zlib-compatible C API for usage in non-Rust
+* `libz-rs-sys`, an zlib-compatible C API for usage in non-Rust
   applications
 
 ## Acknowledgement
