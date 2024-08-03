@@ -649,6 +649,14 @@ pub unsafe extern "C" fn deflateTune(
     }
 }
 
+#[export_name = prefix!(zError)]
+pub const unsafe extern "C" fn error_message(err: c_int) -> *const c_char {
+    match ReturnCode::try_from_c_int(err) {
+        Some(return_code) => return_code.error_message(),
+        None => core::ptr::null(),
+    }
+}
+
 // the first part of this version specifies the zlib that we're compatible with (in terms of
 // supported functions). In practice in most cases only the major version is checked, unless
 // specific functions that were added later are used.
