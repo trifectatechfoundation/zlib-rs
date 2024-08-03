@@ -667,6 +667,7 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
     core::mem::size_of::<z_stream>() as i32 == stream_size
 }
 
+#[export_name = prefix!(zlibVersion)]
 pub const extern "C" fn zlibVersion() -> *const c_char {
     LIBZ_RS_SYS_VERSION.as_ptr() as *const c_char
 }
