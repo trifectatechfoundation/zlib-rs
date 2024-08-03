@@ -1495,25 +1495,6 @@ enum Status {
     Finish = 3,
 }
 
-const fn error_message(return_code: ReturnCode) -> *const core::ffi::c_char {
-    const TABLE: [&str; 10] = [
-        "need dictionary\0",      /* Z_NEED_DICT       2  */
-        "stream end\0",           /* Z_STREAM_END      1  */
-        "\0",                     /* Z_OK              0  */
-        "file error\0",           /* Z_ERRNO         (-1) */
-        "stream error\0",         /* Z_STREAM_ERROR  (-2) */
-        "data error\0",           /* Z_DATA_ERROR    (-3) */
-        "insufficient memory\0",  /* Z_MEM_ERROR     (-4) */
-        "buffer error\0",         /* Z_BUF_ERROR     (-5) */
-        "incompatible version\0", /* Z_VERSION_ERROR (-6) */
-        "\0",
-    ];
-
-    let index = (ReturnCode::NeedDict as i32 - return_code as i32) as usize;
-
-    TABLE[index].as_ptr().cast()
-}
-
 const fn rank_flush(f: i32) -> i32 {
     // rank Z_BLOCK between Z_NO_FLUSH and Z_PARTIAL_FLUSH
     ((f) * 2) - (if (f) > 4 { 9 } else { 0 })
@@ -2334,13 +2315,13 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         || (stream.state.status == Status::Finish && flush != DeflateFlush::Finish)
     {
         let err = ReturnCode::StreamError;
-        stream.msg = error_message(err);
+        stream.msg = err.error_message();
         return err;
     }
 
     if stream.avail_out == 0 {
         let err = ReturnCode::BufError;
-        stream.msg = error_message(err);
+        stream.msg = err.error_message();
         return err;
     }
 
@@ -2370,14 +2351,14 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         && flush != DeflateFlush::Finish
     {
         let err = ReturnCode::BufError;
-        stream.msg = error_message(err);
+        stream.msg = err.error_message();
         return err;
     }
 
     /* User must not provide more input after the first FINISH: */
     if stream.state.status == Status::Finish && stream.avail_in != 0 {
         let err = ReturnCode::BufError;
-        stream.msg = error_message(err);
+        stream.msg = err.error_message();
         return err;
     }
 

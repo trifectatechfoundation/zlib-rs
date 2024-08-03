@@ -175,19 +175,44 @@ pub enum ReturnCode {
 
 impl From<i32> for ReturnCode {
     fn from(value: i32) -> Self {
-        use ReturnCode::*;
+        match Self::try_from_c_int(value) {
+            Some(value) => value,
+            None => panic!("invalid return code {value}"),
+        }
+    }
+}
 
-        match value {
-            0 => Ok,
-            1 => StreamEnd,
-            2 => NeedDict,
-            -1 => ErrNo,
-            -2 => StreamError,
-            -3 => DataError,
-            -4 => MemError,
-            -5 => BufError,
-            -6 => VersionError,
-            _ => panic!("invalid return code {value}"),
+impl ReturnCode {
+    const TABLE: [&'static str; 10] = [
+        "need dictionary\0",      /* Z_NEED_DICT       2  */
+        "stream end\0",           /* Z_STREAM_END      1  */
+        "\0",                     /* Z_OK              0  */
+        "file error\0",           /* Z_ERRNO         (-1) */
+        "stream error\0",         /* Z_STREAM_ERROR  (-2) */
+        "data error\0",           /* Z_DATA_ERROR    (-3) */
+        "insufficient memory\0",  /* Z_MEM_ERROR     (-4) */
+        "buffer error\0",         /* Z_BUF_ERROR     (-5) */
+        "incompatible version\0", /* Z_VERSION_ERROR (-6) */
+        "\0",
+    ];
+
+    pub const fn error_message(self) -> *const core::ffi::c_char {
+        let index = (ReturnCode::NeedDict as i32 - self as i32) as usize;
+        Self::TABLE[index].as_ptr().cast()
+    }
+
+    pub const fn try_from_c_int(err: core::ffi::c_int) -> Option<Self> {
+        match err {
+            0 => Some(Self::Ok),
+            1 => Some(Self::StreamEnd),
+            2 => Some(Self::NeedDict),
+            -1 => Some(Self::ErrNo),
+            -2 => Some(Self::StreamError),
+            -3 => Some(Self::DataError),
+            -4 => Some(Self::MemError),
+            -5 => Some(Self::BufError),
+            -6 => Some(Self::VersionError),
+            _ => None,
         }
     }
 }
