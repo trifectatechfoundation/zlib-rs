@@ -272,8 +272,7 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
-#[export_name = prefix!(inflateInit2)]
-pub unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
+unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
         ReturnCode::StreamError as _
     } else {
