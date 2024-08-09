@@ -3825,7 +3825,7 @@ mod test {
         assert_eq!(helper(&mut output), ReturnCode::Ok);
     }
 
-    fn test_flush(flush: DeflateFlush) {
+    fn test_flush(flush: DeflateFlush, expected: &[u8]) {
         let input = b"Hello World!\n";
 
         let config = DeflateConfig {
@@ -3837,41 +3837,59 @@ mod test {
         };
 
         let mut output_rs = vec![0; 128];
-        let mut output_ng = vec![0; 128];
 
         // with the flush modes that we test here, the deflate process still has `Status::Busy`,
         // and the `deflateEnd` function will return `DataError`.
-        let expected = ReturnCode::DataError;
+        let expected_err = ReturnCode::DataError;
 
         let (rs, err) = compress_slice_with_flush(&mut output_rs, input, config, flush);
-        assert_eq!(expected, err);
+        assert_eq!(expected_err, err);
 
-        if !cfg!(miri) {
-            let (ng, err) = compress_slice_with_flush_ng(&mut output_ng, input, config, flush);
-            assert_eq!(expected, err);
-
-            assert_eq!(rs, ng);
-        }
+        assert_eq!(rs, expected);
     }
 
     #[test]
     fn sync_flush() {
-        test_flush(DeflateFlush::SyncFlush)
+        test_flush(
+            DeflateFlush::SyncFlush,
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 242, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73,
+                81, 228, 2, 0, 0, 0, 255, 255,
+            ],
+        )
     }
 
     #[test]
     fn partial_flush() {
-        test_flush(DeflateFlush::PartialFlush);
+        test_flush(
+            DeflateFlush::PartialFlush,
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 242, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73,
+                81, 228, 2, 8,
+            ],
+        );
     }
 
     #[test]
     fn full_flush() {
-        test_flush(DeflateFlush::FullFlush);
+        test_flush(
+            DeflateFlush::FullFlush,
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 242, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73,
+                81, 228, 2, 0, 0, 0, 255, 255,
+            ],
+        );
     }
 
     #[test]
     fn block_flush() {
-        test_flush(DeflateFlush::Block);
+        test_flush(
+            DeflateFlush::Block,
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 242, 72, 205, 201, 201, 87, 8, 207, 47, 202, 73,
+                81, 228, 2,
+            ],
+        );
     }
 
     #[test]
@@ -4054,86 +4072,5 @@ mod test {
 
         #[cfg(target_arch = "aarch64")]
         fuzz_based_test(&input, config, &_aarch64);
-    }
-
-    pub fn compress_slice_with_flush_ng<'a>(
-        output: &'a mut [u8],
-        input: &[u8],
-        config: DeflateConfig,
-        final_flush: DeflateFlush,
-    ) -> (&'a mut [u8], ReturnCode) {
-        let mut stream = libz_ng_sys::z_stream {
-            next_in: input.as_ptr() as *mut u8,
-            avail_in: 0, // for special logic in the first  iteration
-            total_in: 0,
-            next_out: output.as_mut_ptr(),
-            avail_out: 0, // for special logic on the first iteration
-            total_out: 0,
-            msg: core::ptr::null_mut(),
-            state: core::ptr::null_mut(),
-            zalloc: crate::allocate::zalloc_c,
-            zfree: crate::allocate::zfree_c,
-            opaque: core::ptr::null_mut(),
-            data_type: 0,
-            adler: 0,
-            reserved: 0,
-        };
-
-        use core::ffi::{c_char, c_int, c_uint};
-
-        const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-        const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
-
-        let err = unsafe {
-            libz_ng_sys::deflateInit2_(
-                &mut stream,
-                config.level,
-                config.method as i32,
-                config.window_bits,
-                config.mem_level,
-                config.strategy as i32,
-                VERSION,
-                STREAM_SIZE,
-            )
-        };
-
-        if err != libz_ng_sys::Z_OK {
-            return (&mut [], ReturnCode::from(err));
-        }
-
-        let max = c_uint::MAX as usize;
-
-        let mut left = output.len();
-        let mut source_len = input.len();
-
-        loop {
-            if stream.avail_out == 0 {
-                stream.avail_out = Ord::min(left, max) as _;
-                left -= stream.avail_out as usize;
-            }
-
-            if stream.avail_in == 0 {
-                stream.avail_in = Ord::min(source_len, max) as _;
-                source_len -= stream.avail_in as usize;
-            }
-
-            let flush = if source_len > 0 {
-                DeflateFlush::NoFlush
-            } else {
-                final_flush
-            };
-
-            let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
-
-            if err != libz_ng_sys::Z_OK {
-                break;
-            }
-        }
-
-        // may DataError if there was insufficient output space
-        let err = unsafe { libz_ng_sys::deflateEnd(&mut stream) };
-        let return_code: ReturnCode = ReturnCode::from(err);
-
-        (&mut output[..stream.total_out as usize], return_code)
     }
 }
