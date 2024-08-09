@@ -3,7 +3,7 @@ use zlib_rs::{deflate::DeflateConfig, DeflateFlush, ReturnCode};
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use core::ffi::{c_char, c_int, c_uint};
+use core::ffi::{c_int, c_uint};
 
 pub fn compress_slice_ng<'a>(
     output: &'a mut [u8],

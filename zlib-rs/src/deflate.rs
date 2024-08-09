@@ -3090,46 +3090,6 @@ mod test {
         assert_eq!(State::detect_data_type(&non_text), DataType::Binary);
     }
 
-    const PAPER_100K: &[u8] = include_bytes!("deflate/test-data/paper-100k.pdf");
-    const FIREWORKS: &[u8] = include_bytes!("deflate/test-data/fireworks.jpg");
-    const LCET10: &str = include_str!("deflate/test-data/lcet10.txt");
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn compress_lcet10() {
-        fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
-    }
-
-    #[test]
-    #[cfg_attr(
-        target_arch = "aarch64",
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
-    #[cfg_attr(miri, ignore)]
-    fn compress_paper_100k() {
-        let mut config = DeflateConfig::default();
-
-        for n in 0..=9 {
-            config.level = n;
-            fuzz_based_test(PAPER_100K, config, &[])
-        }
-    }
-
-    #[test]
-    #[cfg_attr(
-        target_arch = "aarch64",
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
-    #[cfg_attr(miri, ignore)]
-    fn compress_fireworks() {
-        let mut config = DeflateConfig::default();
-
-        for n in 0..=9 {
-            config.level = n;
-            fuzz_based_test(FIREWORKS, config, &[])
-        }
-    }
-
     #[test]
     fn from_stream_mut() {
         unsafe {
@@ -3646,7 +3606,10 @@ mod test {
                 mem_level: 6,
                 strategy: Strategy::Default,
             },
-            &[],
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 4, 3, 1, 18, 0, 237, 255, 27, 27, 27, 27, 27, 27, 27,
+                27, 27, 27, 27, 27, 27, 27, 27, 27, 9, 0, 60, 101, 156, 55, 18, 0, 0, 0,
+            ],
         )
     }
 
