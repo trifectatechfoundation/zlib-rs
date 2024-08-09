@@ -3854,6 +3854,9 @@ mod test {
 
     #[test]
     fn gzip_with_header() {
+        // this test is here mostly so we get some MIRI action on the gzip header. A test that
+        // compares behavior with zlib-ng is in the libz-rs-sys test suite
+
         let extra = "some extra stuff\0";
         let name = "nomen est omen\0";
         let comment = "such comment\0";
@@ -3905,153 +3908,6 @@ mod test {
         let output_rs = &mut output[..n];
 
         assert_eq!(output_rs.len(), 81);
-
-        #[cfg(not(miri))]
-        {
-            let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
-
-            const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-            const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
-
-            let err = unsafe {
-                libz_ng_sys::deflateInit2_(
-                    stream.as_mut_ptr(),
-                    config.level,
-                    config.method as i32,
-                    config.window_bits,
-                    config.mem_level,
-                    config.strategy as i32,
-                    VERSION,
-                    STREAM_SIZE,
-                )
-            };
-            assert_eq!(err, 0);
-
-            let stream = unsafe { stream.assume_init_mut() };
-
-            let mut header = libz_ng_sys::gz_header {
-                text: 0,
-                time: 0,
-                xflags: 0,
-                os: 0,
-                extra: extra.as_ptr() as *mut _,
-                extra_len: extra.len() as _,
-                extra_max: 0,
-                name: name.as_ptr() as *mut _,
-                name_max: 0,
-                comment: comment.as_ptr() as *mut _,
-                comm_max: 0,
-                hcrc: 1,
-                done: 0,
-            };
-
-            let err = unsafe { libz_ng_sys::deflateSetHeader(stream, &mut header) };
-            assert_eq!(err, 0);
-
-            let input = b"Hello World\n";
-            stream.next_in = input.as_ptr() as *mut _;
-            stream.avail_in = input.len() as _;
-
-            let mut output = [0u8; 256];
-            stream.next_out = output.as_mut_ptr();
-            stream.avail_out = output.len() as _;
-
-            let err = unsafe { libz_ng_sys::deflate(stream, DeflateFlush::Finish as _) };
-            assert_eq!(err, ReturnCode::StreamEnd as i32);
-
-            let n = stream.total_out;
-
-            let err = unsafe { libz_ng_sys::deflateEnd(stream) };
-            assert_eq!(err, 0);
-
-            assert_eq!(&output[..n], output_rs);
-        }
-
-        #[cfg(not(miri))]
-        {
-            let mut stream = MaybeUninit::<libz_ng_sys::z_stream>::zeroed();
-
-            const VERSION: *const c_char = "2.1.4\0".as_ptr() as *const c_char;
-            const STREAM_SIZE: c_int = core::mem::size_of::<libz_ng_sys::z_stream>() as c_int;
-
-            let err = unsafe {
-                libz_ng_sys::inflateInit2_(
-                    stream.as_mut_ptr(),
-                    config.window_bits,
-                    VERSION,
-                    STREAM_SIZE,
-                )
-            };
-            assert_eq!(err, 0);
-
-            let stream = unsafe { stream.assume_init_mut() };
-
-            stream.next_in = output_rs.as_mut_ptr() as _;
-            stream.avail_in = output_rs.len() as _;
-
-            let mut output = [0u8; 12];
-            stream.next_out = output.as_mut_ptr();
-            stream.avail_out = output.len() as _;
-
-            let mut extra_buf = [0u8; 64];
-            let mut name_buf = [0u8; 64];
-            let mut comment_buf = [0u8; 64];
-
-            let mut header = libz_ng_sys::gz_header {
-                text: 0,
-                time: 0,
-                xflags: 0,
-                os: 0,
-                extra: extra_buf.as_mut_ptr(),
-                extra_len: 0,
-                extra_max: extra_buf.len() as _,
-                name: name_buf.as_mut_ptr(),
-                name_max: name_buf.len() as _,
-                comment: comment_buf.as_mut_ptr(),
-                comm_max: comment_buf.len() as _,
-                hcrc: 0,
-                done: 0,
-            };
-
-            let err = unsafe { libz_ng_sys::inflateGetHeader(stream, &mut header) };
-            assert_eq!(err, 0);
-
-            let err = unsafe { libz_ng_sys::inflate(stream, DeflateFlush::NoFlush as _) };
-            assert_eq!(
-                err,
-                ReturnCode::StreamEnd as i32,
-                "{:?}",
-                if stream.msg.is_null() {
-                    None
-                } else {
-                    Some(unsafe { CStr::from_ptr(stream.msg) })
-                }
-            );
-
-            assert!(!header.comment.is_null());
-            assert_eq!(
-                unsafe { CStr::from_ptr(header.comment.cast()) }
-                    .to_str()
-                    .unwrap(),
-                comment.trim_end_matches('\0')
-            );
-
-            assert!(!header.name.is_null());
-            assert_eq!(
-                unsafe { CStr::from_ptr(header.name.cast()) }
-                    .to_str()
-                    .unwrap(),
-                name.trim_end_matches('\0')
-            );
-
-            assert!(!header.extra.is_null());
-            assert_eq!(
-                unsafe { CStr::from_ptr(header.extra.cast()) }
-                    .to_str()
-                    .unwrap(),
-                extra.trim_end_matches('\0')
-            );
-        }
 
         {
             let mut stream = z_stream::default();
