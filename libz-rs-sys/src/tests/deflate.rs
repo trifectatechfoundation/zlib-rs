@@ -2148,6 +2148,7 @@ mod fuzz_based_tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn gzip_stored_block_checksum() {
         fuzz_based_test(
             &[
@@ -2161,7 +2162,7 @@ mod fuzz_based_tests {
                 strategy: Strategy::Default,
             },
             &[
-                31, 139, 8, 0, 0, 0, 0, 0, 4, 3, 1, 18, 0, 237, 255, 27, 27, 27, 27, 27, 27, 27,
+                31, 139, 8, 0, 0, 0, 0, 0, 4, gz_header::OS_CODE, 1, 18, 0, 237, 255, 27, 27, 27, 27, 27, 27, 27,
                 27, 27, 27, 27, 27, 27, 27, 27, 27, 9, 0, 60, 101, 156, 55, 18, 0, 0, 0,
             ],
         )
