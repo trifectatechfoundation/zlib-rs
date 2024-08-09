@@ -62,7 +62,7 @@ mod rust {
         // this optimizes well because we statically limit the slice to 256 bytes.
         // the loop gets unrolled 4 times automatically.
         for chunk in src[..256].chunks_exact(8) {
-            let mv = u64::from_ne_bytes(chunk.try_into().unwrap());
+            let mv = u64::from_le_bytes(chunk.try_into().unwrap());
 
             let diff = sv ^ mv;
 
