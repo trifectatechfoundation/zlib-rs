@@ -17,9 +17,6 @@
 //! always safe to provide an argument of type `&mut z_stream`: rust will automatically downcast
 //! the argument to `*mut z_stream`.
 
-#[cfg(test)]
-mod tests;
-
 use core::mem::MaybeUninit;
 
 use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
@@ -39,17 +36,20 @@ macro_rules! prefix {
     };
 }
 
-#[cfg(all(not(feature = "custom-prefix"), not(test)))]
+#[cfg(all(
+    not(feature = "custom-prefix"),
+    not(any(test, feature = "testing-prefix"))
+))]
 macro_rules! prefix {
     ($name:expr) => {
         stringify!($name)
     };
 }
 
-#[cfg(all(not(feature = "custom-prefix"), test))]
+#[cfg(all(not(feature = "custom-prefix"), any(test, feature = "testing-prefix")))]
 macro_rules! prefix {
     ($name:expr) => {
-        concat!("LIBZ_RS_SYS_", stringify!($name))
+        concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
     };
 }
 

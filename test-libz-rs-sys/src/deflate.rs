@@ -3,8 +3,6 @@ use std::{ffi::CString, mem::MaybeUninit};
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use crate as libz_rs_sys;
-
 use core::ffi::{c_char, c_int, c_ulong, CStr};
 
 use libz_rs_sys::{
@@ -887,7 +885,7 @@ fn test_dict_deflate() {
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let dictId = strm.adler;
+        let dict_id = strm.adler;
         let mut compr = [0; 32];
         strm.next_out = compr.as_mut_ptr();
         strm.avail_out = compr.len() as _;
@@ -901,7 +899,7 @@ fn test_dict_deflate() {
         let err = deflateEnd(strm);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        (dictId, compr)
+        (dict_id, compr)
     };
 
     let output_ng = unsafe {
@@ -928,7 +926,7 @@ fn test_dict_deflate() {
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let dictId = strm.adler;
+        let dict_id = strm.adler;
         let mut compr = [0; 32];
         strm.next_out = compr.as_mut_ptr();
         strm.avail_out = compr.len() as _;
@@ -942,7 +940,7 @@ fn test_dict_deflate() {
         let err = libz_ng_sys::deflateEnd(strm);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        (dictId, compr)
+        (dict_id, compr)
     };
 
     assert_eq!(output_rs.0, output_ng.0 as c_ulong);
@@ -1928,8 +1926,8 @@ fn gzip_with_header() {
 }
 
 mod fuzz_based_tests {
-    use crate::gz_header;
-    use crate::tests::helpers::compress_slice_ng;
+    use crate::helpers::compress_slice_ng;
+    use libz_rs_sys::gz_header;
     use zlib_rs::{
         deflate::{compress_slice, DeflateConfig, Method, Strategy},
         ReturnCode,

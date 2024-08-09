@@ -1,6 +1,6 @@
 use zlib_rs::{deflate::DeflateConfig, ReturnCode};
 
-use crate::tests::helpers::compress_slice_ng;
+use crate::helpers::compress_slice_ng;
 
 fn cve_test(input: &[u8]) {
     let mut output_ng = [0; 1 << 17];
