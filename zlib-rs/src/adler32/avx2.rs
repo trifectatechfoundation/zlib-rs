@@ -228,11 +228,10 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn large_input() {
-        const DEFAULT: &str =
-            include_str!("../deflate/test-data/zlib-ng/CVE-2018-25032/default.txt");
+        const DEFAULT: &[u8] = include_bytes!("../deflate/test-data/paper-100k.pdf");
 
-        let avx2 = adler32_avx2(42, DEFAULT.as_bytes());
-        let rust = crate::adler32::generic::adler32_rust(42, DEFAULT.as_bytes());
+        let avx2 = adler32_avx2(42, DEFAULT);
+        let rust = crate::adler32::generic::adler32_rust(42, DEFAULT);
 
         assert_eq!(avx2, rust);
     }
