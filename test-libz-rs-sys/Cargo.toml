@@ -1,0 +1,23 @@
+[package]
+name = "test-libz-rs-sys"
+readme = "README.md"
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+quickcheck.workspace = true
+crc32fast = "1.3.2"
+
+zlib-rs = { workspace = true, default-features = false, features = ["std", "__internal-test"] }
+libz-rs-sys = { workspace = true, default-features = false, features = ["std", "rust-allocator", "testing-prefix"] }
+
+libloading.workspace = true
+dynamic-libz-sys.workspace = true
+
+libz-sys.workspace = true

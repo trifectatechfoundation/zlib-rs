@@ -1,12 +1,10 @@
-use core::mem::ManuallyDrop;
-
-use crate as libz_rs_sys;
+use core::ffi::{c_char, c_int, c_ulong, c_void, CStr};
+use core::mem::{ManuallyDrop, MaybeUninit};
 
 use libz_rs_sys::*;
-use std::ffi::CStr;
-use zlib_rs::deflate::compress_slice;
-use zlib_rs::inflate::{set_mode_dict, uncompress_slice, INFLATE_STATE_SIZE};
-use zlib_rs::MAX_WBITS;
+use zlib_rs::deflate::{compress_slice, DeflateConfig};
+use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
+use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
 
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -1010,7 +1008,7 @@ fn uncompress_help(input: &[u8]) -> Vec<u8> {
     let err = unsafe { uncompress(dest, &mut dest_len, source, source_len) };
 
     if err != 0 {
-        panic!("error {:?}", libz_rs_sys::ReturnCode::from(err));
+        panic!("error {:?}", ReturnCode::from(err));
     }
 
     dest_vec.truncate(dest_len as usize);
@@ -1090,7 +1088,7 @@ fn inflate_adler() {
         reserved: 0,
     };
 
-    let err = unsafe { inflateInit2(&mut stream, 32 + MAX_WBITS) };
+    let err = unsafe { inflateInit2_(&mut stream, 32 + MAX_WBITS, VERSION, STREAM_SIZE) };
     assert_eq!(err, Z_OK);
 
     let mut uncompressed = [0u8; 1024];
