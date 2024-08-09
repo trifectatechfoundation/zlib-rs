@@ -206,7 +206,7 @@ impl gz_header {
     //  13 - Acorn RISCOS
     // 255 - unknown
     #[allow(clippy::if_same_then_else)]
-    pub(crate) const OS_CODE: u8 = {
+    pub const OS_CODE: u8 = {
         if cfg!(windows) {
             10
         } else if cfg!(target_os = "macos") {

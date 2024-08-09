@@ -3435,17 +3435,7 @@ mod test {
         let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        if !cfg!(miri) {
-            let mut output_ng = [0; 1 << 17];
-            let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
-            assert_eq!(err, ReturnCode::Ok);
-
-            assert_eq!(output_rs, output_ng);
-        }
-
-        if !expected.is_empty() {
-            assert_eq!(output_rs, expected);
-        }
+        assert_eq!(output_rs, expected);
     }
 
     #[test]
@@ -3550,24 +3540,6 @@ mod test {
                 0x0, 0x8e, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x6a,
                 0xf5, 0x63, 0x60, 0x60, 0x3, 0x0, 0xee, 0x8a, 0x88, 0x67,
             ],
-        )
-    }
-
-    #[test]
-    fn read_buf_window_uninitialized() {
-        // copies more in `read_buf_window` than is initialized at that point
-        const INPUT: &str = include_str!("deflate/test-data/read_buf_window_uninitialized.txt");
-
-        fuzz_based_test(
-            INPUT.as_bytes(),
-            DeflateConfig {
-                level: 0,
-                method: Method::Deflated,
-                window_bits: 10,
-                mem_level: 6,
-                strategy: Strategy::Default,
-            },
-            &[],
         )
     }
 
@@ -3811,15 +3783,6 @@ mod test {
                     .unwrap(),
                 extra.trim_end_matches('\0')
             );
-        }
-    }
-
-    #[cfg(not(miri))]
-    quickcheck::quickcheck! {
-        fn rs_is_ng(bytes: Vec<u8>) -> bool {
-            fuzz_based_test(&bytes, DeflateConfig::default(), &[]);
-
-            true
         }
     }
 
@@ -4091,14 +4054,6 @@ mod test {
 
         #[cfg(target_arch = "aarch64")]
         fuzz_based_test(&input, config, &_aarch64);
-    }
-
-    pub fn compress_slice_ng<'a>(
-        output: &'a mut [u8],
-        input: &[u8],
-        config: DeflateConfig,
-    ) -> (&'a mut [u8], ReturnCode) {
-        compress_slice_with_flush_ng(output, input, config, DeflateFlush::Finish)
     }
 
     pub fn compress_slice_with_flush_ng<'a>(
