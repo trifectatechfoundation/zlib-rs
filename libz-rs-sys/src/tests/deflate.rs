@@ -1926,3 +1926,69 @@ fn gzip_with_header() {
         );
     }
 }
+
+mod fuzz_based_tests {
+    use crate::tests::helpers::compress_slice_ng;
+    use zlib_rs::{
+        deflate::{compress_slice, DeflateConfig},
+        ReturnCode,
+    };
+
+    fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
+        let mut output_rs = [0; 1 << 17];
+        let (output_rs, err) = compress_slice(&mut output_rs, input, config);
+        assert_eq!(err, ReturnCode::Ok);
+
+        if !cfg!(miri) {
+            let mut output_ng = [0; 1 << 17];
+            let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
+            assert_eq!(err, ReturnCode::Ok);
+
+            assert_eq!(output_rs, output_ng);
+        }
+
+        if !expected.is_empty() {
+            assert_eq!(output_rs, expected);
+        }
+    }
+
+    const PAPER_100K: &[u8] = include_bytes!("test-data/paper-100k.pdf");
+    const FIREWORKS: &[u8] = include_bytes!("test-data/fireworks.jpg");
+    const LCET10: &str = include_str!("test-data/lcet10.txt");
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn compress_lcet10() {
+        fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
+    }
+
+    #[test]
+    #[cfg_attr(
+        target_arch = "aarch64",
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
+    #[cfg_attr(miri, ignore)]
+    fn compress_paper_100k() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(PAPER_100K, config, &[])
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        target_arch = "aarch64",
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
+    #[cfg_attr(miri, ignore)]
+    fn compress_fireworks() {
+        let mut config = DeflateConfig::default();
+
+        for n in 0..=9 {
+            config.level = n;
+            fuzz_based_test(FIREWORKS, config, &[])
+        }
+    }
+}
