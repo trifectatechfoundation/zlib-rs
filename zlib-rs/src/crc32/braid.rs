@@ -69,7 +69,7 @@ fn crc32_naive_inner(data: &[u8], start: u32) -> u32 {
 
 fn crc32_words_inner(words: &[usize], start: u32, per_word_crcs: &[u32]) -> u32 {
     words.iter().enumerate().fold(start, |crc, (i, word)| {
-        let value = *word ^ (crc ^ per_word_crcs.get(i).unwrap_or(&0)) as usize;
+        let value = word.to_le() ^ (crc ^ per_word_crcs.get(i).unwrap_or(&0)) as usize;
         value
             .to_le_bytes()
             .into_iter()
@@ -99,7 +99,7 @@ pub fn crc32_braid<const N: usize>(start: u32, data: &[u8]) -> u32 {
     for i in 0..blocks {
         // Load the next N words.
         let mut buffer: [usize; N] =
-            core::array::from_fn(|j| usize::to_le(words[i * N + j] ^ (crcs[j] as usize)));
+            core::array::from_fn(|j| usize::to_le(words[i * N + j]) ^ (crcs[j] as usize));
 
         crcs.fill(0);
         for j in 0..W {
@@ -139,6 +139,31 @@ mod test {
     #[test]
     fn empty_is_identity() {
         assert_eq!(crc32_naive(&[], 32), 32);
+    }
+
+    #[test]
+    fn words_endianness() {
+        let v = [0, 0, 0, 0, 0, 16, 0, 1];
+        let start = 1534327806;
+
+        let mut h = crc32fast::Hasher::new_with_initial(start);
+        h.update(&v[..]);
+        assert_eq!(crc32_words(&v[..], start), h.finalize());
+    }
+
+    #[test]
+    fn crc32_naive_inner_endianness_and_alignment() {
+        assert_eq!(crc32_naive_inner(&[0, 1], 0), 1996959894);
+
+        let v: Vec<_> = (0..1024).map(|i| i as u8).collect();
+        let start = 0;
+
+        // test alignment
+        for i in 0..8 {
+            let mut h = crc32fast::Hasher::new_with_initial(start);
+            h.update(&v[i..]);
+            assert_eq!(crc32_braid::<5>(start, &v[i..]), h.finalize());
+        }
     }
 
     quickcheck::quickcheck! {
