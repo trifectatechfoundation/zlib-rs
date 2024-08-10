@@ -716,6 +716,10 @@ fn deflate_bound_gzip_header() {
 }
 
 #[test]
+#[cfg_attr(
+    target_endian = "big",
+    ignore = "we don't support DFLTCC, which changes the bounds in zlib-ng"
+)]
 fn test_compress_bound_windows() {
     let source_len = 4294967289 as core::ffi::c_ulong;
 
@@ -726,6 +730,10 @@ fn test_compress_bound_windows() {
 }
 
 #[test]
+#[cfg_attr(
+    target_endian = "big",
+    ignore = "we don't support DFLTCC, which changes the bounds in zlib-ng"
+)]
 fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
@@ -1965,17 +1973,21 @@ mod fuzz_based_tests {
     const LCET10: &str = include_str!("test-data/lcet10.txt");
 
     #[test]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(
+        not(any(target_arch = "x86_64", target_arch = "aarch64")),
+        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
+    )]
+    #[cfg_attr(miri, ignore = "too slow")]
     fn compress_lcet10() {
         fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
     }
 
     #[test]
     #[cfg_attr(
-        target_arch = "aarch64",
+        not(target_arch = "x86_64"),
         ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
     )]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore = "too slow")]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
 

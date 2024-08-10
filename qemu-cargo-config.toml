@@ -1,0 +1,8 @@
+# gets copied to .cargo/config.toml on CI, meant to run tests under qemu
+
+[target.s390x-unknown-linux-gnu]
+runner = "qemu-s390x -L /usr/s390x-linux-gnu"
+linker = "s390x-linux-gnu-gcc"
+
+[target.i686-unknown-linux-gnu]
+linker = "i686-linux-gnu-gcc"
