@@ -940,12 +940,12 @@ impl<'a> BitWriter<'a> {
             self.bits_used = total_bits;
         } else if self.bits_used == Self::BIT_BUF_SIZE {
             // with how send_bits is called, this is unreachable in practice
-            self.pending.extend(&self.bit_buffer.to_ne_bytes());
+            self.pending.extend(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val;
             self.bits_used = len;
         } else {
             self.bit_buffer |= val << self.bits_used;
-            self.pending.extend(&self.bit_buffer.to_ne_bytes());
+            self.pending.extend(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
         }
@@ -3788,6 +3788,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn insufficient_compress_space() {
         const DATA: &[u8] = include_bytes!("deflate/test-data/inflate_buf_error.dat");
 
@@ -3942,7 +3943,7 @@ mod test {
         // cuts off the length and crc
         let (suffix, end) = output2.split_at(output2.len() - 8);
         let (crc2, len2) = end.split_at(4);
-        let crc2 = u32::from_ne_bytes(crc2.try_into().unwrap());
+        let crc2 = u32::from_le_bytes(crc2.try_into().unwrap());
 
         // cuts off the gzip header (10 bytes) from the front
         let suffix = &suffix[10..];
@@ -3954,7 +3955,7 @@ mod test {
         // it would be more proper to use `stream.total_in` here, but the slice helpers hide the
         // stream so we're cheating a bit here
         let len1 = input1.len() as u32;
-        let len2 = u32::from_ne_bytes(len2.try_into().unwrap());
+        let len2 = u32::from_le_bytes(len2.try_into().unwrap());
         assert_eq!(len2 as usize, input2.len());
 
         let crc1 = crate::crc32(0, input1.as_bytes());

@@ -42,12 +42,12 @@ pub fn crc32_acle_arm(crc: u32, buf: &[u8]) -> u32 {
 
 fn remainder(mut c: u32, mut buf: &[u8]) -> u32 {
     if let [b0, b1, b2, b3, rest @ ..] = buf {
-        c = unsafe { __crc32w(c, u32::from_ne_bytes([*b0, *b1, *b2, *b3])) };
+        c = unsafe { __crc32w(c, u32::from_le_bytes([*b0, *b1, *b2, *b3])) };
         buf = rest;
     }
 
     if let [b0, b1, rest @ ..] = buf {
-        c = unsafe { __crc32h(c, u16::from_ne_bytes([*b0, *b1])) };
+        c = unsafe { __crc32h(c, u16::from_le_bytes([*b0, *b1])) };
         buf = rest;
     }
 

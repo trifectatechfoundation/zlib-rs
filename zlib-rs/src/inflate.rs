@@ -624,7 +624,7 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            let bytes = (self.bit_reader.hold() as u32).to_ne_bytes();
+            let bytes = (self.bit_reader.hold() as u32).to_le_bytes();
             self.checksum = crc32(self.checksum, &bytes);
         }
 
@@ -641,7 +641,7 @@ impl<'a> State<'a> {
         }
 
         if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-            let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+            let bytes = (self.bit_reader.hold() as u16).to_le_bytes();
             self.checksum = crc32(self.checksum, &bytes);
         }
 
@@ -661,7 +661,7 @@ impl<'a> State<'a> {
             }
 
             if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
-                let bytes = (self.bit_reader.hold() as u16).to_ne_bytes();
+                let bytes = (self.bit_reader.hold() as u16).to_le_bytes();
                 self.checksum = crc32(self.checksum, &bytes);
             }
             self.bit_reader.init_bits();

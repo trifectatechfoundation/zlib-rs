@@ -19,7 +19,7 @@ pub trait HashCalc {
 
     fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
-        let val = u32::from_ne_bytes(slice[..4].try_into().unwrap());
+        let val = u32::from_le_bytes(slice[..4].try_into().unwrap());
 
         let hm = (Self::hash_calc(0, val) & Self::HASH_CALC_MASK) as usize;
 
@@ -39,7 +39,7 @@ pub trait HashCalc {
         for (i, w) in slice[..count + 3].windows(4).enumerate() {
             let idx = string as u16 + i as u16;
 
-            let val = u32::from_ne_bytes(w.try_into().unwrap());
+            let val = u32::from_le_bytes(w.try_into().unwrap());
 
             let hm = (Self::hash_calc(0, val) & Self::HASH_CALC_MASK) as usize;
 

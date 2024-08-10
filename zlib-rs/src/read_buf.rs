@@ -498,7 +498,7 @@ impl Chunk for u64 {
 
     unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
         core::ptr::copy_nonoverlapping(
-            chunk.to_ne_bytes().as_ptr().cast(),
+            chunk.to_le_bytes().as_ptr().cast(),
             out,
             core::mem::size_of::<Self>(),
         )
