@@ -84,7 +84,7 @@ jobs:
         with:
             shared-key: "${{matrix.rust}}-${{matrix.target}}"
       - name: cargo build
-        run: cargo build ${{ matrix.features }}
+        run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
       - name: cargo nextest # reports segfaults in a helpful way
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
         env:
@@ -100,6 +100,59 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: false
+
+  build-qemu:
+    name: QEMU build & test
+    runs-on: "${{ matrix.os }}"
+    strategy:
+      matrix:
+        include:
+          - rust: stable
+            os: ubuntu-latest
+            features: ""
+            target: "s390x-unknown-linux-gnu"
+            gcc: "s390x-linux-gnu-gcc"
+          - rust: stable
+            os: ubuntu-latest
+            features: ""
+            target: "i686-unknown-linux-gnu"
+            gcc: "i686-linux-gnu-gcc"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: qemu qemu-user qemu-user-static qemu-system-s390x gcc-s390x-linux-gnu gcc-i686-linux-gnu
+          version: 1.0
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Copy QEMU Cargo Config
+        run: |
+          mkdir -p .cargo
+          cp qemu-cargo-config.toml .cargo/config.toml
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: "stable"
+          targets: "${{ matrix.target }}"
+      - name: target
+        run: "rustc -vV | sed -n 's|host: ||p'"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
+        with:
+            shared-key: "${{matrix.rust}}-${{matrix.target}}"
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-nextest
+      - name: cargo build
+        run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
+      - name: cargo nextest # reports segfaults in a helpful way
+        run: cargo nextest run -p zlib-rs --target ${{matrix.target}} ${{ matrix.features }}
+        env:
+          RUST_BACKTRACE: 1
+          CC: ${{matrix.gcc}}
 
   clippy:
     name: Clippy
