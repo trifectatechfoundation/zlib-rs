@@ -103,7 +103,7 @@ impl<'a> BitReader<'a> {
     pub fn refill(&mut self) {
         debug_assert!(self.bytes_remaining() >= 8);
 
-        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) };
+        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) }.to_le();
         self.bit_buffer |= read << self.bits_used;
         let increment = (63 - self.bits_used) >> 3;
         self.ptr = self.ptr.wrapping_add(increment as usize);
@@ -116,7 +116,7 @@ impl<'a> BitReader<'a> {
 
         // the trick of this function is that the read can happen concurrently
         // with the arithmetic below. That makes the read effectively free.
-        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) };
+        let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) }.to_le();
         let next_bit_buffer = self.bit_buffer | read << self.bits_used;
 
         let increment = (63 - self.bits_used) >> 3;
