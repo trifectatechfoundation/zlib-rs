@@ -493,7 +493,7 @@ trait Chunk {
 
 impl Chunk for u64 {
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
-        core::ptr::read_unaligned(from.cast())
+        u64::to_le(core::ptr::read_unaligned(from.cast()))
     }
 
     unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
