@@ -79,10 +79,6 @@ jobs:
         uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
         with:
           tool: cargo-nextest
-      - name: Rust cache
-        uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
-        with:
-            shared-key: "${{matrix.rust}}-${{matrix.target}}"
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
       - name: cargo nextest # reports segfaults in a helpful way
