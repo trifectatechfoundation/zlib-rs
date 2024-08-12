@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod deflate;
-#[cfg(test)]
+pub mod end_to_end;
 mod helpers;
 #[cfg(test)]
 mod inflate;

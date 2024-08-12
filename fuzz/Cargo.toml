@@ -12,9 +12,9 @@ cargo-fuzz = true
 debug = true
 
 [features]
-default = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
-c-allocator = ["libz-rs-sys/c-allocator", "libz-rs-sys/std"]
-rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
+default = ["rust-allocator", "libz-rs-sys/testing-prefix"]
+c-allocator = ["libz-rs-sys/c-allocator", "test-libz-rs-sys/c-allocator", "libz-rs-sys/std"]
+rust-allocator = ["libz-rs-sys/rust-allocator",  "test-libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
 
 [dependencies.libfuzzer-sys]
 version = "0.4"
@@ -32,6 +32,10 @@ features =  ["__internal-fuzz"]
 
 [dependencies.libz-rs-sys]
 path = "../libz-rs-sys"
+default-features = false
+
+[dependencies.test-libz-rs-sys]
+path = "../test-libz-rs-sys"
 default-features = false
 
 # Prevent this from interfering with workspaces
