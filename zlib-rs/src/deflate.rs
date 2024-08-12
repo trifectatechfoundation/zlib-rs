@@ -786,17 +786,7 @@ fn lm_set_level(state: &mut State, level: i8) {
     state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length as usize;
     state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain as usize;
 
-    // Use rolling hash for deflate_slow algorithm with level 9. It allows us to
-    // properly lookup different hash chains to speed up longest_match search. Since hashing
-    // method changes depending on the level we cannot put this into functable. */
-    state.hash_calc_variant = if state.max_chain_length > 1024 {
-        HashCalcVariant::Roll
-    } else if Crc32HashCalc::is_supported() {
-        HashCalcVariant::Crc32
-    } else {
-        HashCalcVariant::Standard
-    };
-
+    state.hash_calc_variant = HashCalcVariant::for_max_chain_length(state.max_chain_length);
     state.level = level;
 }
 
@@ -4026,7 +4016,7 @@ mod test {
     }
 
     #[test]
-    fn small_aarch64_difference() {
+    fn hash_calc_difference() {
         let input = [
             0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -4052,14 +4042,14 @@ mod test {
         ];
 
         let config = DeflateConfig {
-            level: -1,
+            level: 6,
             method: Method::Deflated,
             window_bits: 9,
             mem_level: 8,
             strategy: Strategy::Default,
         };
 
-        let x86 = [
+        let crc32 = [
             24, 149, 99, 96, 96, 96, 96, 208, 6, 17, 112, 138, 129, 193, 128, 1, 29, 24, 50, 208,
             1, 200, 146, 169, 79, 24, 74, 59, 96, 147, 52, 71, 22, 70, 246, 88, 26, 94, 80, 128,
             83, 6, 162, 219, 144, 76, 183, 210, 5, 8, 67, 105, 7, 108, 146, 230, 216, 133, 145,
@@ -4073,10 +4063,14 @@ mod test {
             160, 197, 192, 192, 96, 196, 0, 0, 3, 228, 25, 128,
         ];
 
-        if cfg!(any(target_arch = "x86_64", target_arch = "x86")) {
-            fuzz_based_test(&input, config, &x86);
-        } else {
-            fuzz_based_test(&input, config, &other);
+        // the output is slightly different based on what hashing algorithm is used
+        match HashCalcVariant::for_compression_level(config.level as usize) {
+            HashCalcVariant::Crc32 => {
+                fuzz_based_test(&input, config, &crc32);
+            }
+            HashCalcVariant::Standard | HashCalcVariant::Roll => {
+                fuzz_based_test(&input, config, &other);
+            }
         }
     }
 }

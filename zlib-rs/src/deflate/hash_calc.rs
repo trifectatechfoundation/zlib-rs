@@ -7,6 +7,26 @@ pub enum HashCalcVariant {
     Roll,
 }
 
+impl HashCalcVariant {
+    #[cfg(test)]
+    pub const fn for_compression_level(level: usize) -> Self {
+        let max_chain_length = crate::deflate::algorithm::CONFIGURATION_TABLE[level].max_chain;
+        Self::for_max_chain_length(max_chain_length as usize)
+    }
+
+    /// Use rolling hash for deflate_slow algorithm with level 9. It allows us to
+    /// properly lookup different hash chains to speed up longest_match search.
+    pub const fn for_max_chain_length(max_chain_length: usize) -> Self {
+        if max_chain_length > 1024 {
+            HashCalcVariant::Roll
+        } else if Crc32HashCalc::is_supported() {
+            HashCalcVariant::Crc32
+        } else {
+            HashCalcVariant::Standard
+        }
+    }
+}
+
 pub trait HashCalc {
     const HASH_CALC_OFFSET: usize;
     const HASH_CALC_MASK: u32;
@@ -116,7 +136,7 @@ impl HashCalc for RollHashCalc {
 pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
-    pub fn is_supported() -> bool {
+    pub const fn is_supported() -> bool {
         if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
             return true;
         }
