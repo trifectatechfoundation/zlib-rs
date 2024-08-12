@@ -455,7 +455,7 @@ fn cover_wrap() {
     strm.avail_in = 0;
     strm.next_in = std::ptr::null_mut();
     let mut ret = unsafe { inflateInit2_(&mut strm, -8, VERSION, STREAM_SIZE) };
-    let mut input = [0x63, 0x00];
+    let mut input = [0x63u8, 0x00];
     strm.avail_in = input.len() as _;
     strm.next_in = input.as_mut_ptr().cast();
     strm.avail_out = 1;
