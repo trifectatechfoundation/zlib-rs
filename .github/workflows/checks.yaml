@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: qemu qemu-user qemu-user-static qemu-system-s390x gcc-s390x-linux-gnu gcc-i686-linux-gnu
+          packages: qemu-user qemu-user-static qemu-system-s390x gcc-s390x-linux-gnu gcc-i686-linux-gnu g++-s390x-linux-gnu
           version: 1.0
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -138,10 +138,6 @@ jobs:
           targets: "${{ matrix.target }}"
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
-      - name: Rust cache
-        uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
-        with:
-            shared-key: "${{matrix.rust}}-${{matrix.target}}"
       - name: Install cargo-nextest
         uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
         with:
@@ -149,7 +145,7 @@ jobs:
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
       - name: cargo nextest # reports segfaults in a helpful way
-        run: cargo nextest run -p zlib-rs --target ${{matrix.target}} ${{ matrix.features }}
+        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }}
         env:
           RUST_BACKTRACE: 1
           CC: ${{matrix.gcc}}
