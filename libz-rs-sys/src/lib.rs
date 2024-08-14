@@ -231,18 +231,57 @@ pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_
 
 /// Inflates `source` into `dest`, and writes the final inflated size into `destLen`.
 ///
+/// Upon entry, `destLen` is the total size of the destination buffer, which must be large enough to hold the entire
+/// uncompressed data. (The size of the uncompressed data must have been saved previously by the compressor and
+/// transmitted to the decompressor by some mechanism outside the scope of this compression library.)
+/// Upon exit, `destLen` is the actual size of the uncompressed data.
+///
+/// # Returns
+///
+/// * [`Z_OK`] if success
+/// * [`Z_MEM_ERROR`] if there was not enough memory
+/// * [`Z_BUF_ERROR`] if there was not enough room in the output buffer
+/// * [`Z_DATA_ERROR`] if the input data was corrupted or incomplete
+///
+/// In the case where there is not enough room, [`uncompress`] will fill the output buffer with the uncompressed data up to that point.
+///
 /// # Safety
 ///
-/// Behavior is undefined if any of the following conditions are violated:
+/// The caller must guarantee that
 ///
-/// - `source` must be [valid](https://doc.rust-lang.org/std/ptr/index.html#safety) for reads for
-///   `sourceLen` bytes. The entity of `source` must be contained in one allocated object!
-/// - `source` must point to `sourceLen` consecutive properly initialized values of type `u8`.
-/// - `dest` must be [valid](https://doc.rust-lang.org/std/ptr/index.html#safety) for reads for
-///   `*destLen` bytes. The entity of `source` must be contained in one allocated object!
-/// - `dest` must point to `*destLen` consecutive properly initialized values of type `u8`.
-/// - while this function runs, both read and write actions to the `source` and `dest` memory
-///   ranges are forbidden
+/// * The `destLen` pointer satisfies the requirements of [`core::ptr::read`]
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
+/// * Either
+///     - `source` is `NULL`
+///     - `source` and `sourceLen` satisfy the requirements of [`core::slice::from_raw_parts::<u8>`]
+///
+/// # Example
+///
+/// ```
+/// use libz_rs_sys::{Z_OK, uncompress};
+///
+/// let source = [120, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108];
+///
+/// let mut dest = vec![0u8; 100];
+/// let mut dest_len = dest.len() as _;
+///
+/// let err = unsafe {
+///     uncompress(
+///         dest.as_mut_ptr(),
+///         &mut dest_len,
+///         source.as_ptr(),
+///         source.len() as _,
+///     )
+/// };
+///
+/// assert_eq!(err, Z_OK);
+/// assert_eq!(dest_len, 6);
+///
+/// dest.truncate(dest_len as usize);
+/// assert_eq!(dest, b"Ferris");
+/// ```
 #[export_name = prefix!(uncompress)]
 pub unsafe extern "C" fn uncompress(
     dest: *mut u8,
@@ -250,13 +289,29 @@ pub unsafe extern "C" fn uncompress(
     source: *const u8,
     sourceLen: c_ulong,
 ) -> c_int {
-    let data = dest;
-    let len = core::ptr::read(destLen) as usize;
-    let output = core::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
+    // stock zlib will just dereference a NULL pointer: that's UB.
+    // Hence us returning an error value is compatible
+    let len = if destLen.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: guaranteed by the caller
+        core::ptr::read(destLen) as usize
+    };
 
-    let data = source;
+    let output = if dest.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
+        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, len)
+    };
+
     let len = sourceLen as usize;
-    let input = core::slice::from_raw_parts(data, len);
+    let input = if source.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
+        core::slice::from_raw_parts(source, len)
+    };
 
     let (output, err) = zlib_rs::inflate::uncompress(output, input, InflateConfig::default());
 
@@ -530,6 +585,58 @@ pub unsafe extern "C" fn deflateBound(strm: *mut z_stream, sourceLen: c_ulong) -
     zlib_rs::deflate::bound(DeflateStream::from_stream_mut(strm), sourceLen as usize) as c_ulong
 }
 
+/// Compresses `source` into `dest`, and writes the final deflated size into `destLen`.
+///
+///`sourceLen` is the byte length of the source buffer.
+/// Upon entry, `destLen` is the total size of the destination buffer,
+/// which must be at least the value returned by [`compressBound`]`(sourceLen)`.
+/// Upon exit, `destLen` is the actual size of the compressed data.
+///
+/// A call to [`compress`] is equivalent to [`compress2`] with a level parameter of [`Z_DEFAULT_COMPRESSION`].
+///
+/// # Returns
+///
+/// * [`Z_OK`] if success
+/// * [`Z_MEM_ERROR`] if there was not enough memory
+/// * [`Z_BUF_ERROR`] if there was not enough room in the output buffer
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * The `destLen` pointer satisfies the requirements of [`core::ptr::read`]
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
+/// * Either
+///     - `source` is `NULL`
+///     - `source` and `sourceLen` satisfy the requirements of [`core::slice::from_raw_parts`]
+///
+/// # Example
+///
+/// ```
+/// use libz_rs_sys::{Z_OK, compress};
+///
+/// let source = b"Ferris";
+///
+/// let mut dest = vec![0u8; 100];
+/// let mut dest_len = dest.len() as _;
+///
+/// let err = unsafe {
+///     compress(
+///         dest.as_mut_ptr(),
+///         &mut dest_len,
+///         source.as_ptr(),
+///         source.len() as _,
+///     )
+/// };
+///
+/// assert_eq!(err, Z_OK);
+/// assert_eq!(dest_len, 14);
+///
+/// dest.truncate(dest_len as usize);
+/// assert_eq!(dest, [120, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108]);
+/// ```
 #[export_name = prefix!(compress)]
 pub unsafe extern "C" fn compress(
     dest: *mut Bytef,
@@ -546,6 +653,31 @@ pub unsafe extern "C" fn compress(
     )
 }
 
+/// Compresses `source` into `dest`, and writes the final deflated size into `destLen`.
+///
+/// The level parameter has the same meaning as in [`deflateInit_`].
+/// `sourceLen` is the byte length of the source buffer.
+/// Upon entry, `destLen` is the total size of the destination buffer,
+/// which must be at least the value returned by [`compressBound`]`(sourceLen)`.
+/// Upon exit, `destLen` is the actual size of the compressed data.
+///
+/// # Returns
+///
+/// * [`Z_OK`] if success
+/// * [`Z_MEM_ERROR`] if there was not enough memory
+/// * [`Z_BUF_ERROR`] if there was not enough room in the output buffer
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * The `destLen` pointer satisfies the requirements of [`core::ptr::read`]
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
+/// * Either
+///     - `source` is `NULL`
+///     - `source` and `sourceLen` satisfy the requirements of [`core::slice::from_raw_parts`]
 #[export_name = prefix!(compress2)]
 pub unsafe extern "C" fn compress2(
     dest: *mut Bytef,
@@ -554,13 +686,29 @@ pub unsafe extern "C" fn compress2(
     sourceLen: c_ulong,
     level: c_int,
 ) -> c_int {
-    let data = dest;
-    let len = core::ptr::read(destLen) as usize;
-    let output = core::slice::from_raw_parts_mut(data as *mut MaybeUninit<u8>, len);
+    // stock zlib will just dereference a NULL pointer: that's UB.
+    // Hence us returning an error value is compatible
+    let len = if destLen.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: guaranteed by the caller
+        core::ptr::read(destLen) as usize
+    };
 
-    let data = source;
+    let output = if dest.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
+        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, len)
+    };
+
     let len = sourceLen as usize;
-    let input = core::slice::from_raw_parts(data, len);
+    let input = if source.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
+        core::slice::from_raw_parts(source, len)
+    };
 
     let config = DeflateConfig::new(level);
     let (output, err) = zlib_rs::deflate::compress(output, input, config);
