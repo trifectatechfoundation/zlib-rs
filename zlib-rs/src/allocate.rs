@@ -16,7 +16,7 @@ type size_t = usize;
 ///
 /// This function is safe, but must have this type signature to be used elsewhere in the library
 #[cfg(unix)]
-pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
+unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
 
     extern "C" {
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_ui
 ///
 /// This function is safe, but must have this type signature to be used elsewhere in the library
 #[cfg(not(unix))]
-pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
+unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
 
     extern "C" {
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_ui
 /// # Safety
 ///
 /// The `ptr` must be allocated with the allocator that is used internally by `zcfree`
-pub unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
+unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
     let _ = opaque;
 
     extern "C" {
@@ -61,11 +61,7 @@ pub unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
 ///
 /// This function is safe to call.
 #[cfg(feature = "rust-allocator")]
-pub unsafe extern "C" fn zalloc_rust(
-    _opaque: *mut c_void,
-    count: c_uint,
-    size: c_uint,
-) -> *mut c_void {
+unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
     let align = 64;
     let size = count as usize * size as usize;
 
@@ -82,7 +78,7 @@ pub unsafe extern "C" fn zalloc_rust(
 /// - `ptr` must be allocated with the rust `alloc::System` allocator
 /// - `opaque` is a `&usize` that represents the size of the allocation
 #[cfg(feature = "rust-allocator")]
-pub unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
+unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
@@ -104,11 +100,11 @@ pub unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub(crate) struct Allocator<'a> {
-    pub(crate) zalloc: crate::c_api::alloc_func,
-    pub(crate) zfree: crate::c_api::free_func,
-    pub(crate) opaque: crate::c_api::voidpf,
-    pub(crate) _marker: PhantomData<&'a ()>,
+pub struct Allocator<'a> {
+    pub zalloc: crate::c_api::alloc_func,
+    pub zfree: crate::c_api::free_func,
+    pub opaque: crate::c_api::voidpf,
+    pub _marker: PhantomData<&'a ()>,
 }
 
 impl Allocator<'static> {

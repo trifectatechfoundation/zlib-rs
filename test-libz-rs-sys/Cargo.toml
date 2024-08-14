@@ -17,7 +17,7 @@ c-allocator = ["libz-rs-sys/c-allocator"]
 rust-allocator = ["libz-rs-sys/rust-allocator"]
 
 [dependencies]
-zlib-rs = { workspace = true, default-features = false, features = ["std", "__internal-test"] }
+zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test"] }
 libz-rs-sys = { workspace = true, default-features = false, features = ["std", "testing-prefix"] }
 libz-sys.workspace = true
 

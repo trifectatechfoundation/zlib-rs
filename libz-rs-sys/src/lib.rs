@@ -63,10 +63,10 @@ const DEFAULT_ZALLOC: Option<alloc_func> = '_blk: {
     // warnings when multiple allocators are configured.
 
     #[cfg(feature = "c-allocator")]
-    break '_blk Some(zlib_rs::allocate::zalloc_c);
+    break '_blk Some(zlib_rs::allocate::Allocator::C.zalloc);
 
     #[cfg(feature = "rust-allocator")]
-    break '_blk Some(zlib_rs::allocate::zalloc_rust);
+    break '_blk Some(zlib_rs::allocate::Allocator::RUST.zalloc);
 
     None
 };
@@ -74,10 +74,10 @@ const DEFAULT_ZALLOC: Option<alloc_func> = '_blk: {
 #[allow(unreachable_code)]
 const DEFAULT_ZFREE: Option<free_func> = '_blk: {
     #[cfg(feature = "c-allocator")]
-    break '_blk Some(zlib_rs::allocate::zfree_c);
+    break '_blk Some(zlib_rs::allocate::Allocator::C.zfree);
 
     #[cfg(feature = "rust-allocator")]
-    break '_blk Some(zlib_rs::allocate::zfree_rust);
+    break '_blk Some(zlib_rs::allocate::Allocator::RUST.zfree);
 
     None
 };
