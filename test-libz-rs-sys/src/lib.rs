@@ -62,3 +62,113 @@ fn crc32_combine_negative() {
     // so let's just lock in what we do
     assert_eq!(libz_rs_sys::crc32_combine(2, 123, -16), 2171032315);
 }
+
+#[test]
+fn uncompress_null() {
+    let mut dest = [0; 64];
+    let source = [1, 2, 3];
+
+    assert_eq_rs_ng!({
+        uncompress(
+            dest.as_mut_ptr(),
+            &mut (dest.len() as _),
+            source.as_ptr(),
+            source.len() as _,
+        )
+    });
+
+    // this makes stock zlib segfault
+    assert_eq!(
+        unsafe {
+            libz_rs_sys::uncompress(
+                dest.as_mut_ptr(),
+                core::ptr::null_mut(),
+                source.as_ptr(),
+                source.len() as _,
+            )
+        },
+        libz_rs_sys::Z_STREAM_ERROR
+    );
+
+    assert_eq_rs_ng!({
+        uncompress(
+            core::ptr::null_mut(),
+            &mut (dest.len() as _),
+            source.as_ptr(),
+            source.len() as _,
+        )
+    });
+
+    assert_eq_rs_ng!({
+        uncompress(
+            dest.as_mut_ptr(),
+            &mut (dest.len() as _),
+            core::ptr::null(),
+            source.len() as _,
+        )
+    });
+
+    assert_eq_rs_ng!({
+        uncompress(
+            core::ptr::null_mut(),
+            &mut (dest.len() as _),
+            core::ptr::null(),
+            source.len() as _,
+        )
+    });
+}
+
+#[test]
+fn compress_null() {
+    let mut dest = [0; 64];
+    let source = [1, 2, 3];
+
+    assert_eq_rs_ng!({
+        compress(
+            dest.as_mut_ptr(),
+            &mut (dest.len() as _),
+            source.as_ptr(),
+            source.len() as _,
+        )
+    });
+
+    // this makes stock zlib segfault
+    assert_eq!(
+        unsafe {
+            libz_rs_sys::compress(
+                dest.as_mut_ptr(),
+                core::ptr::null_mut(),
+                source.as_ptr(),
+                source.len() as _,
+            )
+        },
+        libz_rs_sys::Z_STREAM_ERROR
+    );
+
+    assert_eq_rs_ng!({
+        compress(
+            core::ptr::null_mut(),
+            &mut (dest.len() as _),
+            source.as_ptr(),
+            source.len() as _,
+        )
+    });
+
+    assert_eq_rs_ng!({
+        compress(
+            dest.as_mut_ptr(),
+            &mut (dest.len() as _),
+            core::ptr::null(),
+            source.len() as _,
+        )
+    });
+
+    assert_eq_rs_ng!({
+        compress(
+            core::ptr::null_mut(),
+            &mut (dest.len() as _),
+            core::ptr::null(),
+            source.len() as _,
+        )
+    });
+}
