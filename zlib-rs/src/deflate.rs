@@ -3110,7 +3110,7 @@ mod test {
             // must use the C allocator internally because (de)allocation is based on function
             // pointer values and because we don't use the rust allocator directly, the allocation
             // logic will store the pointer to the start at the start of the allocation.
-            crate::allocate::zalloc_c(opaque, items, size)
+            (crate::allocate::Allocator::C.zalloc)(opaque, items, size)
         } else {
             core::ptr::null_mut()
         }
@@ -3122,7 +3122,7 @@ mod test {
             let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<0>),
-                zfree: Some(crate::allocate::zfree_c),
+                zfree: Some(crate::allocate::Allocator::C.zfree),
                 opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3136,7 +3136,7 @@ mod test {
             let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<3>),
-                zfree: Some(crate::allocate::zfree_c),
+                zfree: Some(crate::allocate::Allocator::C.zfree),
                 opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3150,7 +3150,7 @@ mod test {
             let atomic = AtomicUsize::new(0);
             let mut stream = z_stream {
                 zalloc: Some(fail_nth_allocation::<5>),
-                zfree: Some(crate::allocate::zfree_c),
+                zfree: Some(crate::allocate::Allocator::C.zfree),
                 opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
                 ..z_stream::default()
             };
@@ -3171,7 +3171,7 @@ mod test {
             let atomic = AtomicUsize::new(0);
             stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
             stream.zalloc = Some(fail_nth_allocation::<6>);
-            stream.zfree = Some(crate::allocate::zfree_c);
+            stream.zfree = Some(crate::allocate::Allocator::C.zfree);
 
             // init performs 6 allocations; we don't want those to fail
             assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
@@ -3193,7 +3193,7 @@ mod test {
 
             let atomic = AtomicUsize::new(0);
             stream.zalloc = Some(fail_nth_allocation::<{ 6 + 3 }>);
-            stream.zfree = Some(crate::allocate::zfree_c);
+            stream.zfree = Some(crate::allocate::Allocator::C.zfree);
             stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
 
             // init performs 6 allocations; we don't want those to fail
@@ -3216,7 +3216,7 @@ mod test {
 
             let atomic = AtomicUsize::new(0);
             stream.zalloc = Some(fail_nth_allocation::<{ 6 + 5 }>);
-            stream.zfree = Some(crate::allocate::zfree_c);
+            stream.zfree = Some(crate::allocate::Allocator::C.zfree);
             stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
 
             // init performs 6 allocations; we don't want those to fail
