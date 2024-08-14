@@ -87,34 +87,145 @@ const DEFAULT_ZFREE: Option<free_func> = '_blk: {
 // issues with it, we can either special-case or add a feature flag to force a particular width
 pub type z_off_t = c_long;
 
+/// Calculates the [crc32](https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks#CRC-32_algorithm) checksum
+/// of a sequence of bytes.
+///
+/// When the pointer argument is `NULL`, the initial checksum value is returned.
+///
+/// ## Safety
+///
+/// The caller must guarantee that either:
+///
+/// - `buf` is `NULL`
+/// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
+///
+/// ## Example
+///
+/// ```
+/// use libz_rs_sys::crc32;
+///
+/// unsafe {
+///     assert_eq!(crc32(0, core::ptr::null(), 0), 0);
+///     assert_eq!(crc32(1, core::ptr::null(), 32), 0);
+///
+///     let input = [1,2,3];
+///     assert_eq!(crc32(0, input.as_ptr(), input.len() as _), 1438416925);
+/// }
+/// ```
 #[export_name = prefix!(crc32)]
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
-    zlib_rs::crc32(crc as u32, buf) as c_ulong
+    if buf.is_null() {
+        0
+    } else {
+        // SAFETY: requirements must be satisfied by the caller
+        let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
+        zlib_rs::crc32(crc as u32, buf) as c_ulong
+    }
 }
 
+/// Combines the checksum of two slices into one.
+///
+/// The combined value is equivalent to calculating the checksum of the whole input.
+///
+/// This function can be used when input arrives in chunks, or when different threads
+/// calculate the checksum of different sections of the input.
+///
+/// ## Example
+///
+/// ```
+/// use libz_rs_sys::{crc32, crc32_combine};
+///
+/// let input = [1, 2, 3, 4, 5, 6, 7, 8];
+/// let lo = &input[..4];
+/// let hi = &input[4..];
+///
+/// unsafe {
+///     let full = crc32(0, input.as_ptr(), input.len() as _);
+///
+///     let crc1 = crc32(0, lo.as_ptr(), lo.len() as _);
+///     let crc2 = crc32(0, hi.as_ptr(), hi.len() as _);
+///
+///     let combined = crc32_combine(crc1, crc2, hi.len() as _);
+///
+///     assert_eq!(full, combined);
+/// }
+/// ```
 #[export_name = prefix!(crc32_combine)]
-pub unsafe extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
+pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
     zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
+/// Calculates the [adler32](https://en.wikipedia.org/wiki/Adler-32) checksum
+/// of a sequence of bytes.
+///
+/// When the pointer argument is `NULL`, the initial checksum value is returned.
+///
+/// ## Safety
+///
+/// The caller must guarantee that either:
+///
+/// - `buf` is `NULL`
+/// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
+///
+/// ## Example
+///
+/// ```
+/// use libz_rs_sys::adler32;
+///
+/// unsafe {
+///     assert_eq!(adler32(0, core::ptr::null(), 0), 1);
+///     assert_eq!(adler32(1, core::ptr::null(), 32), 1);
+///
+///     let input = [1,2,3];
+///     assert_eq!(adler32(0, input.as_ptr(), input.len() as _), 655366);
+/// }
+/// ```
 #[export_name = prefix!(adler32)]
 pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
-    zlib_rs::adler32(adler as u32, buf) as c_ulong
+    if buf.is_null() {
+        1
+    } else {
+        // SAFETY: requirements must be satisfied by the caller
+        let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
+        zlib_rs::adler32(adler as u32, buf) as c_ulong
+    }
 }
 
+/// Combines the checksum of two slices into one.
+///
+/// The combined value is equivalent to calculating the checksum of the whole input.
+///
+/// This function can be used when input arrives in chunks, or when different threads
+/// calculate the checksum of different sections of the input.
+///
+/// ## Example
+///
+/// ```
+/// use libz_rs_sys::{adler32, adler32_combine};
+///
+/// let input = [1, 2, 3, 4, 5, 6, 7, 8];
+/// let lo = &input[..4];
+/// let hi = &input[4..];
+///
+/// unsafe {
+///     let full = adler32(1, input.as_ptr(), input.len() as _);
+///
+///     let adler1 = adler32(1, lo.as_ptr(), lo.len() as _);
+///     let adler2 = adler32(1, hi.as_ptr(), hi.len() as _);
+///
+///     let combined = adler32_combine(adler1, adler2, hi.len() as _);
+///
+///     assert_eq!(full, combined);
+/// }
+/// ```
 #[export_name = prefix!(adler32_combine)]
-pub unsafe extern "C" fn adler32_combine(
-    adler1: c_ulong,
-    adler2: c_ulong,
-    len2: z_off_t,
-) -> c_ulong {
-    if let Ok(len2) = u64::try_from(len2) {
-        zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong
-    } else {
-        // for negative len, return invalid adler32 as a clue for debugging
-        0xffffffff
+pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_t) -> c_ulong {
+    match u64::try_from(len2) {
+        Ok(len2) => zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong,
+        Err(_) => {
+            // for negative len, return invalid adler32 as a clue for debugging
+            0xFFFF_FFFF
+        }
     }
 }
 
