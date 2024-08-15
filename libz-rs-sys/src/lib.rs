@@ -375,6 +375,25 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     }
 }
 
+/// Initializes the state for decompression
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 #[export_name = prefix!(inflateBackInit_)]
 pub unsafe extern "C" fn inflateBackInit_(
     _strm: z_streamp,
@@ -386,6 +405,13 @@ pub unsafe extern "C" fn inflateBackInit_(
     todo!("inflateBack is not implemented yet")
 }
 
+/// Decompresses as much data as possible, and stops when the input buffer becomes empty or the output buffer becomes full.
+///
+/// ## Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[export_name = prefix!(inflateBack)]
 pub unsafe extern "C" fn inflateBack(
     _strm: z_streamp,
@@ -397,6 +423,20 @@ pub unsafe extern "C" fn inflateBack(
     todo!("inflateBack is not implemented yet")
 }
 
+/// Deallocates all dynamically allocated data structures for this stream.
+///
+/// This function discards any unprocessed input and does not flush any pending output.
+///
+/// ## Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// ## Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[export_name = prefix!(inflateBackEnd)]
 pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
     todo!("inflateBack is not implemented yet")
