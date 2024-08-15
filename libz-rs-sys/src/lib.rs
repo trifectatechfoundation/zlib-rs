@@ -567,7 +567,7 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 
 /// Initializes the state for decompression
 ///
-/// A call to `inflateInit_` is equivalent to [`inflateInit2_`] where `windowBits` is 15.
+/// A call to [`inflateInit_`] is equivalent to [`inflateInit2_`] where `windowBits` is 15.
 ///
 /// # Returns
 ///
@@ -883,6 +883,20 @@ pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
     todo!()
 }
 
+/// Compresses as much data as possible, and stops when the input buffer becomes empty or the output buffer becomes full.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_END`] if the end of the compressed data has been reached and all uncompressed output has been produced
+/// - [`Z_NEED_DICT`] if a preset dictionary is needed at this point
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+/// - [`Z_DATA_ERROR`] if the input data was corrupted
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_BUF_ERROR`] if no progress was possible or if there was not enough room in the output buffer when [`Z_FINISH`] is used
+///
+/// Note that [`Z_BUF_ERROR`] is not fatal, and [`inflate`] can be called again with more input and more output space to continue decompressing.
+/// If [`Z_DATA_ERROR`] is returned, the application may then call [`inflateSync`] to look for a good compression block if a partial recovery of the data is to be attempted.
 #[export_name = prefix!(deflate)]
 pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
@@ -1145,6 +1159,69 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
     }
 }
 
+/// Initializes the state for compression
+///
+///  The stream's `zalloc`, `zfree` and `opaque` fields must be initialized before by the caller.
+///  If `zalloc` and `zfree` are set to `NULL`, [`deflateInit_`] updates them to use default allocation functions.
+///  The `total_in`, `total_out`, `adler`, and `msg` fields are initialized.
+///
+/// The compression level must be [`Z_DEFAULT_COMPRESSION`], or between `0` and `9`:
+///
+/// - level `0` gives no compression at all (the input data is simply copied a block at a time)
+/// - level `1` gives best speed
+/// - level `9` gives best compression
+/// - [`Z_DEFAULT_COMPRESSION`] requests a default compromise between speed and compression (currently equivalent to level `6`).
+
+///
+/// A call to [`inflateInit_`] is equivalent to [`inflateInit2_`] where
+///
+/// - `method` is `8` (deflate)
+/// - `windowBits` is `15`
+/// - `memLevel` is `8`
+/// - `strategy` is `0` (default)
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///
+/// # Example
+///
+/// ```
+/// use core::mem::MaybeUninit;
+/// use libz_rs_sys::{z_stream, deflateInit_, zlibVersion, Z_OK};
+///
+/// // the zalloc and zfree fields are initialized as zero/NULL.
+/// // `deflateInit_` will set a default allocation  and deallocation function.
+/// let mut strm = MaybeUninit::zeroed();
+///
+/// let err = unsafe {
+///     deflateInit_(
+///         strm.as_mut_ptr(),
+///         6,
+///         zlibVersion(),
+///         core::mem::size_of::<z_stream>() as _,
+///     )
+/// };
+/// assert_eq!(err, Z_OK);
+///
+/// // the stream is now fully initialized. Prefer `assume_init_mut` over
+/// // `assume_init` so the stream does not get moved.
+/// let strm = unsafe { strm.assume_init_mut() };
+/// ```
 #[export_name = prefix!(deflateInit_)]
 pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
@@ -1152,26 +1229,85 @@ pub unsafe extern "C" fn deflateInit_(
     version: *const c_char,
     stream_size: c_int,
 ) -> c_int {
-    if !is_version_compatible(version, stream_size) {
-        ReturnCode::VersionError as _
-    } else if strm.is_null() {
-        ReturnCode::StreamError as _
-    } else {
-        let stream = &mut *strm;
+    let config = DeflateConfig::new(level);
 
-        if stream.zalloc.is_none() {
-            stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = core::ptr::null_mut();
-        }
-
-        if stream.zfree.is_none() {
-            stream.zfree = DEFAULT_ZFREE;
-        }
-
-        zlib_rs::deflate::init(stream, DeflateConfig::new(level)) as _
+    unsafe {
+        deflateInit2_(
+            strm,
+            level,
+            config.method as c_int,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as c_int,
+            version,
+            stream_size,
+        )
     }
 }
 
+/// Initializes the state for compression
+///
+///  The stream's `zalloc`, `zfree` and `opaque` fields must be initialized before by the caller.
+///  If `zalloc` and `zfree` are set to `NULL`, [`deflateInit_`] updates them to use default allocation functions.
+///  The `total_in`, `total_out`, `adler`, and `msg` fields are initialized.
+///
+/// The compression level must be [`Z_DEFAULT_COMPRESSION`], or between `0` and `9`:
+///
+/// - level `0` gives no compression at all (the input data is simply copied a block at a time)
+/// - level `1` gives best speed
+/// - level `9` gives best compression
+/// - [`Z_DEFAULT_COMPRESSION`] requests a default compromise between speed and compression (currently equivalent to level `6`).
+
+///
+/// A call to [`inflateInit_`] is equivalent to [`inflateInit2_`] where
+///
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///
+/// # Example
+///
+/// ```
+/// use core::mem::MaybeUninit;
+/// use libz_rs_sys::{z_stream, deflateInit2_, zlibVersion, Z_OK};
+///
+/// // the zalloc and zfree fields are initialized as zero/NULL.
+/// // `deflateInit_` will set a default allocation  and deallocation function.
+/// let mut strm = MaybeUninit::zeroed();
+///
+/// let err = unsafe {
+///     deflateInit2_(
+///         strm.as_mut_ptr(),
+///         6,
+///         8,
+///         15,
+///         8,
+///         0,
+///         zlibVersion(),
+///         core::mem::size_of::<z_stream>() as _,
+///     )
+/// };
+/// assert_eq!(err, Z_OK);
+///
+/// // the stream is now fully initialized. Prefer `assume_init_mut` over
+/// // `assume_init` so the stream does not get moved.
+/// let strm = unsafe { strm.assume_init_mut() };
+/// ```
 #[export_name = prefix!(deflateInit2_)]
 pub unsafe extern "C" fn deflateInit2_(
     strm: z_streamp,
