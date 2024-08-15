@@ -1439,6 +1439,25 @@ pub unsafe extern "C" fn deflateInit2_(
     }
 }
 
+/// Fine tune deflate's internal compression parameters.
+///
+/// This should only be used by someone who understands the algorithm used by zlib's deflate for searching
+/// for the best matching string, and even then only by the most fanatic optimizer trying to squeeze out
+/// the last compressed bit for their specific input data. Read the `deflate.rs` source code for the meaning
+/// of the `max_lazy`, `good_length`, `nice_length`, and `max_chain` parameters.
+///
+/// ## Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateTune)]
 pub unsafe extern "C" fn deflateTune(
     strm: z_streamp,

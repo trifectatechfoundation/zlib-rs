@@ -397,4 +397,9 @@ mod null {
             (a, b)
         });
     }
+
+    #[test]
+    fn deflate_tune() {
+        assert_eq_rs_ng!({ deflateTune(core::ptr::null_mut(), 1, 2, 3, 4) });
+    }
 }
