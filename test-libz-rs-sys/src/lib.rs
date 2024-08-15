@@ -255,4 +255,8 @@ fn inflate_null() {
         unsafe { libz_rs_sys::inflateSyncPoint(core::ptr::null_mut()) },
         libz_rs_sys::Z_STREAM_ERROR,
     );
+    assert_eq!(
+        unsafe { libz_rs_sys::inflateUndermine(core::ptr::null_mut(), 16) },
+        libz_rs_sys::Z_STREAM_ERROR,
+    );
 }
