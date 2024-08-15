@@ -656,6 +656,15 @@ pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
 }
 
 // undocumented but exposed function
+#[doc(hidden)]
+/// Returns the number of codes used
+///
+/// # Safety
+///
+/// The caller must guarantee that either:
+///
+/// - `buf` is `NULL`
+/// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
 #[export_name = prefix!(inflateCodesUsed)]
 pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
     todo!()
