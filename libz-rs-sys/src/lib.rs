@@ -1436,18 +1436,55 @@ pub unsafe extern "C" fn deflateTune(
     }
 }
 
+/// Get the error message for an error. This could be the value returned by e.g. [`compress`] or
+/// [`inflate`].
+///
+/// The return value is a pointer to a NULL-terminated sequence of bytes
+///
+/// ## Example
+///
+/// ```
+/// use libz_rs_sys::*;
+/// use core::ffi::{c_char, CStr};
+///
+/// fn cstr<'a>(ptr: *const c_char) -> &'a [u8] {
+///     // SAFETY: we trust the input
+///     unsafe { CStr::from_ptr(ptr) }.to_bytes()
+/// }
+///
+/// // defined error values give a short message
+/// assert_eq!(cstr(zError(Z_NEED_DICT)), b"need dictionary");
+/// assert_eq!(cstr(zError(Z_NEED_DICT)), b"need dictionary");
+/// assert_eq!(cstr(zError(Z_STREAM_END)), b"stream end");
+/// assert_eq!(cstr(zError(Z_OK)), b"");
+/// assert_eq!(cstr(zError(Z_ERRNO)), b"file error");
+/// assert_eq!(cstr(zError(Z_STREAM_ERROR)), b"stream error");
+/// assert_eq!(cstr(zError(Z_DATA_ERROR)), b"data error");
+/// assert_eq!(cstr(zError(Z_MEM_ERROR)), b"insufficient memory");
+/// assert_eq!(cstr(zError(Z_BUF_ERROR)), b"buffer error");
+/// assert_eq!(cstr(zError(Z_VERSION_ERROR)), b"incompatible version");
+///
+/// // other inputs return an empty string
+/// assert_eq!(cstr(zError(1234)), b"");
+/// ```
 #[export_name = prefix!(zError)]
-pub const unsafe extern "C" fn error_message(err: c_int) -> *const c_char {
+pub const extern "C" fn zError(err: c_int) -> *const c_char {
     match ReturnCode::try_from_c_int(err) {
         Some(return_code) => return_code.error_message(),
-        None => core::ptr::null(),
+        None => [0 as c_char].as_ptr(),
     }
+}
+
+macro_rules! libz_rs_sys_version {
+    () => {
+        concat!("1.3.0-zlib-rs-", env!("CARGO_PKG_VERSION"), "\0")
+    };
 }
 
 // the first part of this version specifies the zlib that we're compatible with (in terms of
 // supported functions). In practice in most cases only the major version is checked, unless
 // specific functions that were added later are used.
-const LIBZ_RS_SYS_VERSION: &str = concat!("1.3.0-zlib-rs-", env!("CARGO_PKG_VERSION"), "\0");
+const LIBZ_RS_SYS_VERSION: &str = concat!(libz_rs_sys_version!(), "\0");
 
 unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> bool {
     if version.is_null() {
@@ -1462,6 +1499,16 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
     core::mem::size_of::<z_stream>() as i32 == stream_size
 }
 
+/// The version of the zlib library.
+///
+/// Its value is a pointer to a NULL-terminated sequence of bytes.
+///
+/// The version string for this release is `
+#[doc = libz_rs_sys_version!()]
+/// `:
+///
+/// - The first component is the version of stock zlib that this release is compatible with
+/// - The final component is the zlib-rs version used to build this release.
 #[export_name = prefix!(zlibVersion)]
 pub const extern "C" fn zlibVersion() -> *const c_char {
     LIBZ_RS_SYS_VERSION.as_ptr() as *const c_char
