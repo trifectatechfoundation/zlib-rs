@@ -242,11 +242,17 @@ fn inflate_null() {
             );
             inflateSetDictionary(strm, dictionary.as_ptr(), dictionary.len() as _);
         }
+
+        inflateSync(core::ptr::null_mut());
     });
 
     // public but undocumented
     assert_eq!(
         unsafe { libz_rs_sys::inflateResetKeep(core::ptr::null_mut()) },
+        libz_rs_sys::Z_STREAM_ERROR,
+    );
+    assert_eq!(
+        unsafe { libz_rs_sys::inflateSyncPoint(core::ptr::null_mut()) },
         libz_rs_sys::Z_STREAM_ERROR,
     );
 }
