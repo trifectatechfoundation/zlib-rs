@@ -381,6 +381,7 @@ mod null {
     fn deflate_params() {
         assert_eq_rs_ng!({ deflateParams(core::ptr::null_mut(), 6, 0) });
 
+        #[cfg(not(miri))]
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
             deflateInit_(
@@ -394,12 +395,41 @@ mod null {
             let a = deflateParams(strm.as_mut_ptr(), 123, 0);
             let b = deflateParams(strm.as_mut_ptr(), 6, 123);
 
-            (a, b)
+            let c = deflateEnd(strm.as_mut_ptr());
+
+            (a, b, c)
         });
     }
 
     #[test]
     fn deflate_tune() {
         assert_eq_rs_ng!({ deflateTune(core::ptr::null_mut(), 1, 2, 3, 4) });
+    }
+
+    #[test]
+    fn deflate_set_header() {
+        assert_eq_rs_ng!({
+            let mut head = MaybeUninit::<gz_header>::zeroed();
+
+            deflateSetHeader(core::ptr::null_mut(), head.as_mut_ptr())
+        });
+
+        #[cfg(not(miri))]
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+
+            let a = deflateSetHeader(strm.as_mut_ptr(), core::ptr::null_mut());
+
+            let b = deflateEnd(strm.as_mut_ptr());
+
+            (a, b)
+        });
     }
 }
