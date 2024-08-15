@@ -889,14 +889,16 @@ pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
 ///
 /// - [`Z_OK`] if success
 /// - [`Z_STREAM_END`] if the end of the compressed data has been reached and all uncompressed output has been produced
-/// - [`Z_NEED_DICT`] if a preset dictionary is needed at this point
 /// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
-/// - [`Z_DATA_ERROR`] if the input data was corrupted
-/// - [`Z_MEM_ERROR`] if there was not enough memory
 /// - [`Z_BUF_ERROR`] if no progress was possible or if there was not enough room in the output buffer when [`Z_FINISH`] is used
 ///
-/// Note that [`Z_BUF_ERROR`] is not fatal, and [`inflate`] can be called again with more input and more output space to continue decompressing.
-/// If [`Z_DATA_ERROR`] is returned, the application may then call [`inflateSync`] to look for a good compression block if a partial recovery of the data is to be attempted.
+/// Note that [`Z_BUF_ERROR`] is not fatal, and [`deflate`] can be called again with more input and more output space to continue decompressing.
+///
+/// # Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflate)]
 pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
@@ -1068,6 +1070,23 @@ pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::compress_bound(sourceLen as usize) as c_ulong
 }
 
+/// Deallocates all dynamically allocated data structures for this stream.
+///
+/// This function discards any unprocessed input and does not flush any pending output.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+/// - [`Z_DATA_ERROR`] if the stream was freed prematurely (some input or output was discarded)
+///
+/// In the error case, `strm.msg` may be set but then points to a static string (which must not be deallocated).
+///
+/// # Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateEnd)]
 pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
