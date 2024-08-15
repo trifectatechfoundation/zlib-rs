@@ -911,6 +911,28 @@ pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
     }
 }
 
+/// Provides gzip header information for when a gzip stream is requested by [`deflateInit2_`].
+///
+/// [`deflateSetHeader`] may be called after [`deflateInit2_`] or [`deflateReset`]) and before the first call of [`deflate`]. The header's `text`, `time`, `os`, `extra`, `name`, and `comment` fields in the provided [`gz_header`] structure are written to the gzip header (xflag is ignored — the extra flags are set according to the compression level).
+///
+/// The caller must assure that, if not `NULL`, `name` and `comment` are terminated with a zero byte, and that if `extra` is not NULL, that `extra_len` bytes are available there.
+/// If `hcrc` is true, a gzip header crc is included.
+///
+/// If [`deflateSetHeader`] is not used, the default gzip header has text false, the time set to zero, and os set to the current operating system, with no extra, name, or comment fields. The gzip header is returned to the default state by [`deflateReset`].
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// # Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
+/// * Either
+///     - `head` is `NULL`
+///     - `head` satisfies the requirements of `&mut *head`
 #[export_name = prefix!(deflateSetHeader)]
 pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> i32 {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
