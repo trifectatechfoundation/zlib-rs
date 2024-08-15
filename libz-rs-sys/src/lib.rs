@@ -1236,6 +1236,25 @@ pub unsafe extern "C" fn deflateSetDictionary(
     }
 }
 
+/// Inserts bits in the deflate output stream.
+///
+/// The intent is that this function is used to start off the deflate output with the bits leftover from a previous deflate stream when appending to it.
+/// As such, this function can only be used for raw deflate, and must be used before the first [`deflate`] call after a [`deflateInit2_`] or [`deflateReset`].
+/// bits must be less than or equal to 16, and that many of the least significant bits of value will be inserted in the output.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_BUF_ERROR`] if there was not enough room in the internal buffer to insert the bits
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflatePrime)]
 pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int) -> c_int {
     match DeflateStream::from_stream_mut(strm) {

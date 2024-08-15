@@ -469,4 +469,9 @@ mod null {
     fn deflate_reset() {
         assert_eq_rs_ng!({ deflateReset(core::ptr::null_mut()) });
     }
+
+    #[test]
+    fn deflate_prime() {
+        assert_eq_rs_ng!({ deflatePrime(core::ptr::null_mut(), 1, 2) });
+    }
 }
