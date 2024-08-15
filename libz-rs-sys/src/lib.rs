@@ -787,7 +787,12 @@ pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> 
     }
 }
 
-// undocumented but exposed function
+#[doc(hidden)]
+/// ## Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateResetKeep)]
 pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
