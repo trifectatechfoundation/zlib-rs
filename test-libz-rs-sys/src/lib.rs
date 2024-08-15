@@ -367,4 +367,13 @@ mod null {
             deflateCopy(strm.as_mut_ptr(), core::ptr::null_mut())
         });
     }
+
+    #[test]
+    #[cfg_attr(
+        target_endian = "big",
+        ignore = "we don't support DFLTCC, which changes the bounds in zlib-ng"
+    )]
+    fn deflate_bound() {
+        assert_eq_rs_ng!({ deflateBound(core::ptr::null_mut(), 1024) });
+    }
 }
