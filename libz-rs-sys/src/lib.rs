@@ -1167,6 +1167,30 @@ pub unsafe extern "C" fn deflatePending(
     }
 }
 
+/// Sets the destination stream as a complete copy of the source stream.
+///
+/// This function can be useful when several compression strategies will be tried, for example when there are several ways of pre-processing the input data with a filter.
+/// The streams that will be discarded should then be freed by calling [`deflateEnd`].
+/// Note that [`deflateCopy`] duplicates the internal compression state which can be quite large, so this strategy is slow and can consume lots of memory.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent (such as zalloc being NULL)
+///
+/// The `msg` field is left unchanged in both source and destination.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` satisfies the requirements of `&mut *(dest as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `source` is `NULL`
+///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateCopy)]
 pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
     let dest = if dest.is_null() {
