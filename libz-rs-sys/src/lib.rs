@@ -651,6 +651,23 @@ pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32
     }
 }
 
+/// Equivalent to [`inflateEnd`] followed by [`inflateInit_`], but does not free and reallocate the internal decompression state.
+///
+/// The stream will keep attributes that may have been set by [`inflateInit2_`].
+/// The stream's `total_in`, `total_out`, `adler`, and `msg` fields are initialized.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateReset)]
 pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
@@ -660,6 +677,24 @@ pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+/// This function is the same as [`inflateReset`], but it also permits changing the wrap and window size requests.
+///
+/// The `windowBits` parameter is interpreted the same as it is for [`inflateInit2_`].
+/// If the window size is changed, then the memory allocated for the window is freed, and the window will be reallocated by [`inflate`] if needed.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent, or if the `windowBits`
+///     parameter is invalid
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateReset2)]
 pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {

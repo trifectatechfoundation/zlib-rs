@@ -219,5 +219,8 @@ fn inflate_null() {
         inflateMark(core::ptr::null_mut());
 
         inflatePrime(core::ptr::null_mut(), 1, 2);
+
+        inflateReset(core::ptr::null_mut());
+        inflateReset2(core::ptr::null_mut(), 10);
     });
 }
