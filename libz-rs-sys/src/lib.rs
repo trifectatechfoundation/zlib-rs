@@ -620,6 +620,28 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     }
 }
 
+/// Inserts bits in the inflate input stream.
+///
+/// The intent is that this function is used to start inflating at a bit position in the middle of a byte.
+/// The provided bits will be used before any bytes are used from next_in.
+/// This function should only be used with raw inflate, and should be used before the first [`inflate`] call after [`inflateInit2_`] or [`inflateReset`].
+/// bits must be less than or equal to 16, and that many of the least significant bits of value will be inserted in the input.
+///
+/// If bits is negative, then the input stream bit buffer is emptied. Then [`inflatePrime`] can be called again to put bits in the buffer.
+/// This is used to clear out bits leftover after feeding inflate a block description prior to feeding inflate codes.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
 #[export_name = prefix!(inflatePrime)]
 pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
