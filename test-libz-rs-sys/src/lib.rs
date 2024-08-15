@@ -18,15 +18,17 @@ macro_rules! assert_eq_rs_ng {
             $tt
         };
 
-        #[allow(unused_braces)]
-        #[allow(unused_unsafe)]
-        let ng = unsafe {
-            use libz_sys::*;
+        if !cfg!(miri) {
+            #[allow(unused_braces)]
+            #[allow(unused_unsafe)]
+            let ng = unsafe {
+                use libz_sys::*;
 
-            $tt
-        };
+                $tt
+            };
 
-        assert_eq!(rs, ng);
+            assert_eq!(rs, ng);
+        }
     };
 }
 
@@ -173,34 +175,59 @@ fn compress_null() {
     });
 }
 
-#[test]
-fn inflate_null() {
-    use std::mem::MaybeUninit;
+#[cfg(test)]
+mod null {
+    use core::mem::MaybeUninit;
 
-    assert_eq_rs_ng!({
-        let mut strm = MaybeUninit::<z_stream>::zeroed();
+    #[test]
+    fn inflate_init() {
+        assert_eq_rs_ng!({
+            inflateInit_(
+                core::ptr::null_mut(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        });
 
-        inflateInit_(
-            core::ptr::null_mut(),
-            zlibVersion(),
-            core::mem::size_of::<z_stream>() as _,
-        );
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            inflateInit_(
+                strm.as_mut_ptr(),
+                core::ptr::null(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        });
+    }
 
-        inflateInit_(
-            strm.as_mut_ptr(),
-            core::ptr::null(),
-            core::mem::size_of::<z_stream>() as _,
-        );
+    #[test]
+    fn inflate() {
+        assert_eq_rs_ng!({ inflate(core::ptr::null_mut(), Z_NO_FLUSH) });
+    }
 
-        inflate(core::ptr::null_mut(), Z_NO_FLUSH);
+    #[test]
+    fn inflate_end() {
+        assert_eq_rs_ng!({ inflateEnd(core::ptr::null_mut()) });
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            inflateEnd(strm.as_mut_ptr())
+        });
+    }
 
-        inflateEnd(core::ptr::null_mut());
-        inflateEnd(strm.as_mut_ptr());
+    #[test]
+    fn inflate_copy() {
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            inflateCopy(core::ptr::null_mut(), strm.as_mut_ptr())
+        });
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            inflateCopy(strm.as_mut_ptr(), core::ptr::null_mut())
+        });
+    }
 
-        inflateCopy(core::ptr::null_mut(), strm.as_mut_ptr());
-        inflateCopy(strm.as_mut_ptr(), core::ptr::null_mut());
-
-        {
+    #[test]
+    fn inflate_get_header() {
+        assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
             let mut head = MaybeUninit::<gz_header>::zeroed();
 
@@ -210,20 +237,34 @@ fn inflate_null() {
                 core::mem::size_of::<z_stream>() as _,
             );
 
-            inflateGetHeader(strm.as_mut_ptr(), core::ptr::null_mut());
-            inflateGetHeader(core::ptr::null_mut(), head.as_mut_ptr());
+            let a = inflateGetHeader(strm.as_mut_ptr(), core::ptr::null_mut());
+            let b = inflateGetHeader(core::ptr::null_mut(), head.as_mut_ptr());
 
-            inflateEnd(strm.as_mut_ptr());
-        }
+            let c = inflateEnd(strm.as_mut_ptr());
 
-        inflateMark(core::ptr::null_mut());
+            (a, b, c)
+        });
+    }
 
-        inflatePrime(core::ptr::null_mut(), 1, 2);
+    #[test]
+    fn inflate_mark() {
+        assert_eq_rs_ng!({ inflateMark(core::ptr::null_mut()) });
+    }
 
-        inflateReset(core::ptr::null_mut());
-        inflateReset2(core::ptr::null_mut(), 10);
+    #[test]
+    fn inflate_prime() {
+        assert_eq_rs_ng!({ inflatePrime(core::ptr::null_mut(), 1, 2) });
+    }
 
-        {
+    #[test]
+    fn inflate_reset() {
+        assert_eq_rs_ng!({ inflateReset(core::ptr::null_mut()) });
+        assert_eq_rs_ng!({ inflateReset2(core::ptr::null_mut(), 10) });
+    }
+
+    #[test]
+    fn inflate_set_dictionary() {
+        assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
             inflateInit_(
                 strm.as_mut_ptr(),
@@ -234,29 +275,39 @@ fn inflate_null() {
 
             let dictionary = b"foobarbaz";
 
-            inflateSetDictionary(strm, core::ptr::null(), dictionary.len() as _);
-            inflateSetDictionary(
+            let a = inflateSetDictionary(strm, core::ptr::null(), dictionary.len() as _);
+            let b = inflateSetDictionary(
                 core::ptr::null_mut(),
                 dictionary.as_ptr(),
                 dictionary.len() as _,
             );
-            inflateSetDictionary(strm, dictionary.as_ptr(), dictionary.len() as _);
-        }
+            let c = inflateSetDictionary(strm, dictionary.as_ptr(), dictionary.len() as _);
 
-        inflateSync(core::ptr::null_mut());
-    });
+            let d = inflateEnd(strm);
 
-    // public but undocumented
-    assert_eq!(
-        unsafe { libz_rs_sys::inflateResetKeep(core::ptr::null_mut()) },
-        libz_rs_sys::Z_STREAM_ERROR,
-    );
-    assert_eq!(
-        unsafe { libz_rs_sys::inflateSyncPoint(core::ptr::null_mut()) },
-        libz_rs_sys::Z_STREAM_ERROR,
-    );
-    assert_eq!(
-        unsafe { libz_rs_sys::inflateUndermine(core::ptr::null_mut(), 16) },
-        libz_rs_sys::Z_STREAM_ERROR,
-    );
+            (a, b, c, d)
+        });
+    }
+
+    #[test]
+    fn inflate_sync() {
+        assert_eq_rs_ng!({ inflateSync(core::ptr::null_mut()) });
+    }
+
+    #[test]
+    fn inflate_undocumented() {
+        // public but undocumented
+        assert_eq!(
+            unsafe { libz_rs_sys::inflateResetKeep(core::ptr::null_mut()) },
+            libz_rs_sys::Z_STREAM_ERROR,
+        );
+        assert_eq!(
+            unsafe { libz_rs_sys::inflateSyncPoint(core::ptr::null_mut()) },
+            libz_rs_sys::Z_STREAM_ERROR,
+        );
+        assert_eq!(
+            unsafe { libz_rs_sys::inflateUndermine(core::ptr::null_mut(), 16) },
+            libz_rs_sys::Z_STREAM_ERROR,
+        );
+    }
 }
