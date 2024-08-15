@@ -836,7 +836,14 @@ pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> 
     }
 }
 
-// undocumented but exposed function
+#[doc(hidden)]
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateUndermine)]
 pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
