@@ -1263,6 +1263,30 @@ pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int
     }
 }
 
+/// Returns the number of bytes and bits of output that have been generated, but not yet provided in the available output.
+///
+/// The bytes not provided would be due to the available output space having being consumed.
+/// The number of bits of output not provided are between `0` and `7`, where they await more bits to join them in order to fill out a full byte.
+/// If pending or bits are `NULL`, then those values are not set.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
+/// * Either
+///     - `pending` is `NULL`
+///     - `pending` satisfies the requirements of [`core::ptr::write::<c_int>`]
+/// * Either
+///     - `bits` is `NULL`
+///     - `bits` satisfies the requirements of [`core::ptr::write::<c_int>`]
 #[export_name = prefix!(deflatePending)]
 pub unsafe extern "C" fn deflatePending(
     strm: z_streamp,

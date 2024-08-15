@@ -474,4 +474,39 @@ mod null {
     fn deflate_prime() {
         assert_eq_rs_ng!({ deflatePrime(core::ptr::null_mut(), 1, 2) });
     }
+
+    #[test]
+    fn deflate_pending() {
+        // libz_sys does not yet have this function
+        unsafe {
+            assert_eq!(
+                libz_rs_sys::deflatePending(core::ptr::null_mut(), &mut 0, &mut 0),
+                libz_rs_sys::Z_STREAM_ERROR,
+            );
+        }
+
+        #[cfg(not(miri))]
+        assert_eq!(
+            unsafe {
+                use libz_rs_sys::*;
+
+                let mut strm = MaybeUninit::<z_stream>::zeroed();
+                deflateInit_(
+                    strm.as_mut_ptr(),
+                    0,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as _,
+                );
+                let strm = strm.assume_init_mut();
+
+                let a = deflatePending(strm, core::ptr::null_mut(), &mut 0);
+                let b = deflatePending(strm, &mut 0, core::ptr::null_mut());
+
+                let c = deflateEnd(strm);
+
+                (a, b, c)
+            },
+            (0, 0, 0)
+        );
+    }
 }
