@@ -195,8 +195,25 @@ fn inflate_null() {
         inflate(core::ptr::null_mut(), Z_NO_FLUSH);
 
         inflateEnd(core::ptr::null_mut());
+        inflateEnd(strm.as_mut_ptr());
 
         inflateCopy(core::ptr::null_mut(), strm.as_mut_ptr());
         inflateCopy(strm.as_mut_ptr(), core::ptr::null_mut());
+
+        {
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            let mut head = MaybeUninit::<gz_header>::zeroed();
+
+            inflateInit_(
+                strm.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+
+            inflateGetHeader(strm.as_mut_ptr(), core::ptr::null_mut());
+            inflateGetHeader(core::ptr::null_mut(), head.as_mut_ptr());
+
+            inflateEnd(strm.as_mut_ptr());
+        }
     });
 }
