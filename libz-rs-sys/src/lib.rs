@@ -1181,13 +1181,37 @@ pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: 
     }
 }
 
+/// Initializes the compression dictionary from the given byte sequence without producing any compressed output.
+///
+/// This function may be called after [`deflateInit_`], [`deflateInit2_`] or [`deflateReset`]) and before the first call of [`deflate`].
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
+/// * Either
+///     - `dictionary` is `NULL`
+///     - `dictionary` and `dictLength` satisfy the requirements of [`core::slice::from_raw_parts_mut::<u8>`]
 #[export_name = prefix!(deflateSetDictionary)]
 pub unsafe extern "C" fn deflateSetDictionary(
     strm: z_streamp,
     dictionary: *const Bytef,
     dictLength: uInt,
 ) -> c_int {
-    let dictionary = core::slice::from_raw_parts(dictionary, dictLength as usize);
+    let dictionary = if dictionary.is_null() {
+        return ReturnCode::StreamError as _;
+    } else {
+        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
+        core::slice::from_raw_parts(dictionary, dictLength as usize)
+    };
 
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::deflate::set_dictionary(stream, dictionary) as _,
