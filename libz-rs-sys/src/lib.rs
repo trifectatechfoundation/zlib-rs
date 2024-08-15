@@ -1065,6 +1065,9 @@ pub unsafe extern "C" fn compress2(
     err as c_int
 }
 
+/// Returns an upper bound on the compressed size after [`compress`] or [`compress2`] on `sourceLen` bytes.
+///
+/// Can be used before a [`compress`] or [`compress2`] call to allocate the destination buffer.
 #[export_name = prefix!(compressBound)]
 pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::compress_bound(sourceLen as usize) as c_ulong
