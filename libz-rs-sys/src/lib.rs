@@ -510,7 +510,7 @@ pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     if let Some(stream) = InflateStream::from_stream_ref(strm) {
         zlib_rs::inflate::mark(stream)
     } else {
-        c_long::MIN
+        -65536
     }
 }
 
