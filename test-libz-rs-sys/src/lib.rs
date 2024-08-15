@@ -319,4 +319,52 @@ mod null {
             libz_rs_sys::Z_STREAM_ERROR,
         );
     }
+
+    #[test]
+    fn deflate_init() {
+        assert_eq_rs_ng!({
+            deflateInit_(
+                core::ptr::null_mut(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        });
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                core::ptr::null(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        });
+    }
+
+    #[test]
+    fn deflate() {
+        assert_eq_rs_ng!({ deflate(core::ptr::null_mut(), Z_NO_FLUSH) });
+    }
+
+    #[test]
+    fn deflate_end() {
+        assert_eq_rs_ng!({ deflateEnd(core::ptr::null_mut()) });
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateEnd(strm.as_mut_ptr())
+        });
+    }
+
+    #[test]
+    fn deflate_copy() {
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateCopy(core::ptr::null_mut(), strm.as_mut_ptr())
+        });
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateCopy(strm.as_mut_ptr(), core::ptr::null_mut())
+        });
+    }
 }
