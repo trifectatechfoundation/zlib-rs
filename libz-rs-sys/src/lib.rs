@@ -1138,6 +1138,23 @@ pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     }
 }
 
+/// This function is equivalent to [`deflateEnd`] followed by [`deflateInit_`], but does not free and reallocate the internal compression state.
+///
+/// This function will leave the compression level and any other attributes that may have been set unchanged.
+/// The stream's `total_in`, `total_out`, `adler`, and `msg` fields are initialized.
+///
+/// ## Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// ## Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateReset)]
 pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
