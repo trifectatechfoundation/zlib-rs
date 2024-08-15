@@ -409,6 +409,8 @@ pub unsafe extern "C" fn inflateBackInit_(
 ///
 /// ## Safety
 ///
+/// The caller must guarantee that
+///
 /// * Either
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
@@ -434,6 +436,8 @@ pub unsafe extern "C" fn inflateBack(
 ///
 /// ## Safety
 ///
+/// The caller must guarantee that
+///
 /// * Either
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
@@ -442,6 +446,30 @@ pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
     todo!("inflateBack is not implemented yet")
 }
 
+/// Sets the destination stream as a complete copy of the source stream.
+///
+/// This function can be useful when randomly accessing a large stream.
+/// The first pass through the stream can periodically record the inflate state,
+/// allowing restarting inflate at those points when randomly accessing the stream.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent (such as zalloc being NULL)
+///
+/// The `msg` field is left unchanged in both source and destination.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` satisfies the requirements of `&mut *(dest as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `source` is `NULL`
+///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateCopy)]
 pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
     if dest.is_null() {

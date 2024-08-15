@@ -195,5 +195,8 @@ fn inflate_null() {
         inflate(core::ptr::null_mut(), Z_NO_FLUSH);
 
         inflateEnd(core::ptr::null_mut());
+
+        inflateCopy(core::ptr::null_mut(), strm.as_mut_ptr());
+        inflateCopy(strm.as_mut_ptr(), core::ptr::null_mut());
     });
 }
