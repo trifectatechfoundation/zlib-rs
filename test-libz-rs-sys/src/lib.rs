@@ -223,4 +223,10 @@ fn inflate_null() {
         inflateReset(core::ptr::null_mut());
         inflateReset2(core::ptr::null_mut(), 10);
     });
+
+    // public but undocumented
+    assert_eq!(
+        unsafe { libz_rs_sys::inflateResetKeep(core::ptr::null_mut()) },
+        libz_rs_sys::Z_STREAM_ERROR,
+    );
 }
