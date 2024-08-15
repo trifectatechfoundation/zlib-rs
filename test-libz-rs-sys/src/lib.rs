@@ -464,4 +464,9 @@ mod null {
             (a, b, c)
         });
     }
+
+    #[test]
+    fn deflate_reset() {
+        assert_eq_rs_ng!({ deflateReset(core::ptr::null_mut()) });
+    }
 }
