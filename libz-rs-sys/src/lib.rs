@@ -483,6 +483,28 @@ pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_strea
     }
 }
 
+/// Gives information about the current location of the input stream.
+///
+/// This function marks locations in the input data for random access, which may be at bit positions, and notes those cases where the output of a code may span boundaries of random access blocks. The current location in the input stream can be determined from `avail_in` and `data_type` as noted in the description for the [`Z_BLOCK`] flush parameter for [`inflate`].
+///
+/// A code is being processed if [`inflate`] is waiting for more input to complete decoding of the code, or if it has completed decoding but is waiting for more output space to write the literal or match data.
+///
+/// # Returns
+///
+/// This function returns two values, one in the lower 16 bits of the return value, and the other in the remaining upper bits, obtained by shifting the return value down 16 bits.
+///
+/// - If the upper value is `-1` and the lower value is zero, then [`inflate`] is currently decoding information outside of a block.
+/// - If the upper value is `-1` and the lower value is non-zero, then [`inflate`] is in the middle of a stored block, with the lower value equaling the number of bytes from the input remaining to copy.
+/// - If the upper value is not `-1`, then it is the number of bits back from the current bit position in the input of the code (literal or length/distance pair) currently being processed. In that case the lower value is the number of bytes already emitted for that code.
+/// - `-65536` if the provided source stream state was inconsistent.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateMark)]
 pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     if let Some(stream) = InflateStream::from_stream_ref(strm) {

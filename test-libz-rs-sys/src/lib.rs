@@ -215,5 +215,7 @@ fn inflate_null() {
 
             inflateEnd(strm.as_mut_ptr());
         }
+
+        inflateMark(core::ptr::null_mut());
     });
 }
