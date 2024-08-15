@@ -1124,6 +1124,29 @@ pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+/// Dynamically update the compression level and compression strategy.
+///
+/// This can be used to switch between compression and straight copy of the input data,
+/// or to switch to a different kind of input data requiring a different strategy. If
+///
+/// The interpretation of level and strategy is as in [`deflateInit2_`].
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent or if a parameter was invalid
+/// - [`Z_BUF_ERROR`] if there was not enough output space to complete the compression of the available input data before a change in the strategy or approach.
+///
+/// Note that in the case of a [`Z_BUF_ERROR`], the parameters are not changed.
+/// A return value of [`Z_BUF_ERROR`] is not fatal, in which case [`deflateParams`] can be retried with more output space.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateParams)]
 pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: c_int) -> c_int {
     let Ok(strategy) = Strategy::try_from(strategy) else {

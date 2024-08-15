@@ -376,4 +376,25 @@ mod null {
     fn deflate_bound() {
         assert_eq_rs_ng!({ deflateBound(core::ptr::null_mut(), 1024) });
     }
+
+    #[test]
+    fn deflate_params() {
+        assert_eq_rs_ng!({ deflateParams(core::ptr::null_mut(), 6, 0) });
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+
+            // invalid level and strategy
+            let a = deflateParams(strm.as_mut_ptr(), 123, 0);
+            let b = deflateParams(strm.as_mut_ptr(), 6, 123);
+
+            (a, b)
+        });
+    }
 }
