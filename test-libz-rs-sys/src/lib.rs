@@ -432,4 +432,36 @@ mod null {
             (a, b)
         });
     }
+
+    #[test]
+    fn deflate_set_dictionary() {
+        let dictionary = b"foobarbaz";
+
+        assert_eq_rs_ng!({
+            deflateSetDictionary(
+                core::ptr::null_mut(),
+                dictionary.as_ptr(),
+                dictionary.len() as _,
+            )
+        });
+
+        #[cfg(not(miri))]
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            deflateInit_(
+                strm.as_mut_ptr(),
+                0,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            let strm = unsafe { strm.assume_init_mut() };
+
+            let a = deflateSetDictionary(strm, core::ptr::null(), dictionary.len() as _);
+            let b = deflateSetDictionary(strm, dictionary.as_ptr(), dictionary.len() as _);
+
+            let c = deflateEnd(strm);
+
+            (a, b, c)
+        });
+    }
 }
