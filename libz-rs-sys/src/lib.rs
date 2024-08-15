@@ -92,14 +92,14 @@ pub type z_off_t = c_long;
 ///
 /// When the pointer argument is `NULL`, the initial checksum value is returned.
 ///
-/// ## Safety
+/// # Safety
 ///
 /// The caller must guarantee that either:
 ///
 /// - `buf` is `NULL`
 /// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
 ///
-/// ## Example
+/// # Example
 ///
 /// ```
 /// use libz_rs_sys::crc32;
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_
 /// This function can be used when input arrives in chunks, or when different threads
 /// calculate the checksum of different sections of the input.
 ///
-/// ## Example
+/// # Example
 ///
 /// ```
 /// use libz_rs_sys::{crc32, crc32_combine};
@@ -160,14 +160,14 @@ pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> 
 ///
 /// When the pointer argument is `NULL`, the initial checksum value is returned.
 ///
-/// ## Safety
+/// # Safety
 ///
 /// The caller must guarantee that either:
 ///
 /// - `buf` is `NULL`
 /// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
 ///
-/// ## Example
+/// # Example
 ///
 /// ```
 /// use libz_rs_sys::adler32;
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -
 /// This function can be used when input arrives in chunks, or when different threads
 /// calculate the checksum of different sections of the input.
 ///
-/// ## Example
+/// # Example
 ///
 /// ```
 /// use libz_rs_sys::{adler32, adler32_combine};
@@ -320,6 +320,26 @@ pub unsafe extern "C" fn uncompress(
     err as c_int
 }
 
+/// Decompresses as much data as possible, and stops when the input buffer becomes empty or the output buffer becomes full.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_END`] if the end of the compressed data has been reached and all uncompressed output has been produced
+/// - [`Z_NEED_DICT`] if a preset dictionary is needed at this point
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+/// - [`Z_DATA_ERROR`] if the input data was corrupted
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_BUF_ERROR`] if no progress was possible or if there was not enough room in the output buffer when [`Z_FINISH`] is used
+///
+/// Note that [`Z_BUF_ERROR`] is not fatal, and [`inflate`] can be called again with more input and more output space to continue decompressing.
+/// If [`Z_DATA_ERROR`] is returned, the application may then call [`inflateSync`] to look for a good compression block if a partial recovery of the data is to be attempted.
+///
+/// # Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflate)]
 pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
@@ -330,6 +350,20 @@ pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     }
 }
 
+/// Deallocates all dynamically allocated data structures for this stream.
+///
+/// This function discards any unprocessed input and does not flush any pending output.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the stream state was inconsistent
+///
+/// # Safety
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateEnd)]
 pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     match InflateStream::from_stream_mut(strm) {
@@ -409,21 +443,56 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
     }
 }
 
+/// Initializes the state for decompression
+///
+/// A call to `inflateInit_` is equivalent to [`inflateInit2_`] where `windowBits` is 15.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 #[export_name = prefix!(inflateInit_)]
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
     version: *const c_char,
     stream_size: c_int,
 ) -> c_int {
-    if !is_version_compatible(version, stream_size) {
-        ReturnCode::VersionError as _
-    } else if strm.is_null() {
-        ReturnCode::StreamError as _
-    } else {
-        zlib_rs::inflate::init(&mut *strm, InflateConfig::default()) as _
-    }
+    let config = InflateConfig::default();
+    unsafe { inflateInit2_(strm, config.window_bits, version, stream_size) }
 }
 
+/// Initializes the state for decompression
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_MEM_ERROR`] if there was not enough memory
+/// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 #[export_name = prefix!(inflateInit2_)]
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,

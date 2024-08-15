@@ -172,3 +172,28 @@ fn compress_null() {
         )
     });
 }
+
+#[test]
+fn inflate_null() {
+    use std::mem::MaybeUninit;
+
+    assert_eq_rs_ng!({
+        let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+        inflateInit_(
+            core::ptr::null_mut(),
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as _,
+        );
+
+        inflateInit_(
+            strm.as_mut_ptr(),
+            core::ptr::null(),
+            core::mem::size_of::<z_stream>() as _,
+        );
+
+        inflate(core::ptr::null_mut(), Z_NO_FLUSH);
+
+        inflateEnd(core::ptr::null_mut());
+    });
+}
