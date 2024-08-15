@@ -271,3 +271,22 @@ jobs:
         run: cat Cargo.toml | ./zpipe | ./zpipe -d > out.txt
       - name: compare
         run: cmp -s Cargo.toml out.txt
+
+  miri:
+    name: "Miri"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-nextest
+      - name: Test public C api with NULL arguments 
+        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys null::"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+avx2"
+          MIRIFLAGS: "-Zmiri-tree-borrows" 
