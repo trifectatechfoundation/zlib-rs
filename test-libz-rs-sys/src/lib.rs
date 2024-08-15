@@ -222,6 +222,26 @@ fn inflate_null() {
 
         inflateReset(core::ptr::null_mut());
         inflateReset2(core::ptr::null_mut(), 10);
+
+        {
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+            inflateInit_(
+                strm.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            let strm = unsafe { strm.assume_init_mut() };
+
+            let dictionary = b"foobarbaz";
+
+            inflateSetDictionary(strm, core::ptr::null(), dictionary.len() as _);
+            inflateSetDictionary(
+                core::ptr::null_mut(),
+                dictionary.as_ptr(),
+                dictionary.len() as _,
+            );
+            inflateSetDictionary(strm, dictionary.as_ptr(), dictionary.len() as _);
+        }
     });
 
     // public but undocumented

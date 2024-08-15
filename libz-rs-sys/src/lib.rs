@@ -707,6 +707,33 @@ pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -
     }
 }
 
+/// Initializes the decompression dictionary from the given uncompressed byte sequence.
+///
+/// This function must be called immediately after a call of [`inflate`], if that call returned [`Z_NEED_DICT`].
+/// The dictionary chosen by the compressor can be determined from the Adler-32 value returned by that call of inflate.
+/// The compressor and decompressor must use exactly the same dictionary (see [`deflateSetDictionary`]).
+/// For raw inflate, this function can be called at any time to set the dictionary.
+/// If the provided dictionary is smaller than the window and there is already data in the window, then the provided dictionary will amend what's there.
+/// The application must insure that the same dictionary that was used for compression is provided.
+///
+/// [`inflateSetDictionary`] does not perform any decompression: this will be done by subsequent calls of [`inflate`].
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent or `dictionary` is `NULL`
+/// - [`Z_DATA_ERROR`] if the given dictionary doesn't match the expected one (i.e. it has an incorrect Adler-32 value).
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
+/// * Either
+///     - `dictionary` is `NULL`
+///     - `dictionary` and `dictLength` satisfy the requirements of [`core::slice::from_raw_parts_mut::<u8>`]
 #[export_name = prefix!(inflateSetDictionary)]
 pub unsafe extern "C" fn inflateSetDictionary(
     strm: *mut z_stream,
