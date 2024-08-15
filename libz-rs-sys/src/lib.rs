@@ -514,6 +514,31 @@ pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     }
 }
 
+/// Skips invalid compressed data until
+///
+/// Skip invalid compressed data until a possible full flush point (see the description of deflate with [`Z_FULL_FLUSH`]) can be found,
+/// or until all available input is skipped. No output is provided.
+///
+/// [`inflateSync`] searches for a `00 00 FF FF` pattern in the compressed data.
+/// All full flush points have this pattern, but not all occurrences of this pattern are full flush points.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if a possible full flush point has been found
+/// - [`Z_BUF_ERROR`] if no more input was provided
+/// - [`Z_DATA_ERROR`] if no flush point has been found
+/// - [`Z_STREAM_ERROR`] if the stream structure was inconsistent
+///
+/// In the success case, the application may save the current value of `total_in` which indicates where valid compressed data was found.
+/// In the error case, the application may repeatedly call [`inflateSync`], providing more input each time, until success or end of the input data.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateSync)]
 pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
@@ -523,7 +548,14 @@ pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     }
 }
 
-// undocumented
+#[doc(hidden)]
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateSyncPoint)]
 pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
