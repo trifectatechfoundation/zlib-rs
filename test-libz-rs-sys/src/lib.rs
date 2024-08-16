@@ -327,6 +327,283 @@ mod null {
     }
 
     #[test]
+    fn inflate_get_header_uninitialized() {
+        const FERRIS_BYTES_GZ_NO_HEADER: [u8; 26] = [
+            31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 115, 75, 45, 42, 202, 44, 6, 0, 174, 148, 97, 210, 6,
+            0, 0, 0,
+        ];
+
+        const FERRIS_BYTES_GZ_WITH_HEADER: &[u8] = &[
+            31, 139, 8, 28, 0, 0, 0, 0, 0, 3, 6, 0, 98, 97, 110, 97, 110, 97, 97, 112, 112, 108,
+            101, 0, 112, 101, 97, 114, 0, 115, 75, 45, 42, 202, 44, 6, 0, 174, 148, 97, 210, 6, 0,
+            0, 0,
+        ];
+
+        let mut extra = *b"banana\0";
+        let mut name = *b"apple\0";
+        let mut comment = *b"pear\0";
+
+        let input = b"Ferris";
+        let mut buf = [0; 64];
+
+        let config = zlib_rs::deflate::DeflateConfig {
+            window_bits: 16 + 15,
+            ..Default::default()
+        };
+
+        #[cfg(not(miri))]
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = deflateInit2_(
+                strm.as_mut_ptr(),
+                config.level,
+                config.method as _,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as _,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            let mut header = gz_header {
+                text: 0,
+                time: 0,
+                xflags: 0,
+                os: 3,
+                extra: extra.as_mut_ptr(),
+                extra_len: (extra.len() - 1) as _,
+                extra_max: 0,
+                name: name.as_mut_ptr(),
+                name_max: 0,
+                comment: comment.as_mut_ptr(),
+                comm_max: 0,
+                hcrc: 0,
+                done: 0,
+            };
+
+            deflateSetHeader(strm, &mut header);
+            assert_eq!(err, Z_OK);
+
+            buf.fill(0);
+
+            strm.next_in = input.as_ptr() as *mut u8;
+            strm.avail_in = input.len() as _;
+
+            strm.next_out = buf.as_mut_ptr();
+            strm.avail_out = buf.len() as _;
+
+            let err = deflate(strm, Z_FINISH);
+            assert_eq!(err, Z_STREAM_END);
+
+            let err = deflateEnd(strm);
+            assert_eq!(err, Z_OK);
+
+            assert_eq!(&buf[..strm.total_out as usize], FERRIS_BYTES_GZ_WITH_HEADER);
+        });
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            fn initialize_header_null() -> MaybeUninit<gz_header> {
+                let mut head = MaybeUninit::<gz_header>::uninit();
+
+                unsafe {
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).extra),
+                        core::ptr::null_mut(),
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).name),
+                        core::ptr::null_mut(),
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).comment),
+                        core::ptr::null_mut(),
+                    );
+                }
+
+                head
+            }
+
+            fn initialize_header_buffers(
+                extra: &mut [u8],
+                name: &mut [u8],
+                comment: &mut [u8],
+            ) -> MaybeUninit<gz_header> {
+                let mut head = MaybeUninit::<gz_header>::uninit();
+
+                unsafe {
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).extra),
+                        extra.as_mut_ptr(),
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).extra_max),
+                        extra.len() as _,
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).name),
+                        name.as_mut_ptr(),
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).name_max),
+                        extra.len() as _,
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).comment),
+                        comment.as_mut_ptr(),
+                    );
+                    core::ptr::write(
+                        core::ptr::addr_of_mut!((*head.as_mut_ptr()).comm_max),
+                        extra.len() as _,
+                    );
+                }
+
+                head
+            }
+
+            let err = inflateInit2_(
+                strm.as_mut_ptr(),
+                config.window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            {
+                let mut head = initialize_header_null();
+
+                let err = inflateGetHeader(strm, head.as_mut_ptr());
+                assert_eq!(err, Z_OK);
+
+                let mut dest = [0u8; 100];
+
+                strm.next_in = FERRIS_BYTES_GZ_NO_HEADER.as_ptr() as *mut u8;
+                strm.avail_in = FERRIS_BYTES_GZ_NO_HEADER.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                assert_eq!(&dest[..strm.total_out as usize], b"Ferris");
+
+                // zlib-rs will properly initialize this struct, zlib-ng does not!
+                if cfg!(miri) {
+                    let _ = head.assume_init();
+                }
+            }
+
+            inflateReset(strm);
+
+            {
+                let mut name_buf = [0u8; 3];
+                let mut extra_buf = [0u8; 3];
+                let mut comment_buf = [0u8; 3];
+                let mut head =
+                    initialize_header_buffers(&mut name_buf, &mut extra_buf, &mut comment_buf);
+
+                let err = inflateGetHeader(strm, head.as_mut_ptr());
+                assert_eq!(err, Z_OK);
+
+                let mut dest = [0u8; 100];
+
+                strm.next_in = FERRIS_BYTES_GZ_NO_HEADER.as_ptr() as *mut u8;
+                strm.avail_in = FERRIS_BYTES_GZ_NO_HEADER.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                assert_eq!(&dest[..strm.total_out as usize], b"Ferris");
+
+                assert_eq!(extra_buf, [0u8; 3]);
+                assert_eq!(name_buf, [0u8; 3]);
+                assert_eq!(comment_buf, [0u8; 3]);
+
+                // zlib-rs will properly initialize this struct, zlib-ng does not!
+                if cfg!(miri) {
+                    let _ = head.assume_init();
+                }
+            }
+
+            inflateReset(strm);
+
+            {
+                let mut head = initialize_header_null();
+
+                let err = inflateGetHeader(strm, head.as_mut_ptr());
+                assert_eq!(err, Z_OK);
+
+                let mut dest = [0u8; 100];
+
+                strm.next_in = FERRIS_BYTES_GZ_WITH_HEADER.as_ptr() as *mut u8;
+                strm.avail_in = FERRIS_BYTES_GZ_WITH_HEADER.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                assert_eq!(&dest[..strm.total_out as usize], b"Ferris");
+
+                // zlib-rs will properly initialize this struct, zlib-ng does not!
+                if cfg!(miri) {
+                    let _ = head.assume_init();
+                }
+            };
+
+            inflateReset(strm);
+
+            {
+                let mut name_buf = [0u8; 3];
+                let mut extra_buf = [0u8; 3];
+                let mut comment_buf = [0u8; 3];
+                let mut head =
+                    initialize_header_buffers(&mut extra_buf, &mut name_buf, &mut comment_buf);
+
+                let err = inflateGetHeader(strm, head.as_mut_ptr());
+                assert_eq!(err, Z_OK);
+
+                let mut dest = [0u8; 100];
+
+                strm.next_in = FERRIS_BYTES_GZ_WITH_HEADER.as_ptr() as *mut u8;
+                strm.avail_in = FERRIS_BYTES_GZ_WITH_HEADER.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                assert_eq!(&dest[..strm.total_out as usize], b"Ferris");
+
+                assert_eq!(&extra_buf, b"ban");
+                assert_eq!(&name_buf, b"app");
+                assert_eq!(&comment_buf, b"pea");
+
+                // zlib-rs will properly initialize this struct, zlib-ng does not!
+                if cfg!(miri) {
+                    let _ = head.assume_init();
+                }
+            };
+
+            let err = inflateEnd(strm);
+            assert_eq!(err, Z_OK);
+        });
+    }
+
+    #[test]
     fn inflate_mark() {
         assert_eq_rs_ng!({ inflateMark(core::ptr::null_mut()) });
     }
@@ -760,6 +1037,8 @@ mod null {
                 core::mem::size_of::<z_stream>() as _,
             );
             assert_eq!(err, Z_OK);
+
+            let _ = strm.assume_init_mut();
 
             let err = inflateEnd(strm.as_mut_ptr());
             assert_eq!(err, Z_OK);
