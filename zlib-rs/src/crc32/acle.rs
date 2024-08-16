@@ -86,7 +86,7 @@ unsafe fn __crc32h(mut crc: u32, data: u16) -> u32 {
 /// [Arm's documentation](https://developer.arm.com/architectures/instruction-sets/intrinsics/__crc32w)
 #[target_feature(enable = "crc")]
 #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
-unsafe fn __crc32w(mut crc: u32, data: u32) -> u32 {
+pub unsafe fn __crc32w(mut crc: u32, data: u32) -> u32 {
     core::arch::asm!("crc32w {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
     crc
 }

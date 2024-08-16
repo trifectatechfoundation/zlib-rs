@@ -9,14 +9,14 @@ pub enum HashCalcVariant {
 
 impl HashCalcVariant {
     #[cfg(test)]
-    pub const fn for_compression_level(level: usize) -> Self {
+    pub fn for_compression_level(level: usize) -> Self {
         let max_chain_length = crate::deflate::algorithm::CONFIGURATION_TABLE[level].max_chain;
         Self::for_max_chain_length(max_chain_length as usize)
     }
 
     /// Use rolling hash for deflate_slow algorithm with level 9. It allows us to
     /// properly lookup different hash chains to speed up longest_match search.
-    pub const fn for_max_chain_length(max_chain_length: usize) -> Self {
+    pub fn for_max_chain_length(max_chain_length: usize) -> Self {
         if max_chain_length > 1024 {
             HashCalcVariant::Roll
         } else if Crc32HashCalc::is_supported() {
@@ -136,15 +136,14 @@ impl HashCalc for RollHashCalc {
 pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
-    pub const fn is_supported() -> bool {
+    pub fn is_supported() -> bool {
         if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
             return true;
         }
 
         // zlib-ng no longer special-cases on aarch64
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
-        // return std::arch::is_aarch64_feature_detected!("crc");
-        return false;
+        return std::arch::is_aarch64_feature_detected!("crc");
 
         #[allow(unreachable_code)]
         false
@@ -168,7 +167,7 @@ impl HashCalc for Crc32HashCalc {
 
     #[cfg(target_arch = "aarch64")]
     fn hash_calc(h: u32, val: u32) -> u32 {
-        unsafe { crate::crc32::acle::__crc32cw(h, val) }
+        unsafe { crate::crc32::acle::__crc32w(h, val) }
     }
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
@@ -188,26 +187,34 @@ mod tests {
         ignore = "no crc32 hardware support on this platform"
     )]
     fn crc32_hash_calc() {
-        assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 170926112), 500028708);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 537538592), 3694129053);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538970672), 373925026);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538976266), 4149335727);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 538976288), 1767342659);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 941629472), 4090502627);
-        assert_eq!(Crc32HashCalc::hash_calc(0, 775430176), 1744703325);
+        if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 435552201);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 170926112), 500028708);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 537538592), 3694129053);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538970672), 373925026);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538976266), 4149335727);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538976288), 1767342659);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 941629472), 4090502627);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 775430176), 1744703325);
+        } else {
+            assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2067507791);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 2086141925);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 538980384), 716394180);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 775430176), 1396070634);
+            assert_eq!(Crc32HashCalc::hash_calc(0, 941629472), 637105634);
+        }
     }
 
     #[test]
@@ -228,6 +235,10 @@ mod tests {
 
     #[test]
     fn standard_hash_calc() {
-        assert_eq!(StandardHashCalc::hash_calc(0, 721420288), 47872);
+        assert_eq!(StandardHashCalc::hash_calc(0, 807411760), 65468);
+        assert_eq!(StandardHashCalc::hash_calc(0, 540024864), 42837);
+        assert_eq!(StandardHashCalc::hash_calc(0, 538980384), 33760);
+        assert_eq!(StandardHashCalc::hash_calc(0, 775430176), 8925);
+        assert_eq!(StandardHashCalc::hash_calc(0, 941629472), 42053);
     }
 }
