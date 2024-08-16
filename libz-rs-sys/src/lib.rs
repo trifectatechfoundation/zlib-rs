@@ -1165,7 +1165,7 @@ pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
 /// Dynamically update the compression level and compression strategy.
 ///
 /// This can be used to switch between compression and straight copy of the input data,
-/// or to switch to a different kind of input data requiring a different strategy. If
+/// or to switch to a different kind of input data requiring a different strategy.
 ///
 /// The interpretation of level and strategy is as in [`deflateInit2_`].
 ///
