@@ -4066,7 +4066,13 @@ mod test {
         // the output is slightly different based on what hashing algorithm is used
         match HashCalcVariant::for_compression_level(config.level as usize) {
             HashCalcVariant::Crc32 => {
-                fuzz_based_test(&input, config, &crc32);
+                // the aarch64 hashing algorithm is different from the standard algorithm, but in
+                // this case they turn out to give the same output. Beware!
+                if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
+                    fuzz_based_test(&input, config, &crc32);
+                } else {
+                    fuzz_based_test(&input, config, &other);
+                }
             }
             HashCalcVariant::Standard | HashCalcVariant::Roll => {
                 fuzz_based_test(&input, config, &other);

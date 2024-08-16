@@ -1984,7 +1984,7 @@ mod fuzz_based_tests {
 
     #[test]
     #[cfg_attr(
-        not(target_arch = "x86_64"),
+        not(any(target_arch = "x86_64", target_arch = "aarch64")),
         ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
     )]
     #[cfg_attr(miri, ignore = "too slow")]
@@ -1998,11 +1998,7 @@ mod fuzz_based_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        target_arch = "aarch64",
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore = "too slow")]
     fn compress_fireworks() {
         let mut config = DeflateConfig::default();
 
@@ -2175,6 +2171,55 @@ mod fuzz_based_tests {
                 31, 139, 8, 0, 0, 0, 0, 0, 4, gz_header::OS_CODE, 1, 18, 0, 237, 255, 27, 27, 27, 27, 27, 27, 27,
                 27, 27, 27, 27, 27, 27, 27, 27, 27, 9, 0, 60, 101, 156, 55, 18, 0, 0, 0,
             ],
+        )
+    }
+
+    #[test]
+    fn hash_calc_difference() {
+        // exposed an issue in the crc32 acle hash calc where the incorrect instruction was used.
+
+        // zlib-ng uses DFLTCC to perform the hash calc, giving different results; we don't support that
+        let output_s390x = &[
+            24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
+            14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 58, 56, 17, 10, 40, 119, 41, 84, 175, 26, 0,
+            172, 56, 3, 232,
+        ];
+
+        let output_other = &[
+            24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
+            14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 122, 184, 17, 2, 40, 119, 41, 84, 175, 26, 0,
+            172, 56, 3, 232,
+        ];
+
+        fuzz_based_test(
+            &[
+                0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46, 0, 0, 0, 0, 0, 8, 0,
+                0, 0, 0, 0, 0, 0, 0, 39, 0, 8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 38, 0, 46, 46, 46, 46, 46, 46, 0,
+                49, 0, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                46, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 39, 0, 8, 0, 2, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 38, 0, 46,
+                46, 46, 46, 46, 46, 0, 49, 0, 2, 4, 0, 0, 8, 0, 0, 0, 0, 0, 0, 38,
+            ],
+            DeflateConfig {
+                level: -1,
+                method: Method::Deflated,
+                window_bits: 8,
+                mem_level: 2,
+                strategy: Strategy::Default,
+            },
+            if cfg!(target_arch = "s390x") {
+                output_s390x
+            } else {
+                output_other
+            },
         )
     }
 }
