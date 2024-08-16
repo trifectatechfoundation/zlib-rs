@@ -10,7 +10,6 @@ const UNALIGNED_OK: bool = cfg!(any(
     target_arch = "arm",
     target_arch = "aarch64",
     target_arch = "powerpc64",
-    target_arch = "s390x"
 ));
 
 const UNALIGNED64_OK: bool = cfg!(any(
@@ -203,25 +202,40 @@ fn longest_match_help<const SLOW: bool>(
             let scan_start = scan_start.as_ptr();
             let scan_end = scan_end.as_ptr();
 
-            if best_len < core::mem::size_of::<u32>() && UNALIGNED_OK {
-                loop {
-                    if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
-                        break;
-                    }
+            if UNALIGNED_OK {
+                if best_len < core::mem::size_of::<u32>() {
+                    loop {
+                        if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
 
-                    goto_next_in_chain!();
-                }
-            } else if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
-                loop {
-                    if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
-                        break;
+                        goto_next_in_chain!();
                     }
+                } else if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
+                    loop {
+                        if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
 
-                    goto_next_in_chain!();
+                        goto_next_in_chain!();
+                    }
+                } else {
+                    loop {
+                        if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                            break;
+                        }
+
+                        goto_next_in_chain!();
+                    }
                 }
             } else {
                 loop {
-                    if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    if memcmp_n_ptr::<2>(mbase_end.wrapping_add(cur_match as usize), scan_end)
+                        && memcmp_n_ptr::<2>(
+                            mbase_start.wrapping_add(cur_match as usize),
+                            scan.as_ptr(),
+                        )
+                    {
                         break;
                     }
 

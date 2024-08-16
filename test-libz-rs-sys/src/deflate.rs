@@ -1946,7 +1946,7 @@ mod fuzz_based_tests {
         let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        println!("-------------------");
+        println!("===============================================================================================");
 
         if !cfg!(miri) {
             let mut output_ng = [0; 1 << 17];
@@ -2226,7 +2226,6 @@ mod fuzz_based_tests {
     }
 
     #[test]
-    #[cfg_attr(target_arch = "s390x", ignore = "does not work yet")]
     fn longest_match_difference() {
         // on i686, we don't perform unaligned 64-bit reads/writes. That changes the results
         // slightly
@@ -2250,6 +2249,18 @@ mod fuzz_based_tests {
             154, 8, 7, 14, 40, 60, 78, 20, 30, 8, 48, 97, 136, 48, 48, 128, 125, 128, 36, 0, 0,
             125, 74, 22, 82,
         ];
+
+        let output_s390x = &[
+            24, 87, 83, 81, 97, 100, 96, 96, 228, 98, 0, 3, 123, 6, 6, 77, 21, 16, 67, 5, 36, 10,
+            102, 73, 139, 67, 164, 24, 194, 64, 32, 144, 75, 55, 16, 5, 248, 65, 65, 52, 152, 116,
+            99, 100, 96, 96, 16, 98, 96, 151, 241, 243, 243, 11, 12, 52, 128, 41, 2, 153, 206, 6,
+            50, 21, 106, 20, 20, 56, 66, 40, 5, 48, 169, 98, 13, 166, 4, 24, 98, 25, 20, 192, 138,
+            173, 37, 24, 184, 32, 64, 65, 26, 68, 50, 112, 128, 57, 26, 32, 83, 224, 134, 73, 66,
+            140, 192, 0, 14, 40, 60, 78, 20, 30, 8, 48, 97, 136, 48, 48, 128, 125, 128, 36, 0, 0,
+            125, 74, 22, 82,
+        ];
+
+        assert_ne!(output_i686, output_s390x);
 
         fuzz_based_test(
             &[
@@ -2275,6 +2286,8 @@ mod fuzz_based_tests {
             },
             if cfg!(target_arch = "x86") {
                 output_i686
+            } else if cfg!(target_arch = "s390x") {
+                output_s390x
             } else {
                 output_other
             },
