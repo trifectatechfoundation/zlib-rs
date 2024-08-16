@@ -245,6 +245,48 @@ mod null {
     }
 
     #[test]
+    fn inflate_end_after_inflate() {
+        use libz_rs_sys::*;
+
+        let buf = [
+            120u8, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+
+        unsafe {
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = inflateInit_(
+                strm.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            {
+                let mut dest = vec![0u8; 100];
+
+                strm.next_in = buf.as_ptr() as *mut u8;
+                strm.avail_in = buf.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                dest.truncate(strm.total_out as usize);
+                assert_eq!(dest, b"Ferris");
+            }
+
+            let err = inflateEnd(strm);
+            assert_eq!(err, Z_OK);
+        }
+    }
+
+    #[test]
     fn inflate_copy() {
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
