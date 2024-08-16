@@ -393,6 +393,10 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 #[export_name = prefix!(inflateBackInit_)]
 pub unsafe extern "C" fn inflateBackInit_(
     _strm: z_streamp,
@@ -585,6 +589,12 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `next_in`
+///     - `avail_in`
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 #[export_name = prefix!(inflateInit_)]
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
@@ -614,6 +624,12 @@ pub unsafe extern "C" fn inflateInit_(
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `next_in`
+///     - `avail_in`
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 #[export_name = prefix!(inflateInit2_)]
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
@@ -628,6 +644,24 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
+/// Helper that implements the actual initialization logic
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * Either
+///     - `version` is NULL
+///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `next_in`
+///     - `avail_in`
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
         ReturnCode::StreamError as _
@@ -636,7 +670,16 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
             window_bits: windowBits,
         };
 
-        let stream = &mut *strm;
+        let mut stream = z_stream::default();
+
+        // SAFETY: the caller guarantees these fields are initialized
+        unsafe {
+            stream.next_in = *core::ptr::addr_of!((*strm).next_in);
+            stream.avail_in = *core::ptr::addr_of!((*strm).avail_in);
+            stream.zalloc = *core::ptr::addr_of!((*strm).zalloc);
+            stream.zfree = *core::ptr::addr_of!((*strm).zfree);
+            stream.opaque = *core::ptr::addr_of!((*strm).opaque);
+        }
 
         if stream.zalloc.is_none() {
             stream.zalloc = DEFAULT_ZALLOC;
@@ -646,6 +689,13 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
         if stream.zfree.is_none() {
             stream.zfree = DEFAULT_ZFREE;
         }
+
+        // SAFETY: the caller guarantees this pointer is writable
+        unsafe { core::ptr::write(strm, stream) };
+
+        // SAFETY: we have now properly initialized this memory
+        // the caller guarantees the safety of `&mut *`
+        let stream = unsafe { &mut *strm };
 
         zlib_rs::inflate::init(stream, config) as _
     }
@@ -1386,6 +1436,10 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 ///
 /// # Example
 ///
@@ -1468,6 +1522,10 @@ pub unsafe extern "C" fn deflateInit_(
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
 ///
 /// # Example
 ///
@@ -1529,7 +1587,14 @@ pub unsafe extern "C" fn deflateInit2_(
             strategy,
         };
 
-        let stream = &mut *strm;
+        let mut stream = z_stream::default();
+
+        // SAFETY: the caller guarantees these fields are initialized
+        unsafe {
+            stream.zalloc = *core::ptr::addr_of!((*strm).zalloc);
+            stream.zfree = *core::ptr::addr_of!((*strm).zfree);
+            stream.opaque = *core::ptr::addr_of!((*strm).opaque);
+        }
 
         if stream.zalloc.is_none() {
             stream.zalloc = DEFAULT_ZALLOC;
@@ -1539,6 +1604,13 @@ pub unsafe extern "C" fn deflateInit2_(
         if stream.zfree.is_none() {
             stream.zfree = DEFAULT_ZFREE;
         }
+
+        // SAFETY: the caller guarantees this pointer is writable
+        unsafe { core::ptr::write(strm, stream) };
+
+        // SAFETY: we have now properly initialized this memory
+        // the caller guarantees the safety of `&mut *`
+        let stream = unsafe { &mut *strm };
 
         zlib_rs::deflate::init(stream, config) as _
     }
