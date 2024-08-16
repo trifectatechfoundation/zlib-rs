@@ -640,6 +640,95 @@ mod coverage {
     }
 
     #[test]
+    fn inflate_reset_keep() {
+        use libz_rs_sys::*;
+
+        let input = b"Ferris";
+        let mut buf = [0; 64];
+
+        unsafe {
+            let buf = {
+                let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+                let err = deflateInit_(
+                    strm.as_mut_ptr(),
+                    6,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as _,
+                );
+                assert_eq!(err, Z_OK);
+
+                let strm = strm.assume_init_mut();
+
+                buf.fill(0);
+
+                strm.next_in = input.as_ptr() as *mut u8;
+                strm.avail_in = input.len() as _;
+
+                strm.next_out = buf.as_mut_ptr();
+                strm.avail_out = buf.len() as _;
+
+                let err = deflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                let err = deflateEnd(strm);
+                assert_eq!(err, Z_OK);
+
+                &buf[..strm.avail_out as usize]
+            };
+
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = inflateInit_(
+                strm.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            {
+                let mut dest = vec![0u8; 100];
+
+                strm.next_in = buf.as_ptr() as *mut u8;
+                strm.avail_in = buf.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                dest.truncate(strm.total_out as usize);
+                assert_eq!(dest, b"Ferris");
+            }
+
+            let err = inflateResetKeep(strm);
+            assert_eq!(err, Z_OK);
+
+            {
+                let mut dest = vec![0u8; 100];
+
+                strm.next_in = buf.as_ptr() as *mut u8;
+                strm.avail_in = buf.len() as _;
+
+                strm.next_out = dest.as_mut_ptr();
+                strm.avail_out = dest.len() as _;
+
+                let err = inflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                dest.truncate(strm.total_out as usize);
+                assert_eq!(dest, b"Ferris");
+            }
+
+            let err = inflateEnd(strm);
+            assert_eq!(err, Z_OK);
+        }
+    }
+
+    #[test]
     fn deflate_init2_() {
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::zeroed();
