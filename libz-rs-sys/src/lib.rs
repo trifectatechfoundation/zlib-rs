@@ -870,13 +870,44 @@ pub unsafe extern "C" fn inflateSetDictionary(
 /// * Either
 ///     - `head` is `NULL`
 ///     - `head` satisfies the requirements of `&mut *head`
+/// * If `head` is not `NULL`:
+///     - if `head.extra` is not NULL, it must be writable for at least `head.extra_max` bytes
+///     - if `head.name` is not NULL, it must be writable for at least `head.name_max` bytes
+///     - if `head.comment` is not NULL, it must be writable for at least `head.comm_max` bytes
+///
+///     It is advised to fully initialize this structure with zeros before setting any fiels,
+///     for instance using [`gz_header::default`] or [`core::mem::MaybeUninit::zeroed`]. Using
+///     a partially uninitialized header struct is extremely dangerous.
 #[export_name = prefix!(inflateGetHeader)]
 pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let header = if head.is_null() {
             None
         } else {
-            Some(unsafe { &mut *(head) })
+            // SAFETY: the caller guarantees these fields are initialized
+            let mut header = gz_header::default();
+
+            unsafe {
+                header.extra = *core::ptr::addr_of!((*head).extra);
+                if !header.extra.is_null() {
+                    header.extra_max = *core::ptr::addr_of!((*head).extra_max);
+                }
+                header.name = *core::ptr::addr_of!((*head).name);
+                if !header.name.is_null() {
+                    header.name_max = *core::ptr::addr_of!((*head).name_max);
+                }
+                header.comment = *core::ptr::addr_of!((*head).comment);
+                if !header.comment.is_null() {
+                    header.comm_max = *core::ptr::addr_of!((*head).comm_max);
+                }
+            }
+
+            // SAFETY: the caller guarantees this pointer is writable
+            unsafe { core::ptr::write(head, header) };
+
+            // SAFETY: we have now properly initialized this memory
+            // the caller guarantees the safety of `&mut *`
+            Some(unsafe { &mut *head })
         };
 
         zlib_rs::inflate::get_header(stream, header) as i32
