@@ -713,6 +713,82 @@ mod null {
             assert_eq!(err, Z_OK);
         }
     }
+
+    #[test]
+    fn inflate_init_uninitialized() {
+        use libz_rs_sys::*;
+
+        unsafe {
+            let mut strm = MaybeUninit::<z_stream>::uninit();
+
+            core::ptr::write(core::ptr::addr_of_mut!((*strm.as_mut_ptr()).avail_in), 0);
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).next_in),
+                core::ptr::null(),
+            );
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
+                zlib_rs::allocate::Allocator::C.zalloc,
+            );
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
+                zlib_rs::allocate::Allocator::C.zfree,
+            );
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).opaque),
+                core::ptr::null_mut(),
+            );
+
+            let err = inflateInit_(
+                strm.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let err = inflateEnd(strm.as_mut_ptr());
+            assert_eq!(err, Z_OK);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "slow")]
+    fn deflate_init_uninitialized() {
+        use libz_rs_sys::*;
+
+        unsafe {
+            let mut strm = MaybeUninit::<z_stream>::uninit();
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
+                zlib_rs::allocate::Allocator::C.zalloc,
+            );
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
+                zlib_rs::allocate::Allocator::C.zfree,
+            );
+
+            core::ptr::write(
+                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).opaque),
+                core::ptr::null_mut(),
+            );
+
+            let err = deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let err = deflateEnd(strm.as_mut_ptr());
+            assert_eq!(err, Z_OK);
+        }
+    }
 }
 
 #[cfg(test)]
