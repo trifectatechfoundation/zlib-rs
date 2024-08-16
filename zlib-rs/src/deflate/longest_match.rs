@@ -4,6 +4,21 @@ type Pos = u16;
 
 const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
+const UNALIGNED_OK: bool = cfg!(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+    target_arch = "s390x"
+));
+
+const UNALIGNED64_OK: bool = cfg!(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+));
+
 pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, usize) {
     longest_match_help::<false>(state, cur_match)
 }
@@ -59,19 +74,25 @@ fn longest_match_help<const SLOW: bool>(
         STD_MIN_MATCH - 1
     };
 
+    // Calculate read offset which should only extend an extra byte to find the next best match length.
     let mut offset = best_len - 1;
-
-    // we're assuming we can do a fast(ish) unaligned 64-bit read
-    if best_len >= core::mem::size_of::<u64>() {
-        offset -= 4;
-    }
-
-    if best_len >= core::mem::size_of::<u32>() {
+    if best_len >= core::mem::size_of::<u32>() && UNALIGNED_OK {
         offset -= 2;
+        if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
+            offset -= 4;
+        }
     }
 
-    scan_start.copy_from_slice(&scan[..core::mem::size_of::<u64>()]);
-    scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
+    if UNALIGNED64_OK {
+        scan_start.copy_from_slice(&scan[..core::mem::size_of::<u64>()]);
+        scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
+    } else if UNALIGNED_OK {
+        scan_start[..4].copy_from_slice(&scan[..core::mem::size_of::<u32>()]);
+        scan_end[..4].copy_from_slice(&scan[offset..][..core::mem::size_of::<u32>()]);
+    } else {
+        scan_start[..2].copy_from_slice(&scan[..core::mem::size_of::<u16>()]);
+        scan_end[..2].copy_from_slice(&scan[offset..][..core::mem::size_of::<u16>()]);
+    }
 
     let mut mbase_start = window.as_ptr();
     let mut mbase_end = window[offset..].as_ptr();
@@ -182,7 +203,7 @@ fn longest_match_help<const SLOW: bool>(
             let scan_start = scan_start.as_ptr();
             let scan_end = scan_end.as_ptr();
 
-            if best_len < core::mem::size_of::<u32>() {
+            if best_len < core::mem::size_of::<u32>() && UNALIGNED_OK {
                 loop {
                     if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
@@ -190,7 +211,7 @@ fn longest_match_help<const SLOW: bool>(
 
                     goto_next_in_chain!();
                 }
-            } else if best_len >= core::mem::size_of::<u64>() {
+            } else if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
                 loop {
                     if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
@@ -236,14 +257,20 @@ fn longest_match_help<const SLOW: bool>(
             }
 
             offset = best_len - 1;
-            if best_len >= core::mem::size_of::<u32>() {
+            if best_len >= core::mem::size_of::<u32>() && UNALIGNED_OK {
                 offset -= 2;
-                if best_len >= core::mem::size_of::<u64>() {
+                if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
                     offset -= 4;
                 }
             }
 
-            scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
+            if UNALIGNED64_OK {
+                scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
+            } else if UNALIGNED_OK {
+                scan_end[..4].copy_from_slice(&scan[offset..][..core::mem::size_of::<u32>()]);
+            } else {
+                scan_end[..2].copy_from_slice(&scan[offset..][..core::mem::size_of::<u16>()]);
+            }
 
             // Look for a better string offset
             if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
