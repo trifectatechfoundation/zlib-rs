@@ -33,6 +33,18 @@ macro_rules! assert_eq_rs_ng {
 }
 
 #[cfg(test)]
+#[allow(unused)]
+macro_rules! extract_error_message {
+    ($strm:expr) => {
+        if !$strm.msg.is_null() {
+            core::ffi::CStr::from_ptr($strm.msg).to_str()
+        } else {
+            Ok("NULL")
+        }
+    };
+}
+
+#[cfg(test)]
 mod null {
     use core::mem::MaybeUninit;
 
@@ -569,7 +581,7 @@ mod null {
         );
     }
 
-    const FERRIS_BYTES: [u8; 14] = [120u8, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108];
+    pub const FERRIS_BYTES: [u8; 14] = [120u8, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108];
 
     #[test]
     #[cfg_attr(miri, ignore = "slow")]
@@ -852,6 +864,128 @@ mod coverage {
             );
 
             (err, dest_len)
+        });
+    }
+
+    #[test]
+    fn deflate_invalid_flush() {
+        let input = b"Ferris";
+        let mut buf = [0; 64];
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            strm.next_in = input.as_ptr() as *mut u8;
+            strm.avail_in = input.len() as _;
+
+            strm.next_out = buf.as_mut_ptr();
+            strm.avail_out = buf.len() as _;
+
+            let value = deflate(strm, 1234);
+
+            let err = deflateEnd(strm);
+            assert_eq!(err, Z_OK);
+
+            value
+        });
+    }
+
+    #[test]
+    fn deflate_insufficient_output_space() {
+        let input = b"Ferris";
+        let mut buf = [0; 5];
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            strm.next_in = input.as_ptr() as *mut u8;
+            strm.avail_in = input.len() as _;
+
+            strm.next_out = buf.as_mut_ptr();
+            strm.avail_out = buf.len() as _;
+
+            // Z_NO_FLUSH keeps the state in `Status::Busy`
+            let err = deflate(strm, Z_NO_FLUSH);
+            assert_eq!(err, Z_OK);
+
+            let err = deflateEnd(strm);
+            assert_eq!(err, Z_DATA_ERROR);
+
+            err
+        });
+    }
+
+    #[test]
+    fn deflate_reset_after_deflate() {
+        let input = b"Ferris";
+
+        assert_eq_rs_ng!({
+            let mut strm = MaybeUninit::<z_stream>::zeroed();
+
+            let err = deflateInit_(
+                strm.as_mut_ptr(),
+                6,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(err, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            {
+                let mut buf = [0; 64];
+
+                strm.next_in = input.as_ptr() as *mut u8;
+                strm.avail_in = input.len() as _;
+
+                strm.next_out = buf.as_mut_ptr();
+                strm.avail_out = buf.len() as _;
+
+                let err = deflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END);
+
+                assert_eq!(&buf[..strm.total_out as usize], super::null::FERRIS_BYTES);
+            }
+
+            let err = deflateReset(strm);
+            assert_eq!(err, Z_OK);
+
+            {
+                let mut buf = [0; 64];
+
+                strm.next_in = input.as_ptr() as *mut u8;
+                strm.avail_in = input.len() as _;
+
+                strm.next_out = buf.as_mut_ptr();
+                strm.avail_out = buf.len() as _;
+
+                let err = deflate(strm, Z_FINISH);
+                assert_eq!(err, Z_STREAM_END,);
+
+                assert_eq!(&buf[..strm.total_out as usize], super::null::FERRIS_BYTES);
+            }
+
+            deflateEnd(strm);
         });
     }
 }
