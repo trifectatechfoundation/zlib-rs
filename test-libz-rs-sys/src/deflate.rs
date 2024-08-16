@@ -1946,8 +1946,6 @@ mod fuzz_based_tests {
         let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
-        println!("===============================================================================================");
-
         if !cfg!(miri) {
             let mut output_ng = [0; 1 << 17];
             let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
@@ -1975,20 +1973,12 @@ mod fuzz_based_tests {
     const LCET10: &str = include_str!("test-data/lcet10.txt");
 
     #[test]
-    #[cfg_attr(
-        not(any(target_arch = "x86_64", target_arch = "aarch64")),
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
     #[cfg_attr(miri, ignore = "too slow")]
     fn compress_lcet10() {
         fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
     }
 
     #[test]
-    #[cfg_attr(
-        not(any(target_arch = "x86_64", target_arch = "aarch64")),
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
     #[cfg_attr(miri, ignore = "too slow")]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
@@ -2180,7 +2170,8 @@ mod fuzz_based_tests {
     fn hash_calc_difference() {
         // exposed an issue in the crc32 acle hash calc where the incorrect instruction was used.
 
-        // zlib-ng uses DFLTCC to perform the hash calc, giving different results; we don't support that
+        // the s390x target uses a different path in longest_match because we don't perform
+        // unaligned 32-bit reads
         let output_s390x = &[
             24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
             14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 58, 56, 17, 10, 40, 119, 41, 84, 175, 26, 0,

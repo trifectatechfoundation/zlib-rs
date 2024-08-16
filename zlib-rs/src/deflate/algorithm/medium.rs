@@ -212,8 +212,6 @@ fn emit_match(state: &mut State, mut m: Match) -> bool {
 }
 
 fn insert_match(state: &mut State, mut m: Match) {
-    // println!( "{} {} {} {}", m.match_start, m.match_length, m.strstart, m.orgstart,);
-
     if state.lookahead <= (m.match_length as usize + WANT_MIN_MATCH) {
         return;
     }
