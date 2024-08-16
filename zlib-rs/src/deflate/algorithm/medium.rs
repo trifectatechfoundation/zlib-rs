@@ -69,6 +69,13 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
             /* Find the longest match, discarding those <= prev_length.
              * At this point we have always match_length < WANT_MIN_MATCH
              */
+            // let important = hash_head == 224;
+            let important = false;
+            if important {
+                println!("hash_head = {}", hash_head);
+                println!("state.strstart = {}", state.strstart);
+                dbg!(&current_match);
+            }
 
             let dist = state.strstart as i64 - hash_head as i64;
             if dist <= state.max_dist() as i64 && dist > 0 && hash_head != 0 {
@@ -81,6 +88,9 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 state.match_start = match_start;
                 current_match.match_length = match_length as u16;
                 current_match.match_start = match_start as u16;
+                if important {
+                    dbg!(current_match);
+                }
                 if (current_match.match_length as usize) < WANT_MIN_MATCH {
                     current_match.match_length = 1;
                 }
@@ -212,6 +222,8 @@ fn emit_match(state: &mut State, mut m: Match) -> bool {
 }
 
 fn insert_match(state: &mut State, mut m: Match) {
+    // println!( "{} {} {} {}", m.match_start, m.match_length, m.strstart, m.orgstart,);
+
     if state.lookahead <= (m.match_length as usize + WANT_MIN_MATCH) {
         return;
     }

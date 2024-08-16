@@ -137,9 +137,8 @@ pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
     pub fn is_supported() -> bool {
-        if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
-            return true;
-        }
+        #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "std"))]
+        return std::arch::is_x86_feature_detected!("sse4.2");
 
         // zlib-ng no longer special-cases on aarch64
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
