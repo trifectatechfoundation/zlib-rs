@@ -2221,14 +2221,11 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
     ReturnCode::Ok
 }
 
-pub fn end<'a>(stream: &'a mut InflateStream) -> &'a mut z_stream {
-    let mut state = State::new(&[], ReadBuf::new(&mut []));
-    core::mem::swap(&mut state, stream.state);
+pub fn end<'a>(stream: &'a mut InflateStream<'a>) -> &'a mut z_stream {
+    let alloc = stream.alloc;
 
     let mut window = Window::empty();
-    core::mem::swap(&mut window, &mut state.window);
-
-    let alloc = stream.alloc;
+    core::mem::swap(&mut window, &mut stream.state.window);
 
     // safety: window is not used again
     if !window.is_empty() {
