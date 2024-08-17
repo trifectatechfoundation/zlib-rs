@@ -881,6 +881,12 @@ struct BitWriter<'a> {
     pub(crate) pending: Pending<'a>, // output still pending
     pub(crate) bit_buffer: u64,
     pub(crate) bits_used: u8,
+
+    // compressed_len and bits_sent are only used if ZLIB_DEBUG is defined
+    /// total bit length of compressed file mod 2^32
+    compressed_len: usize,
+    /// /* bit length of compressed data sent mod 2^32
+    bits_sent: usize,
 }
 
 impl<'a> BitWriter<'a> {
@@ -891,6 +897,9 @@ impl<'a> BitWriter<'a> {
             pending,
             bit_buffer: 0,
             bits_used: 0,
+
+            compressed_len: 0,
+            bits_sent: 0,
         }
     }
 
@@ -906,7 +915,7 @@ impl<'a> BitWriter<'a> {
         self.bit_buffer = self.bit_buffer.checked_shr(removed as u32).unwrap_or(0);
     }
 
-    fn flush_and_align_bits(&mut self) {
+    fn emit_align(&mut self) {
         debug_assert!(self.bits_used <= 64);
         let keep_bytes = self.bits_used.div_ceil(8);
         let src = &self.bit_buffer.to_le_bytes();
@@ -914,6 +923,28 @@ impl<'a> BitWriter<'a> {
 
         self.bits_used = 0;
         self.bit_buffer = 0;
+
+        self.sent_bits_align();
+    }
+
+    fn send_bits_trace(&self, _value: u64, _len: u8) {
+        trace!(" l {:>2} v {:>4x} ", _len, _value);
+    }
+
+    fn cmpr_bits_add(&mut self, len: usize) {
+        self.compressed_len += len;
+    }
+
+    fn cmpr_bits_align(&mut self) {
+        self.compressed_len = self.compressed_len.next_multiple_of(8);
+    }
+
+    fn sent_bits_add(&mut self, len: usize) {
+        self.bits_sent += len;
+    }
+
+    fn sent_bits_align(&mut self) {
+        self.bits_sent = self.bits_sent.next_multiple_of(8);
     }
 
     fn send_bits(&mut self, val: u64, len: u8) {
@@ -922,8 +953,8 @@ impl<'a> BitWriter<'a> {
 
         let total_bits = len + self.bits_used;
 
-        // send_bits_trace(s, val, len);\
-        // sent_bits_add(s, len);\
+        self.send_bits_trace(val, len);
+        self.sent_bits_add(len as usize);
 
         if total_bits < Self::BIT_BUF_SIZE {
             self.bit_buffer |= val << self.bits_used;
@@ -957,31 +988,39 @@ impl<'a> BitWriter<'a> {
     pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
         let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
         self.send_bits(header_bits, 3);
+        trace!("\n--- Emit Tree: Last: {}\n", is_last_block as u8);
     }
 
     pub(crate) fn emit_end_block_and_align(&mut self, ltree: &[Value], is_last_block: bool) {
         self.emit_end_block(ltree, is_last_block);
 
         if is_last_block {
-            self.flush_and_align_bits();
+            self.emit_align();
         }
     }
 
     fn emit_end_block(&mut self, ltree: &[Value], _is_last_block: bool) {
         const END_BLOCK: usize = 256;
         self.send_code(END_BLOCK, ltree);
+
+        trace!(
+            "\n+++ Emit End Block: Last: {} Pending: {} Total Out: {}\n",
+            _is_last_block as u8,
+            self.pending.pending().len(),
+            "<unknown>"
+        );
     }
 
     pub(crate) fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
         self.send_code(c as usize, ltree);
 
         trace!(
-            "'{}' ",
+            "{}",
             match char::from_u32(c as u32) {
-                None => ' ',
+                None => String::new(),
                 Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                    true => c,
-                    false => ' ',
+                    true => format!(" '{}' ", c),
+                    false => String::new(),
                 },
             }
         );
@@ -1005,12 +1044,12 @@ impl<'a> BitWriter<'a> {
         // send_code_trace(s, c);
 
         let lnode = ltree[c];
-        let mut match_bits = lnode.code() as usize;
+        let mut match_bits: u64 = lnode.code() as u64;
         let mut match_bits_len = lnode.len() as usize;
         let mut extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
         if extra != 0 {
             lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
-            match_bits |= lc << match_bits_len;
+            match_bits |= (lc as u64) << match_bits_len;
             match_bits_len += extra;
         }
 
@@ -1021,16 +1060,16 @@ impl<'a> BitWriter<'a> {
 
         /* Send the distance code */
         let dnode = dtree[code];
-        match_bits |= (dnode.code() as usize) << match_bits_len;
+        match_bits |= (dnode.code() as u64) << match_bits_len;
         match_bits_len += dnode.len() as usize;
         extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
         if extra != 0 {
             dist -= self::trees_tbl::BASE_DIST[code] as usize;
-            match_bits |= dist << match_bits_len;
+            match_bits |= (dist as u64) << match_bits_len;
             match_bits_len += extra;
         }
 
-        self.send_bits(match_bits as u64, match_bits_len as u8);
+        self.send_bits(match_bits, match_bits_len as u8);
 
         match_bits_len
     }
@@ -1438,6 +1477,9 @@ impl<'a> State<'a> {
         self.bit_writer.bit_buffer = 0;
         self.bit_writer.bits_used = 0;
 
+        self.bit_writer.compressed_len = 0;
+        self.bit_writer.bits_sent = 0;
+
         // Initialize the first block of the first file:
         self.init_block();
     }
@@ -1559,9 +1601,9 @@ pub(crate) fn zng_tr_stored_block(
     state.bit_writer.emit_tree(BlockType::StoredBlock, is_last);
 
     // align on byte boundary
-    state.bit_writer.flush_and_align_bits();
+    state.bit_writer.emit_align();
 
-    // cmpr_bits_align(s);
+    state.bit_writer.cmpr_bits_align();
 
     let input_block: &[u8] = &state.window.filled()[window_range];
     let stored_len = input_block.len() as u16;
@@ -1572,12 +1614,12 @@ pub(crate) fn zng_tr_stored_block(
         .pending
         .extend(&(!stored_len).to_le_bytes());
 
-    // cmpr_bits_add(s, 32);
-    // sent_bits_add(s, 32);
+    state.bit_writer.cmpr_bits_add(32);
+    state.bit_writer.sent_bits_add(32);
     if stored_len > 0 {
         state.bit_writer.pending.extend(input_block);
-        // cmpr_bits_add(s, stored_len << 3);
-        // sent_bits_add(s, stored_len << 3);
+        state.bit_writer.cmpr_bits_add((stored_len << 3) as usize);
+        state.bit_writer.sent_bits_add((stored_len << 3) as usize);
     }
 }
 
@@ -2067,19 +2109,19 @@ fn send_all_trees(state: &mut State, lcodes: usize, dcodes: usize, blcodes: usiz
             3,
         );
     }
-    // trace!("\nbl tree: sent {}", state.bits_sent);
+    trace!("\nbl tree: sent {}", state.bit_writer.bits_sent);
 
     // literal tree
     state
         .bit_writer
         .send_tree(&state.l_desc.dyn_tree, &state.bl_desc.dyn_tree, lcodes - 1);
-    // trace!("\nlit tree: sent {}", state.bits_sent);
+    trace!("\nlit tree: sent {}", state.bit_writer.bits_sent);
 
     // distance tree
     state
         .bit_writer
         .send_tree(&state.d_desc.dyn_tree, &state.bl_desc.dyn_tree, dcodes - 1);
-    // trace!("\ndist tree: sent {}", state.bits_sent);
+    trace!("\ndist tree: sent {}", state.bit_writer.bits_sent);
 }
 
 /// Construct the Huffman tree for the bit lengths and return the index in
@@ -2127,7 +2169,11 @@ fn build_bl_tree(state: &mut State) -> usize {
 
     /* Update opt_len to include the bit length tree and counts */
     state.opt_len += 3 * (max_blindex + 1) + 5 + 5 + 4;
-    // Tracev((stderr, "\ndyn trees: dyn %lu, stat %lu", s->opt_len, s->static_len));
+    trace!(
+        "\ndyn trees: dyn {}, stat {}",
+        state.opt_len,
+        state.static_len
+    );
 
     max_blindex
 }
@@ -2178,7 +2224,7 @@ fn zng_tr_flush_block(
             core::mem::swap(&mut tmp, &mut state.d_desc);
 
             trace!(
-                "\nlit data: dyn {}, stat {}",
+                "\ndist data: dyn {}, stat {}",
                 state.opt_len,
                 state.static_len
             );
@@ -2192,9 +2238,15 @@ fn zng_tr_flush_block(
         opt_lenb = (state.opt_len + 3 + 7) >> 3;
         static_lenb = (state.static_len + 3 + 7) >> 3;
 
-        //        Tracev((stderr, "\nopt %lu(%lu) stat %lu(%lu) stored %u lit %u ",
-        //                opt_lenb, state.opt_len, static_lenb, state.static_len, stored_len,
-        //                state.sym_next / 3));
+        trace!(
+            "\nopt {}({}) stat {}({}) stored {} lit {} ",
+            opt_lenb,
+            state.opt_len,
+            static_lenb,
+            state.static_len,
+            stored_len,
+            state.sym_buf.len() / 3
+        );
 
         if static_lenb <= opt_lenb || state.strategy == Strategy::Fixed {
             opt_lenb = static_lenb;
@@ -2239,10 +2291,10 @@ fn zng_tr_flush_block(
 
     state.init_block();
     if last {
-        state.bit_writer.flush_and_align_bits();
+        state.bit_writer.emit_align();
     }
 
-    // Tracev((stderr, "\ncomprlen %lu(%lu) ", s->compressed_len>>3, s->compressed_len-7*last));
+    // Tracev((stderr, "\ncomprlen {}(%lu) ", s->compressed_len>>3, s->compressed_len-7*last));
 }
 
 pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {

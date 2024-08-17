@@ -1973,20 +1973,12 @@ mod fuzz_based_tests {
     const LCET10: &str = include_str!("test-data/lcet10.txt");
 
     #[test]
-    #[cfg_attr(
-        target_arch = "x86",
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
     #[cfg_attr(miri, ignore = "too slow")]
     fn compress_lcet10() {
         fuzz_based_test(LCET10.as_bytes(), DeflateConfig::default(), &[])
     }
 
     #[test]
-    #[cfg_attr(
-        target_arch = "x86",
-        ignore = "https://github.com/memorysafety/zlib-rs/issues/91"
-    )]
     #[cfg_attr(miri, ignore = "too slow")]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
