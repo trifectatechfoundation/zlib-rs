@@ -1805,15 +1805,14 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     ret
 }
 
-pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
-    let mut window_bits = config.window_bits;
+fn validate_window_bits(mut window_bits: i32) -> Option<(i32, i32)> {
     let wrap;
 
     if window_bits < 0 {
         wrap = 0;
 
         if window_bits < -MAX_WBITS {
-            return ReturnCode::StreamError;
+            return None;
         }
 
         window_bits = -window_bits;
@@ -1826,11 +1825,18 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
     }
 
     if window_bits != 0 && !(MIN_WBITS..=MAX_WBITS).contains(&window_bits) {
-        #[cfg(feature = "std")]
-        eprintln!("invalid windowBits");
-        return ReturnCode::StreamError;
+        return None;
     }
 
+    Some((window_bits, wrap))
+}
+
+pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
+    let Some((window_bits, wrap)) = validate_window_bits(config.window_bits) else {
+        return ReturnCode::StreamError;
+    };
+
+    // re-allocate the window if it was allocated already, but the window bits changed
     if stream.state.window.size() != 0 && stream.state.wbits != window_bits as usize {
         let mut window = Window::empty();
         core::mem::swap(&mut window, &mut stream.state.window);
