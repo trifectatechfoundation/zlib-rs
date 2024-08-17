@@ -79,7 +79,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         // Write the stored block header bytes.
         flush_pending(stream);
 
-        // TODO debug counts?
+        // Update debugging counts for the data about to be copied.
+        stream.state.bit_writer.cmpr_bits_add(len << 3);
+        stream.state.bit_writer.sent_bits_add(len << 3);
 
         if left > 0 {
             let left = Ord::min(left, len);
