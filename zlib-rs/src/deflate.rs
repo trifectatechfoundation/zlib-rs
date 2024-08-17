@@ -882,10 +882,11 @@ struct BitWriter<'a> {
     pub(crate) bit_buffer: u64,
     pub(crate) bits_used: u8,
 
-    // compressed_len and bits_sent are only used if ZLIB_DEBUG is defined
     /// total bit length of compressed file mod 2^32
+    #[cfg(feature = "ZLIB_DEBUG")]
     compressed_len: usize,
     /// /* bit length of compressed data sent mod 2^32
+    #[cfg(feature = "ZLIB_DEBUG")]
     bits_sent: usize,
 }
 
@@ -898,7 +899,9 @@ impl<'a> BitWriter<'a> {
             bit_buffer: 0,
             bits_used: 0,
 
+            #[cfg(feature = "ZLIB_DEBUG")]
             compressed_len: 0,
+            #[cfg(feature = "ZLIB_DEBUG")]
             bits_sent: 0,
         }
     }
@@ -931,20 +934,32 @@ impl<'a> BitWriter<'a> {
         trace!(" l {:>2} v {:>4x} ", _len, _value);
     }
 
-    fn cmpr_bits_add(&mut self, len: usize) {
-        self.compressed_len += len;
+    fn cmpr_bits_add(&mut self, _len: usize) {
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            self.compressed_len += _len;
+        }
     }
 
     fn cmpr_bits_align(&mut self) {
-        self.compressed_len = self.compressed_len.next_multiple_of(8);
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            self.compressed_len = self.compressed_len.next_multiple_of(8);
+        }
     }
 
-    fn sent_bits_add(&mut self, len: usize) {
-        self.bits_sent += len;
+    fn sent_bits_add(&mut self, _len: usize) {
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            self.bits_sent += _len;
+        }
     }
 
     fn sent_bits_align(&mut self) {
-        self.bits_sent = self.bits_sent.next_multiple_of(8);
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            self.bits_sent = self.bits_sent.next_multiple_of(8);
+        }
     }
 
     fn send_bits(&mut self, val: u64, len: u8) {
@@ -1477,8 +1492,11 @@ impl<'a> State<'a> {
         self.bit_writer.bit_buffer = 0;
         self.bit_writer.bits_used = 0;
 
-        self.bit_writer.compressed_len = 0;
-        self.bit_writer.bits_sent = 0;
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            self.bit_writer.compressed_len = 0;
+            self.bit_writer.bits_sent = 0;
+        }
 
         // Initialize the first block of the first file:
         self.init_block();
