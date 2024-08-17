@@ -18,7 +18,10 @@ pub use crc32::{crc32, crc32_combine};
 #[macro_export]
 macro_rules! trace {
     ($($arg:tt)*) => {
-        // eprint!($($arg)*)
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            eprint!($($arg)*)
+        }
     };
 }
 
