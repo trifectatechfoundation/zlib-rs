@@ -2169,18 +2169,20 @@ mod fuzz_based_tests {
     #[test]
     fn hash_calc_difference() {
         // exposed an issue in the crc32 acle hash calc where the incorrect instruction was used.
-
-        // the s390x target uses a different path in longest_match because we don't perform
-        // unaligned 32-bit reads
-        let output_s390x = &[
-            24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
-            14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 58, 56, 17, 10, 40, 119, 41, 84, 175, 26, 0,
-            172, 56, 3, 232,
-        ];
+        // a different hash function changes which match is found first in the hash map, and
+        // depending on the algorithm that can give different results. Note that in this case, the
+        // output of aarch64 and x86_64 do line up with the current aarch64 hashing approach.
 
         let output_other = &[
             24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
             14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 122, 184, 17, 2, 40, 119, 41, 84, 175, 26, 0,
+            172, 56, 3, 232,
+        ];
+
+        // longest_match does not perform unaligned 32-bit reads/writes on s390x
+        let output_s390x = &[
+            24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
+            14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 58, 56, 17, 10, 40, 119, 41, 84, 175, 26, 0,
             172, 56, 3, 232,
         ];
 
@@ -2218,9 +2220,7 @@ mod fuzz_based_tests {
 
     #[test]
     fn longest_match_difference() {
-        // on i686, we don't perform unaligned 64-bit reads/writes. That changes the results
-        // slightly
-
+        // the output on aarch64 and x86_64: fully featured modern targets
         let output_other = &[
             24, 87, 83, 81, 97, 100, 96, 96, 228, 98, 0, 3, 123, 6, 6, 77, 21, 16, 67, 5, 36, 10,
             102, 73, 139, 67, 164, 24, 194, 64, 32, 144, 75, 55, 16, 5, 248, 65, 65, 52, 152, 116,
@@ -2231,6 +2231,7 @@ mod fuzz_based_tests {
             82,
         ];
 
+        // longest_match does not perform unaligned 64-bit reads/writes on i686
         let output_i686 = &[
             24, 87, 83, 81, 97, 100, 96, 96, 228, 98, 0, 3, 123, 6, 6, 77, 21, 16, 67, 5, 36, 10,
             102, 73, 139, 67, 164, 24, 194, 64, 32, 144, 75, 55, 16, 5, 248, 65, 65, 52, 152, 116,
@@ -2241,6 +2242,7 @@ mod fuzz_based_tests {
             125, 74, 22, 82,
         ];
 
+        // longest_match does not perform unaligned 32-bit reads/writes on s390x
         let output_s390x = &[
             24, 87, 83, 81, 97, 100, 96, 96, 228, 98, 0, 3, 123, 6, 6, 77, 21, 16, 67, 5, 36, 10,
             102, 73, 139, 67, 164, 24, 194, 64, 32, 144, 75, 55, 16, 5, 248, 65, 65, 52, 152, 116,
@@ -2251,7 +2253,8 @@ mod fuzz_based_tests {
             125, 74, 22, 82,
         ];
 
-        assert_ne!(output_i686, output_s390x);
+        assert_ne!(output_i686.as_slice(), output_other.as_slice());
+        assert_ne!(output_i686.as_slice(), output_s390x.as_slice());
 
         fuzz_based_test(
             &[
