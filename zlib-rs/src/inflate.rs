@@ -1832,24 +1832,38 @@ fn validate_window_bits(mut window_bits: i32) -> Option<(i32, i32)> {
 }
 
 pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
+    let err = reset_state_with_config(&mut stream.state, &stream.alloc, config);
+
+    if err != ReturnCode::Ok {
+        return err;
+    }
+
+    reset(stream)
+}
+
+fn reset_state_with_config(
+    state: &mut State,
+    allocator: &Allocator,
+    config: InflateConfig,
+) -> ReturnCode {
     let Some((window_bits, wrap)) = validate_window_bits(config.window_bits) else {
         return ReturnCode::StreamError;
     };
 
-    // re-allocate the window if it was allocated already, but the window bits changed
-    if stream.state.window.size() != 0 && stream.state.wbits != window_bits as usize {
+    // de-allocate the window if it was allocated already, but the window bits changed
+    if state.window.size() != 0 && state.wbits != window_bits as usize {
         let mut window = Window::empty();
-        core::mem::swap(&mut window, &mut stream.state.window);
+        core::mem::swap(&mut window, &mut state.window);
 
         let window = window.into_inner();
         assert!(!window.is_empty());
-        unsafe { stream.alloc.deallocate(window.as_mut_ptr(), window.len()) };
+        unsafe { allocator.deallocate(window.as_mut_ptr(), window.len()) };
     }
 
-    stream.state.wrap = wrap as usize;
-    stream.state.wbits = window_bits as _;
+    state.wrap = wrap as usize;
+    state.wbits = window_bits as _;
 
-    reset(stream)
+    ReturnCode::Ok
 }
 
 pub fn reset(stream: &mut InflateStream) -> ReturnCode {
