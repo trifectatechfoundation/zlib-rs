@@ -882,10 +882,10 @@ struct BitWriter<'a> {
     pub(crate) bit_buffer: u64,
     pub(crate) bits_used: u8,
 
-    /// total bit length of compressed file mod 2^32
+    /// total bit length of compressed file (NOTE: zlib-ng uses a 32-bit integer here)
     #[cfg(feature = "ZLIB_DEBUG")]
     compressed_len: usize,
-    /// /* bit length of compressed data sent mod 2^32
+    /// bit length of compressed data sent (NOTE: zlib-ng uses a 32-bit integer here)
     #[cfg(feature = "ZLIB_DEBUG")]
     bits_sent: usize,
 }
@@ -1029,16 +1029,12 @@ impl<'a> BitWriter<'a> {
     pub(crate) fn emit_lit(&mut self, ltree: &[Value], c: u8) -> u16 {
         self.send_code(c as usize, ltree);
 
-        trace!(
-            "{}",
-            match char::from_u32(c as u32) {
-                None => String::new(),
-                Some(c) => match c.is_ascii() && !c.is_whitespace() {
-                    true => format!(" '{}' ", c),
-                    false => String::new(),
-                },
+        #[cfg(feature = "ZLIB_DEBUG")]
+        if let Some(c) = char::from_u32(c as u32) {
+            if c.is_ascii() && !c.is_whitespace() {
+                trace!(" '{}' ", c);
             }
-        );
+        }
 
         ltree[c as usize].len()
     }
