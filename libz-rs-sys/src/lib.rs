@@ -20,6 +20,7 @@ use core::mem::MaybeUninit;
 
 use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
 
+use zlib_rs::allocate::Allocator;
 use zlib_rs::{
     deflate::{DeflateConfig, DeflateStream, Method, Strategy},
     inflate::{InflateConfig, InflateStream},
@@ -57,28 +58,29 @@ const _: () =
     compile_error!("Only one of `rust-allocator` and `c-allocator` can be enabled at a time");
 
 #[allow(unreachable_code)]
-const DEFAULT_ZALLOC: Option<alloc_func> = '_blk: {
+const DEFAULT_ALLOCATOR: Option<Allocator<'static>> = '_blk: {
     // this `break 'blk'` construction exists to generate just one compile error and not other
     // warnings when multiple allocators are configured.
 
     #[cfg(feature = "c-allocator")]
-    break '_blk Some(zlib_rs::allocate::Allocator::C.zalloc);
+    break '_blk Some(zlib_rs::allocate::Allocator::C);
 
     #[cfg(feature = "rust-allocator")]
-    break '_blk Some(zlib_rs::allocate::Allocator::RUST.zalloc);
+    break '_blk Some(zlib_rs::allocate::Allocator::RUST);
 
     None
 };
 
 #[allow(unreachable_code)]
-const DEFAULT_ZFREE: Option<free_func> = '_blk: {
-    #[cfg(feature = "c-allocator")]
-    break '_blk Some(zlib_rs::allocate::Allocator::C.zfree);
+const DEFAULT_ZALLOC: Option<alloc_func> = match DEFAULT_ALLOCATOR {
+    Some(allocator) => Some(allocator.zalloc),
+    None => None,
+};
 
-    #[cfg(feature = "rust-allocator")]
-    break '_blk Some(zlib_rs::allocate::Allocator::RUST.zfree);
-
-    None
+#[allow(unreachable_code)]
+const DEFAULT_ZFREE: Option<free_func> = match DEFAULT_ALLOCATOR {
+    Some(allocator) => Some(allocator.zfree),
+    None => None,
 };
 
 // In spirit this type is `libc::off_t`, but it would be our only libc dependency, and so we
