@@ -643,63 +643,6 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
-#[repr(C)]
-struct MaybeAllocator {
-    zalloc: Option<alloc_func>,
-    zfree: Option<free_func>,
-    opaque: voidpf,
-}
-
-impl MaybeAllocator {
-    /// # Safety
-    ///
-    /// The caller must guarantee that the following fields are initialized
-    ///
-    /// * `zalloc`
-    /// * `zfree`
-    /// * `opaque`
-    unsafe fn from_z_stream(strm: &mut MaybeUninit<z_stream>) -> &mut Self {
-        // SAFETY: the caller guarantees that these fields are initialized.
-        unsafe { &mut *(core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc) as *mut Self) }
-    }
-
-    fn initialize(&mut self) -> Option<Allocator<'static>> {
-        let (zalloc, opaque) = match self.zalloc {
-            Some(zalloc) => (zalloc, self.opaque),
-            None => match DEFAULT_ALLOCATOR {
-                Some(allocator) => {
-                    self.zalloc = Some(allocator.zalloc);
-                    self.opaque = allocator.opaque;
-
-                    (allocator.zalloc, allocator.opaque)
-                }
-                None => return None,
-            },
-        };
-
-        let zfree = match self.zfree {
-            Some(zfree) => zfree,
-            None => match DEFAULT_ALLOCATOR {
-                Some(allocator) => {
-                    self.zfree = Some(allocator.zfree);
-
-                    allocator.zfree
-                }
-                None => return None,
-            },
-        };
-
-        let allocator = Allocator {
-            zalloc,
-            zfree,
-            opaque,
-            _marker: core::marker::PhantomData,
-        };
-
-        Some(allocator)
-    }
-}
-
 /// Helper that implements the actual initialization logic
 ///
 /// # Safety
@@ -1834,4 +1777,63 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
 #[export_name = prefix!(zlibVersion)]
 pub const extern "C" fn zlibVersion() -> *const c_char {
     LIBZ_RS_SYS_VERSION.as_ptr() as *const c_char
+}
+
+// ---- HELPERS ----
+
+#[repr(C)]
+struct MaybeAllocator {
+    zalloc: Option<alloc_func>,
+    zfree: Option<free_func>,
+    opaque: voidpf,
+}
+
+impl MaybeAllocator {
+    /// # Safety
+    ///
+    /// The caller must guarantee that the following fields are initialized
+    ///
+    /// * `zalloc`
+    /// * `zfree`
+    /// * `opaque`
+    unsafe fn from_z_stream(strm: &mut MaybeUninit<z_stream>) -> &mut Self {
+        // SAFETY: the caller guarantees that these fields are initialized.
+        unsafe { &mut *(core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc) as *mut Self) }
+    }
+
+    fn initialize(&mut self) -> Option<Allocator<'static>> {
+        let (zalloc, opaque) = match self.zalloc {
+            Some(zalloc) => (zalloc, self.opaque),
+            None => match DEFAULT_ALLOCATOR {
+                Some(allocator) => {
+                    self.zalloc = Some(allocator.zalloc);
+                    self.opaque = allocator.opaque;
+
+                    (allocator.zalloc, allocator.opaque)
+                }
+                None => return None,
+            },
+        };
+
+        let zfree = match self.zfree {
+            Some(zfree) => zfree,
+            None => match DEFAULT_ALLOCATOR {
+                Some(allocator) => {
+                    self.zfree = Some(allocator.zfree);
+
+                    allocator.zfree
+                }
+                None => return None,
+            },
+        };
+
+        let allocator = Allocator {
+            zalloc,
+            zfree,
+            opaque,
+            _marker: core::marker::PhantomData,
+        };
+
+        Some(allocator)
+    }
 }
