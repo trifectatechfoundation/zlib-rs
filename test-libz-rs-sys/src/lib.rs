@@ -1074,6 +1074,106 @@ mod null {
             assert_eq!(err, Z_OK);
         }
     }
+
+    #[test]
+    fn inflate_initialization_sets_allocator() {
+        use libz_rs_sys::*;
+
+        let mut strm = z_stream::default();
+        strm.zalloc = None;
+        strm.zfree = None;
+
+        let ret = unsafe {
+            inflateInit_(
+                &mut strm,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        };
+        assert_eq!(ret, Z_OK);
+
+        assert!(strm.zalloc.is_some());
+        assert!(strm.zfree.is_some());
+
+        let err = unsafe { inflateEnd(&mut strm) };
+        assert_eq!(err, Z_OK);
+    }
+
+    #[test]
+    fn inflate_initialization_touches_fields() {
+        assert_eq_rs_ng!({
+            let mut strm: z_stream = unsafe {
+                let mut strm: MaybeUninit<z_stream> = MaybeUninit::zeroed();
+
+                // in the libz_sys version of zlib-rs, the zalloc and zfree fields are function
+                // pointers. NULL is not a valid value for a function pointer, so initializing the
+                // zeroed struct is UB. We explicitly initialize these fields here.
+                core::ptr::write(
+                    core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
+                    zlib_rs::allocate::Allocator::C.zalloc,
+                );
+                core::ptr::write(
+                    core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
+                    zlib_rs::allocate::Allocator::C.zfree,
+                );
+
+                strm.assume_init()
+            };
+
+            let mut in_buf = *b"in";
+            strm.next_in = in_buf.as_mut_ptr();
+            strm.avail_in = in_buf.len() as _;
+
+            let mut out_buf = *b"out";
+            strm.next_out = out_buf.as_mut_ptr();
+            strm.avail_out = out_buf.len() as _;
+
+            let mut msg_buf = b"error".map(|c| c as i8);
+            strm.msg = msg_buf.as_mut_ptr();
+
+            strm.total_in = 0xdeadbeef;
+            strm.total_out = 0xdeadbeef;
+
+            strm.data_type = -123;
+            strm.adler = 0xdeadbeef;
+            strm.reserved = 0xdeadbeef;
+
+            let ret = inflateInit_(
+                &mut strm,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            );
+            assert_eq!(ret, Z_OK);
+
+            // left alone
+            assert_eq!(strm.next_in, in_buf.as_mut_ptr());
+            assert_eq!(strm.avail_in, in_buf.len() as _);
+
+            // left alone
+            assert_eq!(strm.next_out, out_buf.as_mut_ptr());
+            assert_eq!(strm.avail_out, out_buf.len() as _);
+
+            // cleared
+            assert_eq!(strm.msg, core::ptr::null_mut());
+
+            // initialized
+            assert_ne!(strm.state, core::ptr::null_mut());
+
+            // cleared
+            assert_eq!(strm.total_in, 0);
+            assert_eq!(strm.total_out, 0);
+
+            // initialized
+            assert_eq!(strm.adler, 1);
+
+            // zlib-ng leaves these alone, zlib-rs clears them
+            assert!(strm.data_type == -123 || strm.data_type == 0);
+            assert!(strm.reserved == 0xdeadbeef || strm.reserved == 0);
+
+            let err = inflateEnd(&mut strm);
+            assert_eq!(err, Z_OK);
+        });
+    }
 }
 
 #[cfg(test)]

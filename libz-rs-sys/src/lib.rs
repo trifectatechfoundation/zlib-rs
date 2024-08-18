@@ -643,67 +643,61 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
-/// Helper that configures a default allocator if none was configured, and returns the allocator
-/// that the initialization process will use.
-///
-/// # Safety
-///
-/// The caller must guarantee that
-///
-/// * Either
-///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
-/// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `zalloc`
-///     - `zfree`
-///     - `opaque`
-unsafe fn initialize_allocator(strm: z_streamp) -> Option<Allocator<'static>> {
-    if strm.is_null() {
-        return None;
+#[repr(C)]
+struct MaybeAllocator {
+    zalloc: Option<alloc_func>,
+    zfree: Option<free_func>,
+    opaque: voidpf,
+}
+
+impl MaybeAllocator {
+    /// # Safety
+    ///
+    /// The caller must guarantee that the following fields are initialized
+    ///
+    /// * `zalloc`
+    /// * `zfree`
+    /// * `opaque`
+    unsafe fn from_z_stream(strm: &mut MaybeUninit<z_stream>) -> &mut Self {
+        // SAFETY: the caller guarantees that these fields are initialized.
+        unsafe { &mut *(core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc) as *mut Self) }
     }
 
-    #[repr(C)]
-    struct MaybeAllocator {
-        zalloc: Option<alloc_func>,
-        zfree: Option<free_func>,
-        opaque: voidpf,
+    fn initialize(&mut self) -> Option<Allocator<'static>> {
+        let (zalloc, opaque) = match self.zalloc {
+            Some(zalloc) => (zalloc, self.opaque),
+            None => match DEFAULT_ALLOCATOR {
+                Some(allocator) => {
+                    self.zalloc = Some(allocator.zalloc);
+                    self.opaque = allocator.opaque;
+
+                    (allocator.zalloc, allocator.opaque)
+                }
+                None => return None,
+            },
+        };
+
+        let zfree = match self.zfree {
+            Some(zfree) => zfree,
+            None => match DEFAULT_ALLOCATOR {
+                Some(allocator) => {
+                    self.zfree = Some(allocator.zfree);
+
+                    allocator.zfree
+                }
+                None => return None,
+            },
+        };
+
+        let allocator = Allocator {
+            zalloc,
+            zfree,
+            opaque,
+            _marker: core::marker::PhantomData,
+        };
+
+        Some(allocator)
     }
-
-    // SAFETY: the caller guarantees exclusive access and that these fields are initialized.
-    let maybe_allocator =
-        unsafe { &mut *(core::ptr::addr_of_mut!((*strm).zalloc) as *mut MaybeAllocator) };
-
-    let (zalloc, opaque) = match maybe_allocator.zalloc {
-        Some(zalloc) => (zalloc, maybe_allocator.opaque),
-        None => match DEFAULT_ALLOCATOR {
-            Some(allocator) => {
-                maybe_allocator.zalloc = Some(allocator.zalloc);
-                maybe_allocator.opaque = allocator.opaque;
-
-                (allocator.zalloc, allocator.opaque)
-            }
-            None => return None,
-        },
-    };
-
-    let zfree = match maybe_allocator.zfree {
-        Some(zfree) => zfree,
-        None => match DEFAULT_ALLOCATOR {
-            Some(allocator) => {
-                maybe_allocator.zfree = Some(allocator.zfree);
-
-                allocator.zfree
-            }
-            None => return None,
-        },
-    };
-
-    Some(Allocator {
-        zalloc,
-        zfree,
-        opaque,
-        _marker: core::marker::PhantomData,
-    })
 }
 
 /// Helper that implements the actual initialization logic
@@ -732,8 +726,11 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
         *core::ptr::addr_of_mut!((*strm).msg) = core::ptr::null_mut();
     }
 
-    // Safety: strm is NULL or the zalloc, zfree and opaque fields are initialized
-    let Some(allocator) = initialize_allocator(strm) else {
+    // Safety: strm is not NULL hence the caller guarantees that zalloc, zfree and opaque fields are initialized
+    let maybe_allocator =
+        unsafe { MaybeAllocator::from_z_stream(&mut *(strm as *mut MaybeUninit<z_stream>)) };
+
+    let Some(allocator) = maybe_allocator.initialize() else {
         return ReturnCode::StreamError as _;
     };
 
