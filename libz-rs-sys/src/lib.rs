@@ -21,6 +21,7 @@ use core::mem::MaybeUninit;
 use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
 
 use zlib_rs::allocate::Allocator;
+use zlib_rs::inflate::InflateInitStream;
 use zlib_rs::{
     deflate::{DeflateConfig, DeflateStream, Method, Strategy},
     inflate::{InflateConfig, InflateStream},
@@ -592,8 +593,6 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 /// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -627,8 +626,6 @@ pub unsafe extern "C" fn inflateInit_(
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 /// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -646,6 +643,69 @@ pub unsafe extern "C" fn inflateInit2_(
     }
 }
 
+/// Helper that configures a default allocator if none was configured, and returns the allocator
+/// that the initialization process will use.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+/// * If `strm` is not `NULL`, the following fields must be initialized
+///     - `zalloc`
+///     - `zfree`
+///     - `opaque`
+unsafe fn initialize_allocator(strm: z_streamp) -> Option<Allocator<'static>> {
+    if strm.is_null() {
+        return None;
+    }
+
+    #[repr(C)]
+    struct MaybeAllocator {
+        zalloc: Option<alloc_func>,
+        zfree: Option<free_func>,
+        opaque: voidpf,
+    }
+
+    // SAFETY: the caller guarantees exclusive access and that these fields are initialized.
+    let maybe_allocator =
+        unsafe { &mut *(core::ptr::addr_of_mut!((*strm).zalloc) as *mut MaybeAllocator) };
+
+    let (zalloc, opaque) = match maybe_allocator.zalloc {
+        Some(zalloc) => (zalloc, maybe_allocator.opaque),
+        None => match DEFAULT_ALLOCATOR {
+            Some(allocator) => {
+                maybe_allocator.zalloc = Some(allocator.zalloc);
+                maybe_allocator.opaque = allocator.opaque;
+
+                (allocator.zalloc, allocator.opaque)
+            }
+            None => return None,
+        },
+    };
+
+    let zfree = match maybe_allocator.zfree {
+        Some(zfree) => zfree,
+        None => match DEFAULT_ALLOCATOR {
+            Some(allocator) => {
+                maybe_allocator.zfree = Some(allocator.zfree);
+
+                allocator.zfree
+            }
+            None => return None,
+        },
+    };
+
+    Some(Allocator {
+        zalloc,
+        zfree,
+        opaque,
+        _marker: core::marker::PhantomData,
+    })
+}
+
 /// Helper that implements the actual initialization logic
 ///
 /// # Safety
@@ -659,48 +719,55 @@ pub unsafe extern "C" fn inflateInit2_(
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
 /// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
 unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
-        ReturnCode::StreamError as _
-    } else {
-        let config = InflateConfig {
-            window_bits: windowBits,
-        };
-
-        let mut stream = z_stream::default();
-
-        // SAFETY: the caller guarantees these fields are initialized
-        unsafe {
-            stream.next_in = *core::ptr::addr_of!((*strm).next_in);
-            stream.avail_in = *core::ptr::addr_of!((*strm).avail_in);
-            stream.zalloc = *core::ptr::addr_of!((*strm).zalloc);
-            stream.zfree = *core::ptr::addr_of!((*strm).zfree);
-            stream.opaque = *core::ptr::addr_of!((*strm).opaque);
-        }
-
-        if stream.zalloc.is_none() {
-            stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = core::ptr::null_mut();
-        }
-
-        if stream.zfree.is_none() {
-            stream.zfree = DEFAULT_ZFREE;
-        }
-
-        // SAFETY: the caller guarantees this pointer is writable
-        unsafe { core::ptr::write(strm, stream) };
-
-        // SAFETY: we have now properly initialized this memory
-        // the caller guarantees the safety of `&mut *`
-        let stream = unsafe { &mut *strm };
-
-        zlib_rs::inflate::init(stream, config) as _
+        return ReturnCode::StreamError as _;
     }
+
+    // Safety: the caller guarantees that `strm`'s fields are writable
+    unsafe {
+        *core::ptr::addr_of_mut!((*strm).msg) = core::ptr::null_mut();
+    }
+
+    // Safety: strm is NULL or the zalloc, zfree and opaque fields are initialized
+    let Some(allocator) = initialize_allocator(strm) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let config = InflateConfig {
+        window_bits: windowBits,
+    };
+
+    let inflate_init_stream = match InflateInitStream::new(&allocator, config) {
+        Ok(inflate_init_stream) => inflate_init_stream,
+        Err(return_code) => return return_code as _,
+    };
+
+    let InflateInitStream {
+        total_in,
+        total_out,
+        msg,
+        state,
+        data_type,
+        adler,
+        reserved,
+    } = inflate_init_stream;
+
+    // Safety: the caller guarantees that `strm`'s fields are writable
+    unsafe {
+        *core::ptr::addr_of_mut!((*strm).total_in) = total_in;
+        *core::ptr::addr_of_mut!((*strm).total_out) = total_out;
+        *core::ptr::addr_of_mut!((*strm).msg) = msg;
+        *core::ptr::addr_of_mut!((*strm).state) = state;
+        *core::ptr::addr_of_mut!((*strm).data_type) = data_type;
+        *core::ptr::addr_of_mut!((*strm).adler) = adler;
+        *core::ptr::addr_of_mut!((*strm).reserved) = reserved;
+    }
+
+    ReturnCode::Ok as _
 }
 
 /// Inserts bits in the inflate input stream.
@@ -753,11 +820,12 @@ pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateReset)]
 pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
-    if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        zlib_rs::inflate::reset(stream) as _
-    } else {
-        ReturnCode::StreamError as _
-    }
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::inflate::reset(stream);
+    ReturnCode::Ok as _
 }
 
 /// This function is the same as [`inflateReset`], but it also permits changing the wrap and window size requests.
@@ -780,13 +848,17 @@ pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateReset2)]
 pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
-    if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        let config = InflateConfig {
-            window_bits: windowBits,
-        };
-        zlib_rs::inflate::reset_with_config(stream, config) as _
-    } else {
-        ReturnCode::StreamError as _
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let config = InflateConfig {
+        window_bits: windowBits,
+    };
+
+    match zlib_rs::inflate::reset_with_config(stream, config) {
+        Ok(()) => ReturnCode::Ok as _,
+        Err(stream_error) => ReturnCode::from(stream_error) as _,
     }
 }
 
@@ -944,7 +1016,8 @@ pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> 
 #[export_name = prefix!(inflateResetKeep)]
 pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        zlib_rs::inflate::reset_keep(stream) as _
+        zlib_rs::inflate::reset_keep(stream);
+        ReturnCode::Ok as _
     } else {
         ReturnCode::StreamError as _
     }

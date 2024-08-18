@@ -12,6 +12,7 @@ mod window;
 
 use crate::allocate::Allocator;
 use crate::c_api::internal_state;
+use crate::StreamError;
 use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
@@ -1748,6 +1749,68 @@ impl Default for InflateConfig {
     }
 }
 
+pub struct InflateInitStream {
+    pub total_in: crate::c_api::z_size,
+    pub total_out: crate::c_api::z_size,
+    pub msg: *mut c_char,
+    pub state: *mut internal_state,
+    pub data_type: c_int,
+    pub adler: crate::c_api::z_checksum,
+    pub reserved: crate::c_api::uLong,
+}
+
+impl InflateInitStream {
+    pub fn new(
+        allocator: &Allocator,
+        config: InflateConfig,
+    ) -> Result<InflateInitStream, ReturnCode> {
+        let mut stream = InflateInitStream {
+            total_in: 0,
+            total_out: 0,
+            msg: core::ptr::null_mut(),
+            state: core::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        };
+
+        // allocated here to have the same order as zlib
+        let Some(state_allocation) = allocator.allocate::<State>() else {
+            return Err(ReturnCode::MemError);
+        };
+
+        // keep the state on the stack for now. The compiler can reason about stack values in a lot
+        // more detail versus anything on the heap. A `MaybeUninit::write` now would still construct
+        // the state on the stack anyway.
+        let mut state = State::new(&[], ReadBuf::new(&mut []));
+
+        // TODO this can change depending on the used/supported SIMD instructions
+        state.chunksize = 32;
+
+        let Ok(()) = reset_state_with_config(&mut state, allocator, config) else {
+            // SAFETY: we assume deallocation does not cause UB
+            unsafe { allocator.deallocate(state_allocation, 1) };
+            return Err(ReturnCode::StreamError);
+        };
+
+        // make sure the window is cleared
+        debug_assert_eq!(state.window.have(), 0);
+        debug_assert_eq!(state.window.next(), 0);
+
+        debug_assert!(state.error_message.is_none());
+
+        if state.wrap != 0 {
+            // to support ill-conceived Java test suite
+            stream.adler = (state.wrap & 1) as _;
+        }
+
+        reset_keep_state(&mut state);
+
+        stream.state = state_allocation.write(state) as *mut State as *mut internal_state;
+        Ok(stream)
+    }
+}
+
 /// Initialize the stream in an inflate state
 pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     stream.msg = core::ptr::null_mut();
@@ -1769,40 +1832,37 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         return ReturnCode::StreamError;
     }
 
-    let mut state = State::new(&[], ReadBuf::new(&mut []));
-
-    // TODO this can change depending on the used/supported SIMD instructions
-    state.chunksize = 32;
-
-    let alloc = Allocator {
+    let allocator = Allocator {
         zalloc: stream.zalloc.unwrap(),
         zfree: stream.zfree.unwrap(),
         opaque: stream.opaque,
         _marker: PhantomData,
     };
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate::<State>() else {
-        return ReturnCode::MemError;
+    let inflate_init_stream = match InflateInitStream::new(&allocator, config) {
+        Ok(inflate_init_stream) => inflate_init_stream,
+        Err(return_code) => return return_code as _,
     };
 
-    stream.state = state_allocation.write(state) as *mut _ as *mut internal_state;
+    let InflateInitStream {
+        total_in,
+        total_out,
+        msg,
+        state,
+        data_type,
+        adler,
+        reserved,
+    } = inflate_init_stream;
 
-    // SAFETY: we've correctly initialized the stream to be an InflateStream
-    let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
-        reset_with_config(stream, config)
-    } else {
-        ReturnCode::StreamError
-    };
+    stream.total_in = total_in;
+    stream.total_out = total_out;
+    stream.msg = msg;
+    stream.state = state;
+    stream.data_type = data_type;
+    stream.adler = adler;
+    stream.reserved = reserved;
 
-    if ret != ReturnCode::Ok {
-        let ptr = stream.state;
-        stream.state = core::ptr::null_mut();
-        // SAFETY: we assume deallocation does not cause UB
-        unsafe { alloc.deallocate(ptr, 1) };
-    }
-
-    ret
+    ReturnCode::Ok as _
 }
 
 fn validate_window_bits(mut window_bits: i32) -> Option<(i32, i32)> {
@@ -1831,23 +1891,24 @@ fn validate_window_bits(mut window_bits: i32) -> Option<(i32, i32)> {
     Some((window_bits, wrap))
 }
 
-pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
-    let err = reset_state_with_config(&mut stream.state, &stream.alloc, config);
+pub fn reset_with_config(
+    stream: &mut InflateStream,
+    config: InflateConfig,
+) -> Result<(), StreamError> {
+    reset_state_with_config(stream.state, &stream.alloc, config)?;
 
-    if err != ReturnCode::Ok {
-        return err;
-    }
+    reset(stream);
 
-    reset(stream)
+    Ok(())
 }
 
 fn reset_state_with_config(
     state: &mut State,
     allocator: &Allocator,
     config: InflateConfig,
-) -> ReturnCode {
+) -> Result<(), StreamError> {
     let Some((window_bits, wrap)) = validate_window_bits(config.window_bits) else {
-        return ReturnCode::StreamError;
+        return Err(StreamError);
     };
 
     // de-allocate the window if it was allocated already, but the window bits changed
@@ -1863,10 +1924,10 @@ fn reset_state_with_config(
     state.wrap = wrap as usize;
     state.wbits = window_bits as _;
 
-    ReturnCode::Ok
+    Ok(())
 }
 
-pub fn reset(stream: &mut InflateStream) -> ReturnCode {
+pub fn reset(stream: &mut InflateStream) {
     // reset the state of the window
     stream.state.window.clear();
 
@@ -1875,19 +1936,22 @@ pub fn reset(stream: &mut InflateStream) -> ReturnCode {
     reset_keep(stream)
 }
 
-pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
-    stream.total_in = 0;
-    stream.total_out = 0;
-    stream.state.total = 0;
-
+pub fn reset_keep(stream: &mut InflateStream) {
     stream.msg = core::ptr::null_mut();
 
-    let state = &mut stream.state;
+    stream.total_in = 0;
+    stream.total_out = 0;
 
-    if state.wrap != 0 {
+    if stream.state.wrap != 0 {
         // to support ill-conceived Java test suite
-        stream.adler = (state.wrap & 1) as _;
+        stream.adler = (stream.state.wrap & 1) as _;
     }
+
+    reset_keep_state(stream.state);
+}
+
+fn reset_keep_state(state: &mut State) {
+    state.total = 0;
 
     state.mode = Mode::Head;
     state.checksum = crate::ADLER32_INITIAL_VALUE as u32;
@@ -1905,8 +1969,6 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 
     state.sane = true;
     state.back = usize::MAX;
-
-    ReturnCode::Ok
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {

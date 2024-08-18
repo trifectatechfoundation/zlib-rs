@@ -1010,12 +1010,6 @@ mod null {
         unsafe {
             let mut strm = MaybeUninit::<z_stream>::uninit();
 
-            core::ptr::write(core::ptr::addr_of_mut!((*strm.as_mut_ptr()).avail_in), 0);
-            core::ptr::write(
-                core::ptr::addr_of_mut!((*strm.as_mut_ptr()).next_in),
-                core::ptr::null(),
-            );
-
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
                 zlib_rs::allocate::Allocator::C.zalloc,

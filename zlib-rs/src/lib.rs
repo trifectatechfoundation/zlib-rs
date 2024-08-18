@@ -160,6 +160,15 @@ pub(crate) struct Code {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct StreamError;
+
+impl From<StreamError> for ReturnCode {
+    fn from(_: StreamError) -> Self {
+        Self::StreamError
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ReturnCode {
     Ok = 0,
