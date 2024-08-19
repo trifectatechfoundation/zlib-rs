@@ -691,9 +691,7 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
         total_out,
         msg,
         state,
-        data_type,
         adler,
-        reserved,
     } = inflate_init_stream;
 
     // Safety: the caller guarantees that `strm`'s fields are writable
@@ -702,9 +700,7 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
         *core::ptr::addr_of_mut!((*strm).total_out) = total_out;
         *core::ptr::addr_of_mut!((*strm).msg) = msg;
         *core::ptr::addr_of_mut!((*strm).state) = state;
-        *core::ptr::addr_of_mut!((*strm).data_type) = data_type;
         *core::ptr::addr_of_mut!((*strm).adler) = adler;
-        *core::ptr::addr_of_mut!((*strm).reserved) = reserved;
     }
 
     ReturnCode::Ok as _

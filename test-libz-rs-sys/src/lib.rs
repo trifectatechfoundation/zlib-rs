@@ -1079,9 +1079,11 @@ mod null {
     fn inflate_initialization_sets_allocator() {
         use libz_rs_sys::*;
 
-        let mut strm = z_stream::default();
-        strm.zalloc = None;
-        strm.zfree = None;
+        let mut strm = z_stream {
+            zalloc: None,
+            zfree: None,
+            ..z_stream::default()
+        };
 
         let ret = unsafe {
             inflateInit_(
@@ -1128,7 +1130,7 @@ mod null {
             strm.next_out = out_buf.as_mut_ptr();
             strm.avail_out = out_buf.len() as _;
 
-            let mut msg_buf = b"error".map(|c| c as i8);
+            let mut msg_buf = b"error".map(|c| c as std::ffi::c_char);
             strm.msg = msg_buf.as_mut_ptr();
 
             strm.total_in = 0xdeadbeef;
@@ -1166,9 +1168,9 @@ mod null {
             // initialized
             assert_eq!(strm.adler, 1);
 
-            // zlib-ng leaves these alone, zlib-rs clears them
-            assert!(strm.data_type == -123 || strm.data_type == 0);
-            assert!(strm.reserved == 0xdeadbeef || strm.reserved == 0);
+            // left alone
+            assert!(strm.data_type == -123);
+            assert!(strm.reserved == 0xdeadbeef);
 
             let err = inflateEnd(&mut strm);
             assert_eq!(err, Z_OK);

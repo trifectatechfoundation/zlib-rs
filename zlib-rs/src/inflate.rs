@@ -1754,9 +1754,7 @@ pub struct InflateInitStream {
     pub total_out: crate::c_api::z_size,
     pub msg: *mut c_char,
     pub state: *mut internal_state,
-    pub data_type: c_int,
     pub adler: crate::c_api::z_checksum,
-    pub reserved: crate::c_api::uLong,
 }
 
 impl InflateInitStream {
@@ -1764,16 +1762,6 @@ impl InflateInitStream {
         allocator: &Allocator,
         config: InflateConfig,
     ) -> Result<InflateInitStream, ReturnCode> {
-        let mut stream = InflateInitStream {
-            total_in: 0,
-            total_out: 0,
-            msg: core::ptr::null_mut(),
-            state: core::ptr::null_mut(),
-            data_type: 0,
-            adler: 0,
-            reserved: 0,
-        };
-
         // allocated here to have the same order as zlib
         let Some(state_allocation) = allocator.allocate::<State>() else {
             return Err(ReturnCode::MemError);
@@ -1799,14 +1787,23 @@ impl InflateInitStream {
 
         debug_assert!(state.error_message.is_none());
 
-        if state.wrap != 0 {
+        let adler = if state.wrap != 0 {
             // to support ill-conceived Java test suite
-            stream.adler = (state.wrap & 1) as _;
-        }
+            (state.wrap & 1) as z_checksum
+        } else {
+            crate::ADLER32_INITIAL_VALUE as z_checksum
+        };
 
         reset_keep_state(&mut state);
 
-        stream.state = state_allocation.write(state) as *mut State as *mut internal_state;
+        let stream = InflateInitStream {
+            total_in: 0,
+            total_out: 0,
+            msg: core::ptr::null_mut(),
+            state: state_allocation.write(state) as *mut State as *mut internal_state,
+            adler,
+        };
+
         Ok(stream)
     }
 }
@@ -1849,18 +1846,14 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         total_out,
         msg,
         state,
-        data_type,
         adler,
-        reserved,
     } = inflate_init_stream;
 
     stream.total_in = total_in;
     stream.total_out = total_out;
     stream.msg = msg;
     stream.state = state;
-    stream.data_type = data_type;
     stream.adler = adler;
-    stream.reserved = reserved;
 
     ReturnCode::Ok as _
 }
