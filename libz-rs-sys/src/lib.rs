@@ -115,12 +115,9 @@ pub type z_off_t = c_long;
 /// ```
 #[export_name = prefix!(crc32)]
 pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    if buf.is_null() {
-        0
-    } else {
-        // SAFETY: requirements must be satisfied by the caller
-        let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
-        zlib_rs::crc32(crc as u32, buf) as c_ulong
+    match unsafe { slice_from_raw_parts(buf, len as usize) } {
+        Some(buf) => zlib_rs::crc32(crc as u32, buf) as c_ulong,
+        None => 0,
     }
 }
 
@@ -183,12 +180,9 @@ pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> 
 /// ```
 #[export_name = prefix!(adler32)]
 pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    if buf.is_null() {
-        1
-    } else {
-        // SAFETY: requirements must be satisfied by the caller
-        let buf = unsafe { core::slice::from_raw_parts(buf, len as usize) };
-        zlib_rs::adler32(adler as u32, buf) as c_ulong
+    match unsafe { slice_from_raw_parts(buf, len as usize) } {
+        Some(buf) => zlib_rs::adler32(adler as u32, buf) as c_ulong,
+        None => 1,
     }
 }
 
@@ -292,31 +286,22 @@ pub unsafe extern "C" fn uncompress(
 ) -> c_int {
     // stock zlib will just dereference a NULL pointer: that's UB.
     // Hence us returning an error value is compatible
-    let len = if destLen.is_null() {
+    let Some(destLen) = (unsafe { destLen.as_mut() }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: guaranteed by the caller
-        core::ptr::read(destLen) as usize
     };
 
-    let output = if dest.is_null() {
+    let Some(output) = (unsafe { slice_from_raw_parts_uninit_mut(dest, *destLen as usize) }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, len)
     };
 
-    let len = sourceLen as usize;
-    let input = if source.is_null() {
+    let Some(input) = (unsafe { slice_from_raw_parts(source, sourceLen as usize) }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts(source, len)
     };
 
-    let (output, err) = zlib_rs::inflate::uncompress(output, input, InflateConfig::default());
+    let config = InflateConfig::default();
+    let (output, err) = zlib_rs::inflate::uncompress(output, input, config);
 
-    core::ptr::write(destLen, output.len() as _);
+    *destLen = output.len() as c_ulong;
 
     err as c_int
 }
@@ -794,10 +779,12 @@ pub unsafe extern "C" fn inflateSetDictionary(
         return ReturnCode::StreamError as _;
     };
 
-    let dict = if dictLength == 0 || dictionary.is_null() {
-        &[]
-    } else {
-        unsafe { core::slice::from_raw_parts(dictionary, dictLength as usize) }
+    let dict = match dictLength {
+        0 => &[],
+        _ => match unsafe { slice_from_raw_parts(dictionary, dictLength as usize) } {
+            None => &[],
+            Some(slice) => slice,
+        },
     };
 
     zlib_rs::inflate::set_dictionary(stream, dict) as _
@@ -1090,25 +1077,18 @@ pub unsafe extern "C" fn compress2(
         return ReturnCode::StreamError as _;
     };
 
-    let output = if dest.is_null() {
+    let Some(output) = (unsafe { slice_from_raw_parts_uninit_mut(dest, *destLen as usize) }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, *destLen as usize)
     };
 
-    let len = sourceLen as usize;
-    let input = if source.is_null() {
+    let Some(input) = (unsafe { slice_from_raw_parts(source, sourceLen as usize) }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts(source, len)
     };
 
     let config = DeflateConfig::new(level);
     let (output, err) = zlib_rs::deflate::compress(output, input, config);
 
-    *destLen = output.len() as u64;
+    *destLen = output.len() as c_ulong;
 
     err as c_int
 }
@@ -1234,11 +1214,9 @@ pub unsafe extern "C" fn deflateSetDictionary(
     dictionary: *const Bytef,
     dictLength: uInt,
 ) -> c_int {
-    let dictionary = if dictionary.is_null() {
+    let Some(dictionary) = (unsafe { slice_from_raw_parts(dictionary, dictLength as usize) })
+    else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts(dictionary, dictLength as usize)
     };
 
     match DeflateStream::from_stream_mut(strm) {
@@ -1668,4 +1646,35 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
 #[export_name = prefix!(zlibVersion)]
 pub const extern "C" fn zlibVersion() -> *const c_char {
     LIBZ_RS_SYS_VERSION.as_ptr().cast::<c_char>()
+}
+
+/// # Safety
+///
+/// Either
+///
+/// - `ptr` is `NULL`
+/// - `ptr` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
+unsafe fn slice_from_raw_parts<'a, T>(ptr: *const T, len: usize) -> Option<&'a [T]> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { core::slice::from_raw_parts(ptr, len) })
+    }
+}
+
+/// # Safety
+///
+/// Either
+///
+/// - `ptr` is `NULL`
+/// - `ptr` and `len` satisfy the requirements of [`core::slice::from_raw_parts_mut`]
+unsafe fn slice_from_raw_parts_uninit_mut<'a, T>(
+    ptr: *mut T,
+    len: usize,
+) -> Option<&'a mut [MaybeUninit<T>]> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { core::slice::from_raw_parts_mut(ptr.cast::<MaybeUninit<T>>(), len) })
+    }
 }
