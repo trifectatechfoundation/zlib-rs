@@ -879,7 +879,7 @@ pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> 
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateResetKeep)]
-pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::reset_keep(stream) as _
     } else {
@@ -919,7 +919,7 @@ pub unsafe extern "C" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflate)]
-pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
+pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> c_int {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
         match DeflateFlush::try_from(flush) {
             Ok(flush) => zlib_rs::deflate::deflate(stream, flush) as _,
@@ -953,19 +953,14 @@ pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> i32 {
 ///     - `head` is `NULL`
 ///     - `head` satisfies the requirements of `&mut *head`
 #[export_name = prefix!(deflateSetHeader)]
-pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> i32 {
-    if let Some(stream) = DeflateStream::from_stream_mut(strm) {
-        zlib_rs::deflate::set_header(
-            stream,
-            if head.is_null() {
-                None
-            } else {
-                Some(&mut *head)
-            },
-        ) as _
-    } else {
-        ReturnCode::StreamError as _
-    }
+pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> c_int {
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let header = unsafe { head.as_mut() };
+
+    zlib_rs::deflate::set_header(stream, header) as _
 }
 
 /// Returns an upper bound on the compressed size after deflation of `sourceLen` bytes.
