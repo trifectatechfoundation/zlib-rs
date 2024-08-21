@@ -393,7 +393,7 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -589,9 +589,7 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -624,9 +622,7 @@ pub unsafe extern "C" fn inflateInit_(
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -656,9 +652,7 @@ pub unsafe extern "C" fn inflateInit2_(
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
-///     - `next_in`
-///     - `avail_in`
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -1467,7 +1461,7 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
@@ -1553,7 +1547,7 @@ pub unsafe extern "C" fn deflateInit_(
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
-/// * If `strm` is not `NULL`, the following fields must be initialized
+/// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
