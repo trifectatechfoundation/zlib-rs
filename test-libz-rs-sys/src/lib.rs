@@ -327,7 +327,7 @@ mod null {
     }
 
     #[test]
-    fn inflate_get_header_uninitialized() {
+    fn inflate_get_header_zeroed() {
         const FERRIS_BYTES_GZ_NO_HEADER: [u8; 26] = [
             31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 115, 75, 45, 42, 202, 44, 6, 0, 174, 148, 97, 210, 6,
             0, 0, 0,
@@ -409,7 +409,7 @@ mod null {
             let mut strm = MaybeUninit::<z_stream>::zeroed();
 
             fn initialize_header_null() -> MaybeUninit<gz_header> {
-                let mut head = MaybeUninit::<gz_header>::uninit();
+                let mut head = MaybeUninit::<gz_header>::zeroed();
 
                 unsafe {
                     core::ptr::write(
@@ -434,7 +434,7 @@ mod null {
                 name: &mut [u8],
                 comment: &mut [u8],
             ) -> MaybeUninit<gz_header> {
-                let mut head = MaybeUninit::<gz_header>::uninit();
+                let mut head = MaybeUninit::<gz_header>::zeroed();
 
                 unsafe {
                     core::ptr::write(

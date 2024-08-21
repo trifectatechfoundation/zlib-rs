@@ -882,40 +882,14 @@ pub unsafe extern "C" fn inflateSetDictionary(
 ///     a partially uninitialized header struct is extremely dangerous.
 #[export_name = prefix!(inflateGetHeader)]
 pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
-    if let Some(stream) = InflateStream::from_stream_mut(strm) {
-        let header = if head.is_null() {
-            None
-        } else {
-            // SAFETY: the caller guarantees these fields are initialized
-            let mut header = gz_header::default();
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
 
-            unsafe {
-                header.extra = *core::ptr::addr_of!((*head).extra);
-                if !header.extra.is_null() {
-                    header.extra_max = *core::ptr::addr_of!((*head).extra_max);
-                }
-                header.name = *core::ptr::addr_of!((*head).name);
-                if !header.name.is_null() {
-                    header.name_max = *core::ptr::addr_of!((*head).name_max);
-                }
-                header.comment = *core::ptr::addr_of!((*head).comment);
-                if !header.comment.is_null() {
-                    header.comm_max = *core::ptr::addr_of!((*head).comm_max);
-                }
-            }
+    // SAFETY: the caller guarantees the safety of `&mut *`
+    let header = unsafe { head.as_mut() };
 
-            // SAFETY: the caller guarantees this pointer is writable
-            unsafe { core::ptr::write(head, header) };
-
-            // SAFETY: we have now properly initialized this memory
-            // the caller guarantees the safety of `&mut *`
-            Some(unsafe { &mut *head })
-        };
-
-        zlib_rs::inflate::get_header(stream, header) as i32
-    } else {
-        ReturnCode::StreamError as _
-    }
+    zlib_rs::inflate::get_header(stream, header) as i32
 }
 
 #[doc(hidden)]
