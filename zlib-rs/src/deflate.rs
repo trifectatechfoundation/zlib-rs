@@ -49,30 +49,29 @@ impl<'a> DeflateStream<'a> {
 
     /// # Safety
     ///
-    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
-    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
-    /// also that it has been initialized by that `deflateInit_` or `deflateInit2_`.
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `strm` satisfies the conditions of [`pointer::as_mut`]
+    /// - if not `NULL`, `strm` as initialized using [`init`] or similar
+    ///
+    /// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
     #[inline(always)]
     pub unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
-        if strm.is_null() {
-            return None;
+        {
+            // Safety: ptr points to a valid value of type z_stream (if non-null)
+            let stream = unsafe { strm.as_ref() }?;
+
+            if stream.zalloc.is_none() || stream.zfree.is_none() {
+                return None;
+            }
+
+            if stream.state.is_null() {
+                return None;
+            }
         }
 
-        // safety: ptr points to a valid value of type z_stream (if non-null)
-        let stream = unsafe { &mut *strm };
-
-        if stream.zalloc.is_none() || stream.zfree.is_none() {
-            return None;
-        }
-
-        if stream.state.is_null() {
-            return None;
-        }
-
-        // safety: DeflateStream has the same layout as z_stream
-        let stream = unsafe { &mut *(strm as *mut DeflateStream) };
-
-        Some(stream)
+        // Safety: DeflateStream has an equivalent layout as z_stream
+        unsafe { strm.cast::<DeflateStream>().as_mut() }
     }
 
     fn as_z_stream_mut(&mut self) -> &mut z_stream {

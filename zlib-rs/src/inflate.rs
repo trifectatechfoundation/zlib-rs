@@ -61,58 +61,56 @@ impl<'a> InflateStream<'a> {
 
     /// # Safety
     ///
-    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
-    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
-    /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `strm` satisfies the conditions of [`pointer::as_ref`]
+    /// - if not `NULL`, `strm` as initialized using [`init`] or similar
+    ///
+    /// [`pointer::as_ref`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_ref
     #[inline(always)]
     pub unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
-        if strm.is_null() {
-            return None;
+        {
+            // Safety: ptr points to a valid value of type z_stream (if non-null)
+            let stream = unsafe { strm.as_ref() }?;
+
+            if stream.zalloc.is_none() || stream.zfree.is_none() {
+                return None;
+            }
+
+            if stream.state.is_null() {
+                return None;
+            }
         }
 
-        // safety: ptr points to a valid value of type z_stream (if non-null)
-        let stream = unsafe { &*strm };
-
-        if stream.zalloc.is_none() || stream.zfree.is_none() {
-            return None;
-        }
-
-        if stream.state.is_null() {
-            return None;
-        }
-
-        // safety: InflateStream has the same layout as z_stream
-        let stream = unsafe { &*(strm as *const InflateStream) };
-
-        Some(stream)
+        // Safety: InflateStream has an equivalent layout as z_stream
+        strm.cast::<InflateStream>().as_ref()
     }
 
     /// # Safety
     ///
-    /// The `strm` pointer must be either `NULL` or a correctly initalized `z_stream`. Here
-    /// correctly initalized does not just mean that the pointer is valid and well-aligned, but
-    /// also that it has been initialized by that `inflateInit_` or `inflateInit2_`.
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `strm` satisfies the conditions of [`pointer::as_mut`]
+    /// - if not `NULL`, `strm` as initialized using [`init`] or similar
+    ///
+    /// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
     #[inline(always)]
     pub unsafe fn from_stream_mut(strm: *mut z_stream) -> Option<&'a mut Self> {
-        if strm.is_null() {
-            return None;
+        {
+            // Safety: ptr points to a valid value of type z_stream (if non-null)
+            let stream = unsafe { strm.as_ref() }?;
+
+            if stream.zalloc.is_none() || stream.zfree.is_none() {
+                return None;
+            }
+
+            if stream.state.is_null() {
+                return None;
+            }
         }
 
-        // safety: ptr points to a valid value of type z_stream (if non-null)
-        let stream = unsafe { &mut *strm };
-
-        if stream.zalloc.is_none() || stream.zfree.is_none() {
-            return None;
-        }
-
-        if stream.state.is_null() {
-            return None;
-        }
-
-        // safety: InflateStream has the same layout as z_stream
-        let stream = unsafe { &mut *(strm as *mut InflateStream) };
-
-        Some(stream)
+        // Safety: InflateStream has an equivalent layout as z_stream
+        strm.cast::<InflateStream>().as_mut()
     }
 
     fn as_z_stream_mut(&mut self) -> &mut z_stream {
