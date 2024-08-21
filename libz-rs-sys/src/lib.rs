@@ -754,10 +754,7 @@ pub unsafe extern "C" fn inflateSetDictionary(
 
     let dict = match dictLength {
         0 => &[],
-        _ => match unsafe { slice_from_raw_parts(dictionary, dictLength as usize) } {
-            None => &[],
-            Some(slice) => slice,
-        },
+        _ => unsafe { slice_from_raw_parts(dictionary, dictLength as usize) }.unwrap_or(&[]),
     };
 
     zlib_rs::inflate::set_dictionary(stream, dict) as _
