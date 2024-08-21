@@ -659,42 +659,15 @@ pub unsafe extern "C" fn inflateInit2_(
 ///     - `zfree`
 ///     - `opaque`
 unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
-    if strm.is_null() {
-        ReturnCode::StreamError as _
-    } else {
-        let config = InflateConfig {
-            window_bits: windowBits,
-        };
+    let Some(strm) = (unsafe { strm.as_mut() }) else {
+        return ReturnCode::StreamError as _;
+    };
 
-        let mut stream = z_stream::default();
+    let config = InflateConfig {
+        window_bits: windowBits,
+    };
 
-        // SAFETY: the caller guarantees these fields are initialized
-        unsafe {
-            stream.next_in = *core::ptr::addr_of!((*strm).next_in);
-            stream.avail_in = *core::ptr::addr_of!((*strm).avail_in);
-            stream.zalloc = *core::ptr::addr_of!((*strm).zalloc);
-            stream.zfree = *core::ptr::addr_of!((*strm).zfree);
-            stream.opaque = *core::ptr::addr_of!((*strm).opaque);
-        }
-
-        if stream.zalloc.is_none() {
-            stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = core::ptr::null_mut();
-        }
-
-        if stream.zfree.is_none() {
-            stream.zfree = DEFAULT_ZFREE;
-        }
-
-        // SAFETY: the caller guarantees this pointer is writable
-        unsafe { core::ptr::write(strm, stream) };
-
-        // SAFETY: we have now properly initialized this memory
-        // the caller guarantees the safety of `&mut *`
-        let stream = unsafe { &mut *strm };
-
-        zlib_rs::inflate::init(stream, config) as _
-    }
+    zlib_rs::inflate::init(strm, config) as _
 }
 
 /// Inserts bits in the inflate input stream.
