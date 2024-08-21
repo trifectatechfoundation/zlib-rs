@@ -1,20 +1,29 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![doc = include_str!("../README.md")]
 
-//! # Safety of `*mut z_stream`
+//! # Safety
 //!
-//! Most functions require an argument of type `*mut z_stream`. Unless
-//! otherwise noted, the safety requirements on such arguments are at least that the
-//! pointer must be either:
+//! Most of the functions in this module are `unsafe fn`s, meaning that their behavior may be
+//! undefined if certain assumptions are broken by the caller. In most cases, documentation
+//! in this module refers to the safety assumptions of standard library functions.
 //!
-//! - A `NULL` pointer
-//! - A pointer to a correctly aligned, initialized value of type `z_stream`.
+//! In most cases, pointers must be either `NULL` or satisfy the requirements of `&*ptr` or `&mut
+//! *ptr`. This requirement maps to the requirements of [`pointer::as_ref`] and [`pointer::as_mut`]
+//! for immutable and mutable pointers respectively.
 //!
-//! In other words, it must be safe to cast the `*mut z_stream` to a `Option<&mut z_stream>`. It is
-//! always safe to provide an argument of type `&mut z_stream`: rust will automatically downcast
-//! the argument to `*mut z_stream`.
+//! For pointer and length pairs, describing some sequence of elements in memory, the requirements
+//! of [`core::slice::from_raw_parts`] or [`core::slice::from_raw_parts_mut`] apply. In some cases,
+//! the element type `T` is converted into `MaybeUninit<T>`, meaning that while the slice must be
+//! valid, the elements in the slice can be uninitialized. Using uninitialized buffers for output
+//! is more performant.
+//!
+//! Finally, some functions accept a string argument, which must either be `NULL` or satisfy the
+//! requirements of [`core::ffi::CStr::from_ptr`].
+//!
+//! [`pointer::as_ref`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_ref
+//! [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 
 use core::mem::MaybeUninit;
 
