@@ -477,15 +477,15 @@ pub unsafe extern "C" fn inflateBackEnd(_strm: z_streamp) -> c_int {
 ///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflateCopy)]
 pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
-    if dest.is_null() {
+    let Some(dest) = (unsafe { dest.cast::<MaybeUninit<InflateStream>>().as_mut() }) else {
         return ReturnCode::StreamError as _;
-    }
+    };
 
-    if let Some(source) = InflateStream::from_stream_ref(source) {
-        zlib_rs::inflate::copy(&mut *(dest as *mut MaybeUninit<InflateStream>), source) as _
-    } else {
-        ReturnCode::StreamError as _
-    }
+    let Some(source) = (unsafe { InflateStream::from_stream_ref(source) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::inflate::copy(dest, source) as _
 }
 
 /// Gives information about the current location of the input stream.
@@ -691,7 +691,7 @@ unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[export_name = prefix!(inflatePrime)]
 pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
@@ -1527,53 +1527,30 @@ pub unsafe extern "C" fn deflateInit2_(
     stream_size: c_int,
 ) -> c_int {
     if !is_version_compatible(version, stream_size) {
-        ReturnCode::VersionError as _
-    } else if strm.is_null() {
-        ReturnCode::StreamError as _
-    } else {
-        let Ok(method) = Method::try_from(method) else {
-            return ReturnCode::StreamError as _;
-        };
-
-        let Ok(strategy) = Strategy::try_from(strategy) else {
-            return ReturnCode::StreamError as _;
-        };
-
-        let config = DeflateConfig {
-            level,
-            method,
-            window_bits: windowBits,
-            mem_level: memLevel,
-            strategy,
-        };
-
-        let mut stream = z_stream::default();
-
-        // SAFETY: the caller guarantees these fields are initialized
-        unsafe {
-            stream.zalloc = *core::ptr::addr_of!((*strm).zalloc);
-            stream.zfree = *core::ptr::addr_of!((*strm).zfree);
-            stream.opaque = *core::ptr::addr_of!((*strm).opaque);
-        }
-
-        if stream.zalloc.is_none() {
-            stream.zalloc = DEFAULT_ZALLOC;
-            stream.opaque = core::ptr::null_mut();
-        }
-
-        if stream.zfree.is_none() {
-            stream.zfree = DEFAULT_ZFREE;
-        }
-
-        // SAFETY: the caller guarantees this pointer is writable
-        unsafe { core::ptr::write(strm, stream) };
-
-        // SAFETY: we have now properly initialized this memory
-        // the caller guarantees the safety of `&mut *`
-        let stream = unsafe { &mut *strm };
-
-        zlib_rs::deflate::init(stream, config) as _
+        return ReturnCode::VersionError as _;
     }
+
+    let Some(strm) = (unsafe { strm.as_mut() }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let Ok(method) = Method::try_from(method) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let Ok(strategy) = Strategy::try_from(strategy) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let config = DeflateConfig {
+        level,
+        method,
+        window_bits: windowBits,
+        mem_level: memLevel,
+        strategy,
+    };
+
+    zlib_rs::deflate::init(strm, config) as _
 }
 
 /// Fine tune deflate's internal compression parameters.
@@ -1603,16 +1580,17 @@ pub unsafe extern "C" fn deflateTune(
     nice_length: c_int,
     max_chain: c_int,
 ) -> c_int {
-    match DeflateStream::from_stream_mut(strm) {
-        Some(stream) => zlib_rs::deflate::tune(
-            stream,
-            good_length as usize,
-            max_lazy as usize,
-            nice_length as usize,
-            max_chain as usize,
-        ) as _,
-        None => ReturnCode::StreamError as _,
-    }
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::deflate::tune(
+        stream,
+        good_length as usize,
+        max_lazy as usize,
+        nice_length as usize,
+        max_chain as usize,
+    ) as _
 }
 
 /// Get the error message for an error. This could be the value returned by e.g. [`compress`] or
@@ -1666,12 +1644,11 @@ macro_rules! libz_rs_sys_version {
 const LIBZ_RS_SYS_VERSION: &str = concat!(libz_rs_sys_version!(), "\0");
 
 unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> bool {
-    if version.is_null() {
+    let Some(expected_major_version) = (unsafe { version.as_ref() }) else {
         return false;
-    }
+    };
 
-    let expected_major_version = core::ptr::read(version);
-    if expected_major_version as u8 != LIBZ_RS_SYS_VERSION.as_bytes()[0] {
+    if *expected_major_version as u8 != LIBZ_RS_SYS_VERSION.as_bytes()[0] {
         return false;
     }
 
@@ -1690,5 +1667,5 @@ unsafe fn is_version_compatible(version: *const c_char, stream_size: i32) -> boo
 /// - The final component is the zlib-rs version used to build this release.
 #[export_name = prefix!(zlibVersion)]
 pub const extern "C" fn zlibVersion() -> *const c_char {
-    LIBZ_RS_SYS_VERSION.as_ptr() as *const c_char
+    LIBZ_RS_SYS_VERSION.as_ptr().cast::<c_char>()
 }
