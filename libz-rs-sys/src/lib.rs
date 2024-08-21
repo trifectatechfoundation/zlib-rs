@@ -391,7 +391,7 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -399,8 +399,6 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateBackInit_)]
 pub unsafe extern "C" fn inflateBackInit_(
     _strm: z_streamp,
@@ -589,7 +587,7 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -597,8 +595,6 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateInit_)]
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
@@ -624,7 +620,7 @@ pub unsafe extern "C" fn inflateInit_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -632,8 +628,6 @@ pub unsafe extern "C" fn inflateInit_(
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateInit2_)]
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
@@ -656,7 +650,7 @@ pub unsafe extern "C" fn inflateInit2_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -664,8 +658,6 @@ pub unsafe extern "C" fn inflateInit2_(
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
         ReturnCode::StreamError as _
@@ -878,10 +870,6 @@ pub unsafe extern "C" fn inflateSetDictionary(
 ///     - if `head.extra` is not NULL, it must be writable for at least `head.extra_max` bytes
 ///     - if `head.name` is not NULL, it must be writable for at least `head.name_max` bytes
 ///     - if `head.comment` is not NULL, it must be writable for at least `head.comm_max` bytes
-///
-///     It is advised to fully initialize this structure with zeros before setting any fiels,
-///     for instance using [`gz_header::default`] or [`core::mem::MaybeUninit::zeroed`]. Using
-///     a partially uninitialized header struct is extremely dangerous.
 #[export_name = prefix!(inflateGetHeader)]
 pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
     let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
@@ -1441,7 +1429,7 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -1449,8 +1437,6 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 ///
 /// # Example
 ///
@@ -1529,7 +1515,7 @@ pub unsafe extern "C" fn deflateInit_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of [`pointer::as_mut`]
+///     - `strm` satisfies the requirements of `&mut *strm`
 /// * Either
 ///     - `version` is NULL
 ///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
@@ -1537,8 +1523,6 @@ pub unsafe extern "C" fn deflateInit_(
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-///
-/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 ///
 /// # Example
 ///
