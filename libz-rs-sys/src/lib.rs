@@ -1069,7 +1069,7 @@ pub unsafe extern "C" fn compress(
 ///
 /// The caller must guarantee that
 ///
-/// * The `destLen` pointer satisfies the requirements of [`core::ptr::read`]
+/// * The `destLen` pointer satisfies the requirements of `&mut *destLen`
 /// * Either
 ///     - `dest` is `NULL`
 ///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
@@ -1086,18 +1086,15 @@ pub unsafe extern "C" fn compress2(
 ) -> c_int {
     // stock zlib will just dereference a NULL pointer: that's UB.
     // Hence us returning an error value is compatible
-    let len = if destLen.is_null() {
+    let Some(destLen) = (unsafe { destLen.as_mut() }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        // SAFETY: guaranteed by the caller
-        core::ptr::read(destLen) as usize
     };
 
     let output = if dest.is_null() {
         return ReturnCode::StreamError as _;
     } else {
         // SAFETY: pointer is not NULL, other constraints are guaranteed by the caller
-        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, len)
+        core::slice::from_raw_parts_mut(dest as *mut MaybeUninit<u8>, *destLen as usize)
     };
 
     let len = sourceLen as usize;
@@ -1111,7 +1108,7 @@ pub unsafe extern "C" fn compress2(
     let config = DeflateConfig::new(level);
     let (output, err) = zlib_rs::deflate::compress(output, input, config);
 
-    core::ptr::write(destLen, output.len() as _);
+    *destLen = output.len() as u64;
 
     err as c_int
 }
@@ -1307,22 +1304,21 @@ pub unsafe extern "C" fn deflatePending(
     pending: *mut c_uint,
     bits: *mut c_int,
 ) -> c_int {
-    match DeflateStream::from_stream_mut(strm) {
-        Some(stream) => {
-            let (current_pending, current_bits) = stream.pending();
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
 
-            if !pending.is_null() {
-                *pending = current_pending as c_uint;
-            }
+    let (current_pending, current_bits) = stream.pending();
 
-            if !bits.is_null() {
-                *bits = current_bits as c_int;
-            }
-
-            ReturnCode::Ok as _
-        }
-        None => ReturnCode::StreamError as _,
+    if let Some(pending) = unsafe { pending.as_mut() } {
+        *pending = current_pending as c_uint;
     }
+
+    if let Some(bits) = unsafe { bits.as_mut() } {
+        *bits = current_bits as c_int;
+    }
+
+    ReturnCode::Ok as _
 }
 
 /// Sets the destination stream as a complete copy of the source stream.
@@ -1351,16 +1347,15 @@ pub unsafe extern "C" fn deflatePending(
 ///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[export_name = prefix!(deflateCopy)]
 pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
-    let dest = if dest.is_null() {
+    let Some(dest) = (unsafe { dest.cast::<MaybeUninit<DeflateStream>>().as_mut() }) else {
         return ReturnCode::StreamError as _;
-    } else {
-        &mut *(dest as *mut MaybeUninit<_>)
     };
 
-    match DeflateStream::from_stream_mut(source) {
-        Some(source) => zlib_rs::deflate::copy(dest, source) as _,
-        None => ReturnCode::StreamError as _,
-    }
+    let Some(source) = (unsafe { DeflateStream::from_stream_mut(source) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::deflate::copy(dest, source) as _
 }
 
 /// Initializes the state for compression
