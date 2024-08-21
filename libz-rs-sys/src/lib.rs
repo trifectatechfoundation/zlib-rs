@@ -217,7 +217,9 @@ pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_
 ///
 /// The caller must guarantee that
 ///
-/// * The `destLen` pointer satisfies the requirements of [`core::ptr::read`]
+/// * Either
+///     - `destLen` is `NULL`
+///     - `destLen` satisfies the requirements of `&mut *destLen`
 /// * Either
 ///     - `dest` is `NULL`
 ///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
@@ -1026,7 +1028,9 @@ pub unsafe extern "C" fn compress(
 ///
 /// The caller must guarantee that
 ///
-/// * The `destLen` pointer satisfies the requirements of `&mut *destLen`
+/// * Either
+///     - `destLen` is `NULL`
+///     - `destLen` satisfies the requirements of `&mut *destLen`
 /// * Either
 ///     - `dest` is `NULL`
 ///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
