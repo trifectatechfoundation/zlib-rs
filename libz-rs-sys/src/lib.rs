@@ -389,14 +389,16 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateBackInit_)]
 pub unsafe extern "C" fn inflateBackInit_(
     _strm: z_streamp,
@@ -585,14 +587,16 @@ pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateInit_)]
 pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
@@ -618,14 +622,16 @@ pub unsafe extern "C" fn inflateInit_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[export_name = prefix!(inflateInit2_)]
 pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
@@ -648,14 +654,16 @@ pub unsafe extern "C" fn inflateInit2_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     if strm.is_null() {
         ReturnCode::StreamError as _
@@ -1457,14 +1465,16 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 ///
 /// # Example
 ///
@@ -1543,14 +1553,16 @@ pub unsafe extern "C" fn deflateInit_(
 ///
 /// * Either
 ///     - `strm` is `NULL`
-///     - `strm` satisfies the requirements of `&mut *(strm as *mut MaybeUninit<z_stream>)`
+///     - `strm` satisfies the requirements of [`pointer::as_mut`]
 /// * Either
 ///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ptr::read::<u8>`]
+///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 ///
 /// # Example
 ///
