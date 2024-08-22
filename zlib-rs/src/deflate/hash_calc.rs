@@ -140,7 +140,7 @@ impl Crc32HashCalc {
         #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "std"))]
         return std::arch::is_x86_feature_detected!("sse4.2");
 
-        // zlib-ng no longer special-cases on aarch64
+        // NOTE: more recent versions of zlib-ng no longer use the crc instructions on aarch64
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
         return std::arch::is_aarch64_feature_detected!("crc");
 
@@ -186,6 +186,10 @@ mod tests {
         ignore = "no crc32 hardware support on this platform"
     )]
     fn crc32_hash_calc() {
+        if !Crc32HashCalc::is_supported() {
+            return;
+        }
+
         if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
             assert_eq!(Crc32HashCalc::hash_calc(0, 807411760), 2423125009);
             assert_eq!(Crc32HashCalc::hash_calc(0, 540024864), 1452438466);
