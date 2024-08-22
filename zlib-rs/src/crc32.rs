@@ -78,6 +78,11 @@ impl Crc32Fold {
             && std::is_x86_feature_detected!("sse4.1")
     }
 
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
+    pub(crate) fn is_crc_enabled() -> bool {
+        std::arch::is_aarch64_feature_detected!("crc")
+    }
+
     pub fn fold(&mut self, src: &[u8], _start: u32) {
         #[cfg(all(target_arch = "x86_64", feature = "std"))]
         if Self::is_pclmulqdq_enabled() {
@@ -85,7 +90,7 @@ impl Crc32Fold {
         }
 
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
-        if std::arch::is_aarch64_feature_detected!("crc") {
+        if Self::is_crc_enabled() {
             self.value = self::acle::crc32_acle_aarch64(self.value, src);
             return;
         }
