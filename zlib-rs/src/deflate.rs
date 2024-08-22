@@ -1165,7 +1165,6 @@ impl<'a> BitWriter<'a> {
     }
 }
 
-#[allow(unused)]
 #[repr(C)]
 pub(crate) struct State<'a> {
     status: Status,

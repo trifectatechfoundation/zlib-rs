@@ -40,7 +40,6 @@ pub fn run(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
 
 type CompressFunc = fn(&mut DeflateStream, flush: DeflateFlush) -> BlockState;
 
-#[allow(unused)]
 pub struct Config {
     pub good_length: u16, /* reduce lazy search above this match length */
     pub max_lazy: u16,    /* do not perform lazy search above this match length */
