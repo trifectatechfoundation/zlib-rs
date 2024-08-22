@@ -620,9 +620,6 @@ pub unsafe extern "C" fn inflateInit2_(
 /// * Either
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm`
-/// * Either
-///     - `version` is NULL
-///     - `version` satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 /// * If `strm` is not `NULL`, the following fields contain valid values
 ///     - `zalloc`
 ///     - `zfree`
