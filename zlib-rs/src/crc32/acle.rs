@@ -140,6 +140,10 @@ mod tests {
 
     #[test]
     fn test_crc32b() {
+        if !crate::crc32::Crc32Fold::is_crc_enabled() {
+            return;
+        }
+
         unsafe {
             assert_eq!(__crc32b(0, 0), 0);
             assert_eq!(__crc32b(0, 255), 755167117);
@@ -148,6 +152,10 @@ mod tests {
 
     #[test]
     fn test_crc32h() {
+        if !crate::crc32::Crc32Fold::is_crc_enabled() {
+            return;
+        }
+
         unsafe {
             assert_eq!(__crc32h(0, 0), 0);
             assert_eq!(__crc32h(0, 16384), 1994146192);
@@ -156,6 +164,10 @@ mod tests {
 
     #[test]
     fn test_crc32w() {
+        if !crate::crc32::Crc32Fold::is_crc_enabled() {
+            return;
+        }
+
         unsafe {
             assert_eq!(__crc32w(0, 0), 0);
             assert_eq!(__crc32w(0, 4294967295), 3736805603);
@@ -165,6 +177,10 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_crc32d() {
+        if !crate::crc32::Crc32Fold::is_crc_enabled() {
+            return;
+        }
+
         unsafe {
             assert_eq!(__crc32d(0, 0), 0);
             assert_eq!(__crc32d(0, 18446744073709551615), 1147535477);
@@ -173,6 +189,10 @@ mod tests {
 
     #[test]
     fn test_crc32cw() {
+        if !crate::crc32::Crc32Fold::is_crc_enabled() {
+            return;
+        }
+
         unsafe {
             assert_eq!(__crc32cw(0, 0), 0);
             assert_eq!(__crc32cw(0, 4294967295), 3080238136);
