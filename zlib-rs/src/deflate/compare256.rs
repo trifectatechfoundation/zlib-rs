@@ -1,3 +1,4 @@
+#[warn(unsafe_op_in_unsafe_fn)]
 #[cfg(test)]
 const MAX_COMPARE_SIZE: usize = 256;
 
@@ -11,16 +12,12 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(all(target_arch = "x86_64", feature = "std"))]
     if std::is_x86_feature_detected!("avx2") {
-        debug_assert_eq!(avx2::compare256(src0, src1), rust::compare256(src0, src1));
-
-        return avx2::compare256(src0, src1);
+        return unsafe { avx2::compare256(src0, src1) };
     }
 
     #[cfg(all(target_arch = "aarch64", feature = "std"))]
     if std::arch::is_aarch64_feature_detected!("neon") {
-        debug_assert_eq!(neon::compare256(src0, src1), rust::compare256(src0, src1));
-
-        return neon::compare256(src0, src1);
+        return unsafe { neon::compare256(src0, src1) };
     }
 
     rust::compare256(src0, src1)
@@ -113,7 +110,11 @@ mod neon {
         uint8x16_t, veorq_u8, vgetq_lane_u64, vld1q_u8, vreinterpretq_u64_u8,
     };
 
-    pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+    /// # Safety
+    ///
+    /// Behavior is undefined if the `neon` target feature is not enabled
+    #[target_feature(enable = "neon")]
+    pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
         let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
 
@@ -156,7 +157,7 @@ mod neon {
             for i in 0..str1.len() {
                 str2[i] = 0;
 
-                let match_len = compare256(&str1, &str2);
+                let match_len = unsafe { compare256(&str1, &str2) };
                 assert_eq!(match_len, i);
 
                 str2[i] = b'a';
@@ -171,7 +172,11 @@ mod avx2 {
         __m256i, _mm256_cmpeq_epi8, _mm256_loadu_si256, _mm256_movemask_epi8,
     };
 
-    pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+    /// # Safety
+    ///
+    /// Behavior is undefined if the `avx` target feature is not enabled
+    #[target_feature(enable = "avx2")]
+    pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         let src0: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src0) };
         let src1: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src1) };
 
@@ -206,7 +211,7 @@ mod avx2 {
             for i in 0..str1.len() {
                 str2[i] = 0;
 
-                let match_len = compare256(&str1, &str2);
+                let match_len = unsafe { compare256(&str1, &str2) };
                 assert_eq!(match_len, i);
 
                 str2[i] = b'a';
