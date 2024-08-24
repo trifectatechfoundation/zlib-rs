@@ -12,7 +12,7 @@ use crate::{
 
 use self::{
     algorithm::CONFIGURATION_TABLE,
-    hash_calc::{Crc32HashCalc, HashCalc, HashCalcVariant, RollHashCalc, StandardHashCalc},
+    hash_calc::{Crc32HashCalc, HashCalcVariant, RollHashCalc, StandardHashCalc},
     pending::Pending,
     trees_tbl::STATIC_LTREE,
     window::Window,
@@ -1338,7 +1338,7 @@ impl<'a> State<'a> {
     pub(crate) fn update_hash(&self, h: u32, val: u32) -> u32 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::update_hash(h, val),
-            HashCalcVariant::Crc32 => Crc32HashCalc::update_hash(h, val),
+            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::update_hash(h, val) },
             HashCalcVariant::Roll => RollHashCalc::update_hash(h, val),
         }
     }
@@ -1346,7 +1346,7 @@ impl<'a> State<'a> {
     pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
-            HashCalcVariant::Crc32 => Crc32HashCalc::quick_insert_string(self, string),
+            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::quick_insert_string(self, string) },
             HashCalcVariant::Roll => RollHashCalc::quick_insert_string(self, string),
         }
     }
@@ -1354,7 +1354,7 @@ impl<'a> State<'a> {
     pub(crate) fn insert_string(&mut self, string: usize, count: usize) {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::insert_string(self, string, count),
-            HashCalcVariant::Crc32 => Crc32HashCalc::insert_string(self, string, count),
+            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::insert_string(self, string, count) },
             HashCalcVariant::Roll => RollHashCalc::insert_string(self, string, count),
         }
     }
