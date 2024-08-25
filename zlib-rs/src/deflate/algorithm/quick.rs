@@ -133,17 +133,13 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         state.lookahead -= 1;
     }
 
-    state.insert = if state.strstart < (STD_MIN_MATCH - 1) {
-        state.strstart
-    } else {
-        STD_MIN_MATCH - 1
-    };
-
-    if last {
-        quick_end_block!();
-        return BlockState::FinishDone;
-    }
+    state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
 
     quick_end_block!();
-    BlockState::BlockDone
+
+    if last {
+        BlockState::FinishDone
+    } else {
+        BlockState::BlockDone
+    }
 }
