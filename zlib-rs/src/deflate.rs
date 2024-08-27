@@ -1030,7 +1030,7 @@ impl<'a> BitWriter<'a> {
 
         #[cfg(feature = "ZLIB_DEBUG")]
         if let Some(c) = char::from_u32(c as u32) {
-            if c.is_ascii() && !c.is_whitespace() {
+            if isgraph(c as u8) {
                 trace!(" '{}' ", c);
             }
         }

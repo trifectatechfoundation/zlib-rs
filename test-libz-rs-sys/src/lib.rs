@@ -1344,3 +1344,105 @@ mod coverage {
         });
     }
 }
+
+#[test]
+fn deflate_chunked_input_all_levels() {
+    use std::io::{Read, Write};
+    use std::mem::MaybeUninit;
+
+    assert_eq_rs_ng!({
+        // translated from zpipe.c
+        fn def<R: Read, W: Write, const CHUNK: usize>(
+            source: &mut R,
+            dest: &mut W,
+            level: i32,
+        ) -> i32 {
+            let mut strm = MaybeUninit::zeroed();
+
+            let mut in_buf = [0u8; CHUNK];
+            let mut out_buf = [0u8; CHUNK];
+
+            let mut ret;
+
+            ret = unsafe {
+                deflateInit_(
+                    strm.as_mut_ptr(),
+                    level,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as _,
+                )
+            };
+            if ret != Z_OK {
+                return ret;
+            }
+
+            let strm = unsafe { strm.assume_init_mut() };
+
+            loop {
+                strm.avail_in = match source.read(&mut in_buf) {
+                    Ok(0) => 0,
+                    Ok(n) => n as u32,
+                    Err(_) => {
+                        unsafe { deflateEnd(strm) };
+                        return Z_ERRNO;
+                    }
+                };
+                strm.next_in = in_buf.as_mut_ptr();
+
+                let flush = if strm.avail_in == 0 {
+                    Z_FINISH
+                } else {
+                    Z_NO_FLUSH
+                };
+
+                loop {
+                    strm.avail_out = CHUNK as u32;
+                    strm.next_out = out_buf.as_mut_ptr();
+
+                    ret = unsafe { deflate(strm, flush) };
+                    assert_ne!(ret, Z_STREAM_ERROR);
+
+                    let have = CHUNK - strm.avail_out as usize;
+                    if dest.write_all(&out_buf[..have]).is_err() {
+                        unsafe { deflateEnd(strm) };
+                        return Z_ERRNO;
+                    }
+
+                    if strm.avail_out != 0 {
+                        break;
+                    }
+                }
+
+                if flush == Z_FINISH {
+                    break;
+                }
+            }
+
+            assert_eq!(ret, Z_STREAM_END);
+
+            unsafe { deflateEnd(strm) };
+
+            Z_OK
+        }
+
+        fn run<const CHUNK: usize>(level: i32) -> Vec<u8> {
+            let input: Vec<_> = (0..4096).map(|x| x as u8).collect();
+            let mut output = Vec::new();
+
+            def::<_, _, CHUNK>(&mut input.as_slice(), &mut output, level);
+
+            output
+        }
+
+        let mut outputs = Vec::new();
+
+        for level in -1..=9 {
+            outputs.push((level, 4, run::<{ 4 }>(level)));
+            outputs.push((level, 1 << 10, run::<{ 1 << 10 }>(level)));
+            outputs.push((level, 1 << 12, run::<{ 1 << 12 }>(level)));
+            outputs.push((level, 1 << 14, run::<{ 1 << 14 }>(level)));
+        }
+
+        outputs
+    });
+}

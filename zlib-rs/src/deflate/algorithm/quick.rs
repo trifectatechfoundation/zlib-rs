@@ -22,11 +22,11 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
     }
 
     macro_rules! quick_end_block {
-        () => {
+        ($last:expr) => {
             if state.block_open > 0 {
                 state
                     .bit_writer
-                    .emit_end_block_and_align(&StaticTreeDesc::L.static_tree, last);
+                    .emit_end_block_and_align(&StaticTreeDesc::L.static_tree, $last);
                 state.block_open = 0;
                 state.block_start = state.strstart as isize;
                 flush_pending(stream);
@@ -46,7 +46,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
 
     if last && state.block_open != 2 {
         /* Emit end of previous block */
-        quick_end_block!();
+        quick_end_block!(false);
         /* Emit start of last block */
         quick_start_block!();
     } else if state.block_open == 0 && state.lookahead > 0 {
@@ -135,7 +135,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
 
     state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
 
-    quick_end_block!();
+    quick_end_block!(last);
 
     if last {
         BlockState::FinishDone
