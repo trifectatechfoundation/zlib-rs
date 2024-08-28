@@ -5,7 +5,9 @@ members = [
     "test-libz-rs-sys",
     "dynamic-libz-sys",
 ]
-exclude = [ ]
+exclude = [
+    "libz-rs-sys-cdylib",
+]
 
 # Without the `-p` flag, cargo ignores `--no-default-features` when you have a
 # workspace, and without `resolver = "2"` here, you can't use `-p` like this.
