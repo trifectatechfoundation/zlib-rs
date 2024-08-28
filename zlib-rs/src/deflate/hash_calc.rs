@@ -135,12 +135,12 @@ pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
     fn is_supported() -> bool {
-        #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "std"))]
-        return std::arch::is_x86_feature_detected!("sse4.2");
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        return crate::cpu_features::is_enabled_sse42();
 
         // NOTE: more recent versions of zlib-ng no longer use the crc instructions on aarch64
-        #[cfg(all(target_arch = "aarch64", feature = "std"))]
-        return std::arch::is_aarch64_feature_detected!("crc");
+        #[cfg(target_arch = "aarch64")]
+        return crate::cpu_features::is_enabled_crc();
 
         #[allow(unreachable_code)]
         false

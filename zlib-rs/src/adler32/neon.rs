@@ -19,7 +19,7 @@ const TAPS: [uint16x8x4_t; 2] = unsafe {
 };
 
 pub fn adler32_neon(adler: u32, buf: &[u8]) -> u32 {
-    assert!(std::arch::is_aarch64_feature_detected!("neon"));
+    assert!(crate::cpu_features::is_enabled_neon());
     unsafe { adler32_neon_internal(adler, buf) }
 }
 

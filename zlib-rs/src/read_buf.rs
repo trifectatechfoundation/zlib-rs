@@ -199,18 +199,18 @@ impl<'a> ReadBuf<'a> {
 
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
-        if std::is_x86_feature_detected!("avx512f") {
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx512() {
             return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
         }
 
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
-        if std::is_x86_feature_detected!("avx2") {
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx2() {
             return self.copy_match_help::<core::arch::x86_64::__m256i>(offset_from_end, length);
         }
 
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
-        if std::is_x86_feature_detected!("sse") {
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_sse() {
             return self.copy_match_help::<core::arch::x86_64::__m128i>(offset_from_end, length);
         }
 

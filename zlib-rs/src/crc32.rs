@@ -71,25 +71,23 @@ impl Crc32Fold {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    #[cfg_attr(not(target_arch = "x86_64"), allow(unused))]
     pub(crate) fn is_pclmulqdq_enabled() -> bool {
-        std::is_x86_feature_detected!("pclmulqdq")
-            && std::is_x86_feature_detected!("sse2")
-            && std::is_x86_feature_detected!("sse4.1")
+        crate::cpu_features::is_enabled_pclmulqdq()
     }
 
-    #[cfg(all(target_arch = "aarch64", feature = "std"))]
+    #[cfg_attr(not(target_arch = "aarch64"), allow(unused))]
     pub(crate) fn is_crc_enabled() -> bool {
-        std::arch::is_aarch64_feature_detected!("crc")
+        crate::cpu_features::is_enabled_crc()
     }
 
     pub fn fold(&mut self, src: &[u8], _start: u32) {
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
+        #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
             return self.fold.fold(src, _start);
         }
 
-        #[cfg(all(target_arch = "aarch64", feature = "std"))]
+        #[cfg(target_arch = "aarch64")]
         if Self::is_crc_enabled() {
             self.value = self::acle::crc32_acle_aarch64(self.value, src);
             return;
@@ -100,7 +98,7 @@ impl Crc32Fold {
     }
 
     pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
+        #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
             return self.fold.fold_copy(dst, src);
         }
@@ -110,7 +108,7 @@ impl Crc32Fold {
     }
 
     pub fn finish(self) -> u32 {
-        #[cfg(all(target_arch = "x86_64", feature = "std"))]
+        #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
             return unsafe { self.fold.finish() };
         }

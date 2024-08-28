@@ -10,13 +10,13 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 }
 
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    if std::is_x86_feature_detected!("avx2") {
+    #[cfg(target_arch = "x86_64")]
+    if crate::cpu_features::is_enabled_avx2() {
         return unsafe { avx2::compare256(src0, src1) };
     }
 
-    #[cfg(all(target_arch = "aarch64", feature = "std"))]
-    if std::arch::is_aarch64_feature_detected!("neon") {
+    #[cfg(target_arch = "aarch64")]
+    if crate::cpu_features::is_enabled_neon() {
         return unsafe { neon::compare256(src0, src1) };
     }
 
@@ -150,7 +150,7 @@ mod neon {
 
     #[test]
     fn test_compare256() {
-        if std::arch::is_aarch64_feature_detected!("neon") {
+        if crate::cpu_features::is_enabled_neon() {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
@@ -204,7 +204,7 @@ mod avx2 {
 
     #[test]
     fn test_compare256() {
-        if std::arch::is_x86_feature_detected!("avx2") {
+        if crate::cpu_features::is_enabled_avx2() {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
