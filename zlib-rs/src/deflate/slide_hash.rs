@@ -6,13 +6,13 @@ pub fn slide_hash(state: &mut crate::deflate::State) {
 }
 
 fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    if std::is_x86_feature_detected!("avx2") {
+    #[cfg(target_arch = "x86_64")]
+    if crate::cpu_features::is_enabled_avx2() {
         return avx2::slide_hash_chain(table, wsize);
     }
 
-    #[cfg(all(target_arch = "aarch64", feature = "std"))]
-    if std::arch::is_aarch64_feature_detected!("neon") {
+    #[cfg(target_arch = "aarch64")]
+    if crate::cpu_features::is_enabled_neon() {
         return neon::slide_hash_chain(table, wsize);
     }
 
@@ -34,7 +34,7 @@ mod neon {
     };
 
     pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-        assert!(std::arch::is_aarch64_feature_detected!("neon"));
+        assert!(crate::cpu_features::is_enabled_neon());
         unsafe { slide_hash_chain_internal(table, wsize) }
     }
 
@@ -71,7 +71,7 @@ mod avx2 {
     };
 
     pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-        assert!(std::is_x86_feature_detected!("avx2"));
+        assert!(crate::cpu_features::is_enabled_avx2());
         unsafe { slide_hash_chain_internal(table, wsize) }
     }
 
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_slide_hash_avx2() {
-        if std::arch::is_x86_feature_detected!("avx2") {
+        if crate::cpu_features::is_enabled_avx2() {
             let mut input = INPUT;
 
             avx2::slide_hash_chain(&mut input, WSIZE);
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_slide_hash_neon() {
-        if std::arch::is_aarch64_feature_detected!("neon") {
+        if crate::cpu_features::is_enabled_neon() {
             let mut input = INPUT;
 
             neon::slide_hash_chain(&mut input, WSIZE);

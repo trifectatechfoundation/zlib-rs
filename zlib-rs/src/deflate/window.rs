@@ -132,15 +132,10 @@ impl<'a> Window<'a> {
 
     // padding required so that SIMD operations going out-of-bounds are not a problem
     pub fn padding() -> usize {
-        #[cfg(feature = "std")]
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        if std::is_x86_feature_detected!("pclmulqdq")
-            && std::is_x86_feature_detected!("sse2")
-            && std::is_x86_feature_detected!("sse4.1")
-        {
-            return 8;
+        if crate::cpu_features::is_enabled_pclmulqdq() {
+            8
+        } else {
+            0
         }
-
-        0
     }
 }

@@ -62,12 +62,12 @@ unsafe fn partial_hsum256(x: __m256i) -> u32 {
 }
 
 pub fn adler32_avx2(adler: u32, src: &[u8]) -> u32 {
-    assert!(std::is_x86_feature_detected!("avx2"));
+    assert!(crate::cpu_features::is_enabled_avx2());
     unsafe { adler32_avx2_help::<false>(adler, &mut [], src) }
 }
 
 pub fn adler32_fold_copy_avx2(adler: u32, dst: &mut [MaybeUninit<u8>], src: &[u8]) -> u32 {
-    assert!(std::is_x86_feature_detected!("avx2"));
+    assert!(crate::cpu_features::is_enabled_avx2());
     unsafe { adler32_avx2_help::<true>(adler, dst, src) }
 }
 

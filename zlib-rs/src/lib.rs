@@ -7,6 +7,7 @@ extern crate alloc;
 mod adler32;
 pub mod allocate;
 pub mod c_api;
+mod cpu_features;
 pub mod crc32;
 pub mod deflate;
 pub mod inflate;
