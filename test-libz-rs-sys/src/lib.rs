@@ -8,8 +8,20 @@ mod inflate;
 mod zlib_ng_cve;
 
 #[cfg(test)]
+#[macro_export]
 macro_rules! assert_eq_rs_ng {
     ($tt:tt) => {
+        #[cfg(not(miri))]
+        #[allow(clippy::macro_metavars_in_unsafe)]
+        #[allow(unused_braces)]
+        #[allow(unused_unsafe)]
+        let ng = unsafe {
+            use libz_sys::*;
+
+            $tt
+        };
+
+        #[allow(clippy::macro_metavars_in_unsafe)]
         #[allow(unused_braces)]
         #[allow(unused_unsafe)]
         let rs = unsafe {
@@ -18,17 +30,8 @@ macro_rules! assert_eq_rs_ng {
             $tt
         };
 
-        if !cfg!(miri) {
-            #[allow(unused_braces)]
-            #[allow(unused_unsafe)]
-            let ng = unsafe {
-                use libz_sys::*;
-
-                $tt
-            };
-
-            assert_eq!(rs, ng);
-        }
+        #[cfg(not(miri))]
+        assert_eq!(rs, ng);
     };
 }
 
