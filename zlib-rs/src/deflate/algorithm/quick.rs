@@ -11,16 +11,6 @@ use crate::{
 pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     let mut state = &mut stream.state;
 
-    let last = matches!(flush, DeflateFlush::Finish);
-
-    macro_rules! quick_start_block {
-        () => {
-            state.bit_writer.emit_tree(BlockType::StaticTrees, last);
-            state.block_open = 1 + last as u8;
-            state.block_start = state.strstart as isize;
-        };
-    }
-
     macro_rules! quick_end_block {
         ($last:expr) => {
             if state.block_open > 0 {
@@ -35,7 +25,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                     state = &mut stream.state;
                 }
                 if stream.avail_out == 0 {
-                    return match last {
+                    return match $last {
                         true => BlockState::FinishStarted,
                         false => BlockState::NeedMore,
                     };
@@ -44,15 +34,25 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         };
     }
 
+    macro_rules! quick_start_block {
+        ($last:expr) => {
+            state.bit_writer.emit_tree(BlockType::StaticTrees, $last);
+            state.block_open = 1 + $last as u8;
+            state.block_start = state.strstart as isize;
+        };
+    }
+
+    let last = matches!(flush, DeflateFlush::Finish);
+
     if last && state.block_open != 2 {
         /* Emit end of previous block */
         quick_end_block!(false);
         /* Emit start of last block */
-        quick_start_block!();
+        quick_start_block!(last);
     } else if state.block_open == 0 && state.lookahead > 0 {
         /* Start new block only when we have lookahead data, so that if no
         input data is given an empty block will not be written */
-        quick_start_block!();
+        quick_start_block!(last);
     }
 
     loop {
@@ -88,7 +88,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             if state.block_open == 0 {
                 // Start new block when we have lookahead data,
                 // so that if no input data is given an empty block will not be written
-                quick_start_block!();
+                quick_start_block!(last);
             }
         }
 
