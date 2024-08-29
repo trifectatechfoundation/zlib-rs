@@ -187,22 +187,23 @@ impl From<i32> for ReturnCode {
 }
 
 impl ReturnCode {
-    const TABLE: [&'static str; 10] = [
-        "need dictionary\0",      /* Z_NEED_DICT       2  */
-        "stream end\0",           /* Z_STREAM_END      1  */
-        "\0",                     /* Z_OK              0  */
-        "file error\0",           /* Z_ERRNO         (-1) */
-        "stream error\0",         /* Z_STREAM_ERROR  (-2) */
-        "data error\0",           /* Z_DATA_ERROR    (-3) */
-        "insufficient memory\0",  /* Z_MEM_ERROR     (-4) */
-        "buffer error\0",         /* Z_BUF_ERROR     (-5) */
-        "incompatible version\0", /* Z_VERSION_ERROR (-6) */
-        "\0",
-    ];
+    const fn error_message_str(self) -> &'static str {
+        match self {
+            ReturnCode::Ok => "\0",
+            ReturnCode::StreamEnd => "stream end\0",
+            ReturnCode::NeedDict => "need dictionary\0",
+            ReturnCode::ErrNo => "file error\0",
+            ReturnCode::StreamError => "stream error\0",
+            ReturnCode::DataError => "data error\0",
+            ReturnCode::MemError => "insufficient memory\0",
+            ReturnCode::BufError => "buffer error\0",
+            ReturnCode::VersionError => "incompatible version\0",
+        }
+    }
 
     pub const fn error_message(self) -> *const core::ffi::c_char {
-        let index = (ReturnCode::NeedDict as i32 - self as i32) as usize;
-        Self::TABLE[index].as_ptr().cast()
+        let msg = self.error_message_str();
+        msg.as_ptr().cast::<core::ffi::c_char>()
     }
 
     pub const fn try_from_c_int(err: core::ffi::c_int) -> Option<Self> {
