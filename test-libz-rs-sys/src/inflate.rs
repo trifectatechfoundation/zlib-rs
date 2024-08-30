@@ -1,4 +1,4 @@
-use core::ffi::{c_char, c_int, c_ulong, c_void, CStr};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr};
 use core::mem::{ManuallyDrop, MaybeUninit};
 
 use libz_rs_sys::*;
@@ -1030,10 +1030,26 @@ fn hello_world_uncompressed() {
 
 #[test]
 fn copy_direct_from_next_in_to_next_out() {
-    let deflated = [120, 1, 1, 2, 0, 253, 255, 6, 10, 0, 24, 0, 17];
+    crate::assert_eq_rs_ng!({
+        let input = [120, 1, 1, 2, 0, 253, 255, 6, 10, 0, 24, 0, 17];
+        let mut dest_vec = vec![0u8; 1 << 16];
 
-    let output = uncompress_help(&deflated);
-    assert_eq!(String::from_utf8(output).unwrap(), "\u{6}\n");
+        let mut dest_len = dest_vec.len() as c_ulong;
+        let dest = dest_vec.as_mut_ptr();
+
+        let source = input.as_ptr();
+        let source_len = input.len() as _;
+
+        let err = unsafe { uncompress(dest, &mut dest_len, source, source_len) };
+
+        if err != 0 {
+            panic!("error {:?}", ReturnCode::from(err));
+        }
+
+        dest_vec.truncate(dest_len as usize);
+
+        assert_eq!(String::from_utf8(dest_vec).unwrap(), "\u{6}\n");
+    });
 }
 
 #[test]
@@ -1807,4 +1823,53 @@ fn test_inflate_flush_block() {
             }
         }
     }
+}
+
+#[test]
+fn issue_172() {
+    const BUF: &[u8] = &[
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 75, 173, 40, 72, 77, 46, 73, 77, 81, 200, 47, 45, 41, 40,
+        45, 1, 0, 176, 1, 57, 179, 15, 0, 0, 0,
+    ];
+
+    crate::assert_eq_rs_ng!({
+        let mut exitcode = 0;
+        for chunk in 1..BUF.len() {
+            let mut ret;
+            let mut out = [0u8; 32];
+
+            let mut strm = MaybeUninit::zeroed();
+
+            // first validate the config
+            ret = inflateInit2_(strm.as_mut_ptr(), 31, VERSION, STREAM_SIZE);
+            assert_eq!(ret, Z_OK);
+
+            let strm = strm.assume_init_mut();
+
+            strm.avail_out = out.len() as _;
+            strm.next_in = BUF.as_ptr() as *mut u8;
+            strm.next_out = out.as_mut_ptr();
+            while ret == Z_OK && strm.total_in < BUF.len() as _ {
+                strm.avail_in = if chunk as c_ulong > (BUF.len() as c_ulong - strm.total_in) {
+                    (BUF.len() as c_ulong - strm.total_in) as c_uint
+                } else {
+                    chunk as c_uint
+                };
+                ret = inflate(strm, Z_NO_FLUSH);
+            }
+            if ret != Z_STREAM_END {
+                eprintln!("Finished with {} at chunk size {}\n", ret, chunk);
+                exitcode = 1;
+            }
+
+            if out[..strm.total_out as usize] != b"expected output"[..strm.total_out as usize] {
+                eprintln!("Output did not match at chunk size {}\n", chunk);
+                exitcode = 1;
+            }
+        }
+
+        assert!(exitcode == 0);
+
+        exitcode
+    });
 }

@@ -890,6 +890,8 @@ impl<'a> State<'a> {
                 zswap32(self.bit_reader.hold() as u32)
             };
 
+            self.out_available = self.writer.capacity() - self.writer.len();
+
             if self.wrap & 4 != 0 && given_checksum != self.checksum {
                 self.mode = Mode::Bad;
                 return self.bad("incorrect data check\0");
@@ -1094,18 +1096,8 @@ impl<'a> State<'a> {
         self.length = here.val as usize;
 
         if here.op == 0 {
-            if self.writer.remaining() == 0 {
-                self.mode = Mode::Lit;
-                #[cfg(all(test, feature = "std"))]
-                eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
-                return self.inflate_leave(ReturnCode::Ok);
-            }
-
-            self.writer.push(self.length as u8);
-
-            self.mode = Mode::Len;
-
-            self.len()
+            self.mode = Mode::Lit;
+            self.lit()
         } else if here.op & 32 != 0 {
             // end of block
 
@@ -1913,11 +1905,11 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let mut err = state.dispatch();
 
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
-    let out_written = state.writer.next_out() as usize - stream.next_out as usize;
+    let out_written = state.out_available - (state.writer.capacity() - state.writer.len());
 
     stream.total_in += in_read as z_size;
-    stream.total_out += out_written as z_size;
     state.total += out_written;
+    stream.total_out = state.total as _;
 
     stream.avail_in = state.bit_reader.bytes_remaining() as u32;
     stream.next_in = state.bit_reader.as_ptr() as *mut u8;
