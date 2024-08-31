@@ -17,6 +17,17 @@ rust-allocator = ["zlib-rs/rust-allocator"] # by default, use the rust global al
 std = ["zlib-rs/std"] # assume `::std` is available
 custom-prefix = [] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 testing-prefix = [] # prefix all symbols with LIBZ_RS_SYS_TEST_ for testing
+capi = []
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
+
+[package.metadata.capi.library]
+name = "z_rs"
+
+[package.metadata.capi.header]
+enabled = false
+
+[package.metadata.capi.pkg_config]
+name = "libz_rs"
+filename = "libz_rs"
