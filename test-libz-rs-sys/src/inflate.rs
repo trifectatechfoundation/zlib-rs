@@ -1862,7 +1862,7 @@ fn issue_172() {
                 exitcode = 1;
             }
 
-            if out[..strm.total_out as usize] != b"expected output"[..strm.total_out as usize] {
+            if &out[..strm.total_out as usize] != b"expected output" {
                 eprintln!("Output did not match at chunk size {}\n", chunk);
                 exitcode = 1;
             }
