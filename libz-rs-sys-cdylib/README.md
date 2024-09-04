@@ -4,6 +4,7 @@ Build `zlib-rs` as a drop-in replacement for the zlib dynamic library
 
 ```sh
 # build the cdylib
+# using `cargo build` will work but has limitations, see below
 cargo build --release
 
 # the extension of a cdylib varies per platform
@@ -14,8 +15,9 @@ cc zpipe.c target/release/libz_rs.so
 ```
 
 By default this build uses libc `malloc`/`free` to (de)allocate memory, and only depends on the rust `core` library.
+See below for the available feature flags.
 
-## Features
+## Feature Flags
 
 ### Allocators
 
@@ -74,6 +76,39 @@ the standard library has the following limitations:
 
 - CPU feature detection is currently disabled. This is true for both compile-time and run-time feature detection.
     This means `zlib-rs` will not make use of SIMD or other custom instructions.
-- The `rust-allocator` should not be used. It internally enables the standard library, causing issues. Using `c-allocator` 
-    or not providing an allocator at build time is still supported.On embedded it is most common to provide a custom allocator 
+- The `rust-allocator` should not be used. It internally enables the standard library, causing issues. Using `c-allocator`
+    or not providing an allocator at build time is still supported.On embedded it is most common to provide a custom allocator
     that "allocates" into a custom array.
+
+## Build for Distribution
+
+A `cargo build` currently does not set some fields that are required or useful when using a dynamic library from C.
+For instance, the soname and version are not set by a standard `cargo build`.
+
+To build a proper, installable dynamic library, we recommend [`cargo-c`](https://github.com/lu-zero/cargo-c):
+
+```
+cargo install cargo-c
+```
+
+This tool deals with setting fields (soname, version) that a normal `cargo build` does not set (today).
+It's configuration is in the `Cargo.toml`, where e.g. the library name or version can be changed.
+
+```
+> cargo cbuild --release
+   Compiling zlib-rs v0.2.1
+   Compiling libz-rs-sys v0.2.1
+   Compiling libz-rs-sys-cdylib v0.2.1
+    Finished `release` profile [optimized] target(s) in 1.86s
+    Building pkg-config files
+> tree target
+target
+├── CACHEDIR.TAG
+└── x86_64-unknown-linux-gnu
+    └── release
+        ├── libz_rs.a
+        ├── libz_rs.d
+        ├── libz_rs.pc
+        ├── libz_rs.so
+        └── libz_rs-uninstalled.pc
+```
