@@ -1,6 +1,14 @@
 [package]
 name = "libz-rs-sys-cdylib"
+version = "0.3.0"
+edition = "2021"
 readme = "README.md"
+license = "Zlib"
+repository = "https://github.com/memorysafety/zlib-rs"
+homepage = "https://github.com/memorysafety/zlib-rs"
+publish = true
+description = "A memory-safe zlib implementation written in rust"
+rust-version = "1.75" # MSRV
 
 [lib]
 name = "z_rs" # turns into e.g. `libz_rs.so`
@@ -13,4 +21,4 @@ rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"] # by default,
 custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 
 [dependencies]
-libz-rs-sys = { path = "../libz-rs-sys", default-features = false }
+libz-rs-sys = { version = "0.3.0", path = "../libz-rs-sys", default-features = false }
