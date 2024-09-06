@@ -259,6 +259,8 @@ jobs:
           targets: ${{matrix.target}}
       - name: "cdylib: default settings"
         working-directory: libz-rs-sys-cdylib
+        env:
+          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
         run: |
           cargo build --release --target ${{matrix.target}}
           cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
