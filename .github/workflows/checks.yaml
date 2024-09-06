@@ -267,6 +267,8 @@ jobs:
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: rust-allocator"
+        env:
+          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features --features="rust-allocator"
@@ -274,6 +276,8 @@ jobs:
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: no_std"
+        env:
+          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features
