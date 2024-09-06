@@ -1959,7 +1959,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     }
 
     if let Some(msg) = state.error_message {
-        assert!(msg.ends_with(|c| c == '\0'));
+        assert!(msg.ends_with('\0'));
         stream.msg = msg.as_ptr() as *mut u8 as *mut core::ffi::c_char;
     }
 

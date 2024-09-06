@@ -234,8 +234,8 @@ mod tests {
     fn large_input() {
         const DEFAULT: &[u8] = include_bytes!("../deflate/test-data/paper-100k.pdf");
 
-        let neon = adler32_neon(42, &DEFAULT);
-        let rust = crate::adler32::generic::adler32_rust(42, &DEFAULT);
+        let neon = adler32_neon(42, DEFAULT);
+        let rust = crate::adler32::generic::adler32_rust(42, DEFAULT);
 
         assert_eq!(neon, rust);
     }
