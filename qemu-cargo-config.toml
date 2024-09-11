@@ -6,3 +6,6 @@ linker = "s390x-linux-gnu-gcc"
 
 [target.i686-unknown-linux-gnu]
 linker = "i686-linux-gnu-gcc"
+
+[target.wasm32-wasi]
+runner = "/home/runner/.wasmtime/bin/wasmtime"

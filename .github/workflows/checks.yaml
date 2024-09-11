@@ -292,6 +292,42 @@ jobs:
           cargo build --release --target ${{matrix.target}} --features=custom-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q "MY_CUSTOM_PREFIX_uncompress" || (echo "symbol not found!" && exit 1)
 
+  wasm32:
+    name: "wasm32"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install wasmtime
+        run: curl https://wasmtime.dev/install.sh -sSf | bash
+      - name: Copy .cargo/config.toml
+        run: |
+          mkdir -p .cargo
+          cp qemu-cargo-config.toml .cargo/config.toml
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: "stable"
+          targets: "wasm32-wasi"
+      - name: target
+        run: "rustc -vV | sed -n 's|host: ||p'"
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-nextest
+      - name: cargo nextest (without SIMD)
+        run: cargo nextest run -p zlib-rs --target wasm32-wasi
+        env:
+          RUST_BACKTRACE: 1
+          RUSTFLAGS: ""
+      - name: cargo nextest (with SIMD)
+        run: cargo nextest run -p zlib-rs --target wasm32-wasi
+        env:
+          RUST_BACKTRACE: 1
+          RUSTFLAGS: "-Ctarget-feature=+simd128"
+
   miri:
     name: "Miri"
     runs-on: ubuntu-latest
