@@ -217,6 +217,7 @@ impl<'a> ReadBuf<'a> {
         self.copy_match_help::<u64>(offset_from_end, length)
     }
 
+    #[inline(always)]
     fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
         let current = self.filled;
 
