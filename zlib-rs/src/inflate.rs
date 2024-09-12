@@ -27,6 +27,8 @@ use self::{
     window::Window,
 };
 
+const INFLATE_STRICT: bool = false;
+
 #[repr(C)]
 pub struct InflateStream<'a> {
     pub(crate) next_in: *mut crate::c_api::Bytef,
@@ -1190,7 +1192,7 @@ impl<'a> State<'a> {
             self.back += extra;
         }
 
-        if self.offset > self.dmax {
+        if INFLATE_STRICT && self.offset > self.dmax {
             self.mode = Mode::Bad;
             return self.bad("invalid distance code too far back\0");
         }
@@ -1588,7 +1590,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                         let op = op & MAX_BITS;
                         let dist = here.val + bit_reader.bits(op as usize) as u16;
 
-                        if dist as usize > state.dmax {
+                        if INFLATE_STRICT && dist as usize > state.dmax {
                             bad = Some("invalid distance too far back\0");
                             state.mode = Mode::Bad;
                             break 'outer;
