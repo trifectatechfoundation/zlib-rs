@@ -9,13 +9,14 @@ mod bitreader;
 mod inffixed_tbl;
 mod inftrees;
 mod window;
+mod writer;
 
 use crate::allocate::Allocator;
 use crate::c_api::internal_state;
 use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
-    read_buf::ReadBuf,
+    inflate::writer::Writer,
     Code, InflateFlush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
@@ -325,7 +326,7 @@ pub(crate) struct State<'a> {
     // IO
     bit_reader: BitReader<'a>,
 
-    writer: ReadBuf<'a>,
+    writer: Writer<'a>,
     total: usize,
 
     /// length of a block to copy
@@ -371,7 +372,7 @@ pub(crate) struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    fn new(reader: &'a [u8], writer: ReadBuf<'a>) -> Self {
+    fn new(reader: &'a [u8], writer: Writer<'a>) -> Self {
         let in_available = reader.len();
         let out_available = writer.capacity();
 
@@ -1527,7 +1528,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
 
-    let mut writer = ReadBuf::new(&mut []);
+    let mut writer = Writer::new(&mut []);
     core::mem::swap(&mut writer, &mut state.writer);
 
     let lcode = state.len_table_ref();
@@ -1761,7 +1762,7 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         return ReturnCode::StreamError;
     }
 
-    let mut state = State::new(&[], ReadBuf::new(&mut []));
+    let mut state = State::new(&[], Writer::new(&mut []));
 
     // TODO this can change depending on the used/supported SIMD instructions
     state.chunksize = 32;
@@ -1887,7 +1888,8 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     }
 
     let source_slice = core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize);
-    let dest_slice = core::slice::from_raw_parts_mut(stream.next_out, stream.avail_out as usize);
+    let dest_slice =
+        core::slice::from_raw_parts_mut(stream.next_out.cast(), stream.avail_out as usize);
 
     let state = &mut stream.state;
 
@@ -1899,7 +1901,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     state.flush = flush;
 
     state.bit_reader.update_slice(source_slice);
-    state.writer = ReadBuf::new(dest_slice);
+    state.writer = Writer::new_uninit(dest_slice);
 
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
@@ -2077,8 +2079,8 @@ pub unsafe fn copy<'a>(
 
     let state = &source.state;
 
-    let writer: MaybeUninit<ReadBuf> =
-        unsafe { core::ptr::read(&state.writer as *const _ as *const MaybeUninit<ReadBuf>) };
+    let writer: MaybeUninit<Writer> =
+        unsafe { core::ptr::read(&state.writer as *const _ as *const MaybeUninit<Writer>) };
 
     let mut copy = State {
         mode: state.mode,
@@ -2095,7 +2097,7 @@ pub unsafe fn copy<'a>(
         have: state.have,
         next: state.next,
         bit_reader: state.bit_reader,
-        writer: ReadBuf::new(&mut []),
+        writer: Writer::new(&mut []),
         total: state.total,
         length: state.length,
         offset: state.offset,
