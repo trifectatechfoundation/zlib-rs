@@ -263,19 +263,14 @@ pub enum Mode {
     Bad,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
 enum Codes {
-    Fixed(&'static [Code]),
+    #[default]
+    Fixed,
     Codes,
     Len,
     Dist,
-}
-
-impl Default for Codes {
-    fn default() -> Self {
-        Codes::Fixed(&[])
-    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -296,12 +291,6 @@ pub(crate) struct State<'a> {
     /// - bit 1 true if gzip
     /// - bit 2 true to validate check value
     wrap: usize,
-
-    /// table for length/literal codes
-    len_table: Table,
-
-    /// table for dist codes
-    dist_table: Table,
 
     /// log base 2 of requested window size
     wbits: usize,
@@ -365,6 +354,12 @@ pub(crate) struct State<'a> {
     havedict: bool,
     dmax: usize,
     flags: i32,
+
+    /// table for length/literal codes
+    len_table: Table,
+
+    /// table for dist codes
+    dist_table: Table,
 
     codes_codes: [Code; crate::ENOUGH_LENS],
     len_codes: [Code; crate::ENOUGH_LENS],
@@ -431,7 +426,7 @@ impl<'a> State<'a> {
 
     fn len_table_ref(&self) -> &[Code] {
         match self.len_table.codes {
-            Codes::Fixed(fixed) => fixed,
+            Codes::Fixed => &self::inffixed_tbl::LENFIX,
             Codes::Codes => &self.codes_codes,
             Codes::Len => &self.len_codes,
             Codes::Dist => &self.dist_codes,
@@ -440,7 +435,7 @@ impl<'a> State<'a> {
 
     fn dist_table_ref(&self) -> &[Code] {
         match self.dist_table.codes {
-            Codes::Fixed(fixed) => fixed,
+            Codes::Fixed => &self::inffixed_tbl::DISTFIX,
             Codes::Codes => &self.codes_codes,
             Codes::Len => &self.len_codes,
             Codes::Dist => &self.dist_codes,
@@ -955,12 +950,12 @@ impl<'a> State<'a> {
                 // eprintln!("inflate:     fixed codes block (last = {last})");
 
                 self.len_table = Table {
-                    codes: Codes::Fixed(&self::inffixed_tbl::LENFIX),
+                    codes: Codes::Fixed,
                     bits: 9,
                 };
 
                 self.dist_table = Table {
-                    codes: Codes::Fixed(&self::inffixed_tbl::DISTFIX),
+                    codes: Codes::Fixed,
                     bits: 5,
                 };
 
