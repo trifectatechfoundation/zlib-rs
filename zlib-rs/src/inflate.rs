@@ -311,7 +311,7 @@ impl Flags {
     }
 }
 
-const _SIZE: [u8; 14624] = [0; core::mem::size_of::<State>()];
+const _SIZE: [u8; 14608] = [0; core::mem::size_of::<State>()];
 
 pub(crate) struct State<'a> {
     /// Current inflate mode
@@ -327,7 +327,7 @@ pub(crate) struct State<'a> {
     /// - bit 0 true if zlib
     /// - bit 1 true if gzip
     /// - bit 2 true to validate check value
-    wrap: usize,
+    wrap: u8,
 
     // allocated window if needed (capacity == 0 if unused)
     window: Window<'a>,
@@ -1869,7 +1869,7 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
         unsafe { stream.alloc.deallocate(window.as_mut_ptr(), window.len()) };
     }
 
-    stream.state.wrap = wrap as usize;
+    stream.state.wrap = wrap as u8;
     stream.state.wbits = window_bits as _;
 
     reset(stream)
