@@ -306,11 +306,6 @@ impl Flags {
     }
 
     #[inline(always)]
-    pub(crate) fn union(&mut self, other: Self) {
-        *self = Self(self.0 | other.0);
-    }
-
-    #[inline(always)]
     pub(crate) fn update(&mut self, other: Self, value: bool) {
         if value {
             *self = Self(self.0 | other.0);
@@ -320,8 +315,7 @@ impl Flags {
     }
 }
 
-const _SIZE: [u8; 14608] = [0; core::mem::size_of::<State>()];
-
+#[repr(C, align(64))]
 pub(crate) struct State<'a> {
     /// Current inflate mode
     mode: Mode,
@@ -338,10 +332,10 @@ pub(crate) struct State<'a> {
     /// - bit 2 true to validate check value
     wrap: u8,
 
+    flush: InflateFlush,
+
     // allocated window if needed (capacity == 0 if unused)
     window: Window<'a>,
-
-    _padding0: usize,
 
     //
     /// number of code length code lengths
@@ -381,21 +375,16 @@ pub(crate) struct State<'a> {
     in_available: usize,
     out_available: usize,
 
-    /// temporary storage space for code lengths
-    lens: [u16; 320],
-    /// work area for code table building
-    work: [u16; 288],
-
-    error_message: Option<&'static str>,
-    flush: InflateFlush,
+    gzip_flags: i32,
 
     checksum: u32,
     crc_fold: Crc32Fold,
 
+    error_message: Option<&'static str>,
+
     /// place to store gzip header if needed
     head: Option<&'a mut gz_header>,
     dmax: usize,
-    gzip_flags: i32,
 
     /// table for length/literal codes
     len_table: Table,
@@ -406,6 +395,11 @@ pub(crate) struct State<'a> {
     codes_codes: [Code; crate::ENOUGH_LENS],
     len_codes: [Code; crate::ENOUGH_LENS],
     dist_codes: [Code; crate::ENOUGH_DISTS],
+
+    /// temporary storage space for code lengths
+    lens: [u16; 320],
+    /// work area for code table building
+    work: [u16; 288],
 }
 
 impl<'a> State<'a> {
@@ -455,7 +449,6 @@ impl<'a> State<'a> {
             checksum: 0,
             crc_fold: Crc32Fold::new(),
 
-            _padding0: 0,
             dmax: 0,
             gzip_flags: 0,
 
@@ -2155,7 +2148,6 @@ pub unsafe fn copy<'a>(
         flush: state.flush,
         checksum: state.checksum,
         crc_fold: state.crc_fold,
-        _padding0: state._padding0,
         dmax: state.dmax,
         gzip_flags: state.gzip_flags,
         codes_codes: state.codes_codes,
