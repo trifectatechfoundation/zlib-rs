@@ -285,6 +285,7 @@ pub(crate) struct State<'a> {
 
     /// true if processing the last block
     last: bool,
+
     /// bitflag
     ///
     /// - bit 0 true if zlib
@@ -353,7 +354,7 @@ pub(crate) struct State<'a> {
 
     havedict: bool,
     dmax: usize,
-    flags: i32,
+    gzip_flags: i32,
 
     /// table for length/literal codes
     len_table: Table,
@@ -416,7 +417,7 @@ impl<'a> State<'a> {
 
             havedict: false,
             dmax: 0,
-            flags: 0,
+            gzip_flags: 0,
 
             codes_codes: [Code::default(); crate::ENOUGH_LENS],
             len_codes: [Code::default(); crate::ENOUGH_LENS],
@@ -567,7 +568,7 @@ impl<'a> State<'a> {
         }
 
         self.dmax = 1 << len;
-        self.flags = 0; // indicate zlib header
+        self.gzip_flags = 0; // indicate zlib header
         self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
         if self.bit_reader.hold() & 0x200 != 0 {
@@ -585,15 +586,15 @@ impl<'a> State<'a> {
 
     fn flags(&mut self) -> ReturnCode {
         need_bits!(self, 16);
-        self.flags = self.bit_reader.hold() as i32;
+        self.gzip_flags = self.bit_reader.hold() as i32;
 
         // Z_DEFLATED = 8 is the only supported method
-        if self.flags & 0xff != Z_DEFLATED {
+        if self.gzip_flags & 0xff != Z_DEFLATED {
             self.mode = Mode::Bad;
             return self.bad("unknown compression method\0");
         }
 
-        if self.flags & 0xe000 != 0 {
+        if self.gzip_flags & 0xe000 != 0 {
             self.mode = Mode::Bad;
             return self.bad("unknown header flags set\0");
         }
@@ -602,7 +603,7 @@ impl<'a> State<'a> {
             head.text = ((self.bit_reader.hold() >> 8) & 1) as i32;
         }
 
-        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+        if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
             let b0 = self.bit_reader.bits(8) as u8;
             let b1 = (self.bit_reader.hold() >> 8) as u8;
             self.checksum = crc32(self.checksum, &[b0, b1]);
@@ -619,7 +620,7 @@ impl<'a> State<'a> {
             head.time = self.bit_reader.hold() as z_size;
         }
 
-        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+        if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
             let bytes = (self.bit_reader.hold() as u32).to_le_bytes();
             self.checksum = crc32(self.checksum, &bytes);
         }
@@ -636,7 +637,7 @@ impl<'a> State<'a> {
             head.os = (self.bit_reader.hold() >> 8) as i32;
         }
 
-        if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+        if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
             let bytes = (self.bit_reader.hold() as u16).to_le_bytes();
             self.checksum = crc32(self.checksum, &bytes);
         }
@@ -647,7 +648,7 @@ impl<'a> State<'a> {
     }
 
     fn ex_len(&mut self) -> ReturnCode {
-        if (self.flags & 0x0400) != 0 {
+        if (self.gzip_flags & 0x0400) != 0 {
             need_bits!(self, 16);
 
             // self.length (and head.extra_len) represent the length of the extra field
@@ -656,7 +657,7 @@ impl<'a> State<'a> {
                 head.extra_len = self.length as u32;
             }
 
-            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
                 let bytes = (self.bit_reader.hold() as u16).to_le_bytes();
                 self.checksum = crc32(self.checksum, &bytes);
             }
@@ -670,7 +671,7 @@ impl<'a> State<'a> {
     }
 
     fn extra(&mut self) -> ReturnCode {
-        if (self.flags & 0x0400) != 0 {
+        if (self.gzip_flags & 0x0400) != 0 {
             // self.length is the number of remaining `extra` bytes. But they may not all be available
             let extra_available = Ord::min(self.length, self.bit_reader.bytes_remaining());
             let extra_slice = &self.bit_reader.as_slice()[..extra_available];
@@ -696,7 +697,7 @@ impl<'a> State<'a> {
                 }
 
                 // Checksum
-                if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
                     self.checksum = crc32(self.checksum, extra_slice)
                 }
 
@@ -717,7 +718,7 @@ impl<'a> State<'a> {
     }
 
     fn name(&mut self) -> ReturnCode {
-        if (self.flags & 0x0800) != 0 {
+        if (self.gzip_flags & 0x0800) != 0 {
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
@@ -751,7 +752,7 @@ impl<'a> State<'a> {
                 }
             }
 
-            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
                 self.checksum = crc32(self.checksum, name_slice);
             }
 
@@ -771,7 +772,7 @@ impl<'a> State<'a> {
     }
 
     fn comment(&mut self) -> ReturnCode {
-        if (self.flags & 0x01000) != 0 {
+        if (self.gzip_flags & 0x01000) != 0 {
             if self.in_available == 0 {
                 return self.inflate_leave(ReturnCode::Ok);
             }
@@ -804,7 +805,7 @@ impl<'a> State<'a> {
                 }
             }
 
-            if (self.flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+            if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
                 self.checksum = crc32(self.checksum, comment_slice);
             }
 
@@ -823,7 +824,7 @@ impl<'a> State<'a> {
     }
 
     fn hcrc(&mut self) -> ReturnCode {
-        if (self.flags & 0x0200) != 0 {
+        if (self.gzip_flags & 0x0200) != 0 {
             need_bits!(self, 16);
 
             if (self.wrap & 4) != 0 && self.bit_reader.hold() as u32 != (self.checksum & 0xffff) {
@@ -835,12 +836,12 @@ impl<'a> State<'a> {
         }
 
         if let Some(head) = self.head.as_mut() {
-            head.hcrc = (self.flags >> 9) & 1;
+            head.hcrc = (self.gzip_flags >> 9) & 1;
             head.done = 1;
         }
 
         // compute crc32 checksum if not in raw mode
-        if (self.wrap & 4 != 0) && self.flags != 0 {
+        if (self.wrap & 4 != 0) && self.gzip_flags != 0 {
             self.crc_fold = Crc32Fold::new();
             self.checksum = crate::CRC32_INITIAL_VALUE;
         }
@@ -874,7 +875,7 @@ impl<'a> State<'a> {
             self.total += self.writer.len();
 
             if self.wrap & 4 != 0 {
-                if self.flags != 0 {
+                if self.gzip_flags != 0 {
                     self.crc_fold.fold(self.writer.filled(), self.checksum);
                     self.checksum = self.crc_fold.finish();
                 } else {
@@ -882,7 +883,7 @@ impl<'a> State<'a> {
                 }
             }
 
-            let given_checksum = if self.flags != 0 {
+            let given_checksum = if self.gzip_flags != 0 {
                 self.bit_reader.hold() as u32
             } else {
                 zswap32(self.bit_reader.hold() as u32)
@@ -903,7 +904,7 @@ impl<'a> State<'a> {
 
     fn length(&mut self) -> ReturnCode {
         // for gzip, last bytes contain LENGTH
-        if self.wrap != 0 && self.flags != 0 {
+        if self.wrap != 0 && self.gzip_flags != 0 {
             need_bits!(self, 32);
             if (self.wrap & 4) != 0 && self.bit_reader.hold() != self.total as u64 {
                 self.mode = Mode::Bad;
@@ -1862,7 +1863,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 
     state.last = false;
     state.havedict = false;
-    state.flags = -1;
+    state.gzip_flags = -1;
     state.dmax = 32768;
     state.head = None;
     state.bit_reader = BitReader::new(&[]);
@@ -1949,7 +1950,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
 
             state.window.extend(
                 &state.writer.filled()[..out_written],
-                state.flags,
+                state.gzip_flags,
                 update_checksum,
                 &mut state.checksum,
                 &mut state.crc_fold,
@@ -2020,13 +2021,13 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
         return ReturnCode::DataError;
     }
 
-    if state.flags == -1 {
+    if state.gzip_flags == -1 {
         state.wrap = 0; /* if no header yet, treat as raw */
     } else {
         state.wrap &= !4; /* no point in computing a check value now */
     }
 
-    let flags = state.flags;
+    let flags = state.gzip_flags;
     let total_in = stream.total_in;
     let total_out = stream.total_out;
 
@@ -2035,7 +2036,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     stream.total_in = total_in;
     stream.total_out = total_out;
 
-    stream.state.flags = flags;
+    stream.state.gzip_flags = flags;
     stream.state.mode = Mode::Type;
 
     ReturnCode::Ok
@@ -2111,7 +2112,7 @@ pub unsafe fn copy<'a>(
         crc_fold: state.crc_fold,
         havedict: state.havedict,
         dmax: state.dmax,
-        flags: state.flags,
+        gzip_flags: state.gzip_flags,
         codes_codes: state.codes_codes,
         len_codes: state.len_codes,
         dist_codes: state.dist_codes,
@@ -2191,7 +2192,7 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
 
         stream.state.window.extend(
             dictionary,
-            stream.state.flags,
+            stream.state.gzip_flags,
             false,
             &mut stream.state.checksum,
             &mut stream.state.crc_fold,
