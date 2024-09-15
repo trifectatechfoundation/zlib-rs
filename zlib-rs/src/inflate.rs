@@ -229,6 +229,7 @@ pub fn uncompress<'a>(
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(u8)]
 pub enum Mode {
     Head,
     Flags,
@@ -279,12 +280,44 @@ struct Table {
     bits: usize,
 }
 
+#[derive(Clone, Copy, Default)]
+struct Flags(u8);
+
+impl Flags {
+    /// set if currently processing the last block
+    const IS_LAST_BLOCK: Self = Self(0b0000_0001);
+
+    /// set if a custom dictionary was provided
+    const HAVE_DICT: Self = Self(0b0000_0010);
+
+    pub(crate) const fn contains(self, other: Self) -> bool {
+        debug_assert!(other.0.count_ones() == 1);
+
+        self.0 & other.0 != 0
+    }
+
+    #[inline(always)]
+    pub(crate) fn union(&mut self, other: Self) {
+        *self = Self(self.0 | other.0);
+    }
+
+    #[inline(always)]
+    pub(crate) fn update(&mut self, other: Self, value: bool) {
+        if value {
+            *self = Self(self.0 | other.0);
+        } else {
+            *self = Self(self.0 & !other.0);
+        }
+    }
+}
+
+const _SIZE: [u8; 14624] = [0; core::mem::size_of::<State>()];
+
 pub(crate) struct State<'a> {
     /// Current inflate mode
     mode: Mode,
 
-    /// true if processing the last block
-    last: bool,
+    flags: Flags,
 
     /// bitflag
     ///
@@ -295,11 +328,11 @@ pub(crate) struct State<'a> {
 
     /// log base 2 of requested window size
     wbits: usize,
+
     // allocated window if needed (capacity == 0 if unused)
     window: Window<'a>,
 
-    /// place to store gzip header if needed
-    head: Option<&'a mut gz_header>,
+    _padding0: usize,
 
     //
     /// number of code length code lengths
@@ -352,7 +385,8 @@ pub(crate) struct State<'a> {
     checksum: u32,
     crc_fold: Crc32Fold,
 
-    havedict: bool,
+    /// place to store gzip header if needed
+    head: Option<&'a mut gz_header>,
     dmax: usize,
     gzip_flags: i32,
 
@@ -375,7 +409,7 @@ impl<'a> State<'a> {
         Self {
             flush: InflateFlush::NoFlush,
 
-            last: false,
+            flags: Flags::default(),
             wrap: 0,
             mode: Mode::Head,
             length: 0,
@@ -415,7 +449,7 @@ impl<'a> State<'a> {
             checksum: 0,
             crc_fold: Crc32Fold::new(),
 
-            havedict: false,
+            _padding0: 0,
             dmax: 0,
             gzip_flags: 0,
 
@@ -928,14 +962,16 @@ impl<'a> State<'a> {
     }
 
     fn type_do(&mut self) -> ReturnCode {
-        if self.last {
+        if self.flags.contains(Flags::IS_LAST_BLOCK) {
             self.bit_reader.next_byte_boundary();
             self.mode = Mode::Check;
             return self.check();
         }
 
         need_bits!(self, 3);
-        self.last = self.bit_reader.bits(1) != 0;
+        // self.last = self.bit_reader.bits(1) != 0;
+        self.flags
+            .update(Flags::IS_LAST_BLOCK, self.bit_reader.bits(1) != 0);
         self.bit_reader.drop_bits(1);
 
         match self.bit_reader.bits(2) {
@@ -1475,7 +1511,7 @@ impl<'a> State<'a> {
     }
 
     fn dict(&mut self) -> ReturnCode {
-        if !self.havedict {
+        if !self.flags.contains(Flags::HAVE_DICT) {
             return self.inflate_leave(ReturnCode::NeedDict);
         }
 
@@ -1508,7 +1544,11 @@ impl<'a> State<'a> {
         let bit_reader_bits = self.bit_reader.bits_in_buffer() as i32;
         debug_assert!(bit_reader_bits < 64);
 
-        let last = if self.last { 64 } else { 0 };
+        let last = if self.flags.contains(Flags::IS_LAST_BLOCK) {
+            64
+        } else {
+            0
+        };
 
         let mode = match self.mode {
             Mode::Type => 128,
@@ -1861,8 +1901,8 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     state.mode = Mode::Head;
     state.checksum = crate::ADLER32_INITIAL_VALUE as u32;
 
-    state.last = false;
-    state.havedict = false;
+    state.flags.update(Flags::IS_LAST_BLOCK, false);
+    state.flags.update(Flags::HAVE_DICT, false);
     state.gzip_flags = -1;
     state.dmax = 32768;
     state.head = None;
@@ -2080,7 +2120,7 @@ pub unsafe fn copy<'a>(
 
     let mut copy = State {
         mode: state.mode,
-        last: state.last,
+        flags: state.flags,
         wrap: state.wrap,
         len_table: state.len_table,
         dist_table: state.dist_table,
@@ -2110,7 +2150,7 @@ pub unsafe fn copy<'a>(
         flush: state.flush,
         checksum: state.checksum,
         crc_fold: state.crc_fold,
-        havedict: state.havedict,
+        _padding0: state._padding0,
         dmax: state.dmax,
         gzip_flags: state.gzip_flags,
         codes_codes: state.codes_codes,
@@ -2206,7 +2246,7 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
         return ReturnCode::MemError;
     }
 
-    stream.state.havedict = true;
+    stream.state.flags.update(Flags::HAVE_DICT, true);
 
     ReturnCode::Ok
 }
