@@ -319,15 +319,15 @@ pub(crate) struct State<'a> {
 
     flags: Flags,
 
+    /// log base 2 of requested window size
+    wbits: u8,
+
     /// bitflag
     ///
     /// - bit 0 true if zlib
     /// - bit 1 true if gzip
     /// - bit 2 true to validate check value
     wrap: usize,
-
-    /// log base 2 of requested window size
-    wbits: usize,
 
     // allocated window if needed (capacity == 0 if unused)
     window: Window<'a>,
@@ -590,13 +590,13 @@ impl<'a> State<'a> {
         }
 
         self.bit_reader.drop_bits(4);
-        let len = self.bit_reader.bits(4) as usize + 8;
+        let len = self.bit_reader.bits(4) as u8 + 8;
 
         if self.wbits == 0 {
             self.wbits = len;
         }
 
-        if len > MAX_WBITS as usize || len > self.wbits {
+        if len as i32 > MAX_WBITS || len > self.wbits {
             self.mode = Mode::Bad;
             return self.bad("invalid window size\0");
         }
@@ -1860,7 +1860,7 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
         return ReturnCode::StreamError;
     }
 
-    if stream.state.window.size() != 0 && stream.state.wbits != window_bits as usize {
+    if stream.state.window.size() != 0 && stream.state.wbits as i32 != window_bits {
         let mut window = Window::empty();
         core::mem::swap(&mut window, &mut stream.state.window);
 
@@ -1978,7 +1978,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
         'blk: {
             // initialize the window if needed
             if state.window.size() == 0 {
-                match Window::new_in(&stream.alloc, state.wbits) {
+                match Window::new_in(&stream.alloc, state.wbits as usize) {
                     Some(window) => state.window = window,
                     None => {
                         state.mode = Mode::Mem;
@@ -2224,7 +2224,7 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
     let err = 'blk: {
         // initialize the window if needed
         if stream.state.window.size() == 0 {
-            match Window::new_in(&stream.alloc, stream.state.wbits) {
+            match Window::new_in(&stream.alloc, stream.state.wbits as usize) {
                 None => break 'blk ReturnCode::MemError,
                 Some(window) => stream.state.window = window,
             }
