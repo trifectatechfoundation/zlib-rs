@@ -280,8 +280,14 @@ struct Table {
     bits: usize,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 struct Flags(u8);
+
+impl Default for Flags {
+    fn default() -> Self {
+        Self::SANE
+    }
+}
 
 impl Flags {
     /// set if currently processing the last block
@@ -289,6 +295,9 @@ impl Flags {
 
     /// set if a custom dictionary was provided
     const HAVE_DICT: Self = Self(0b0000_0010);
+
+    /// if false, allow invalid distance too far
+    const SANE: Self = Self(0b0000_0100);
 
     pub(crate) const fn contains(self, other: Self) -> bool {
         debug_assert!(other.0.count_ones() == 1);
@@ -360,8 +369,6 @@ pub(crate) struct State<'a> {
     /// extra bits needed
     extra: usize,
 
-    /// if false, allow invalid distance too far
-    sane: bool,
     /// bits back of last unprocessed length/lit
     back: usize,
 
@@ -420,7 +427,6 @@ impl<'a> State<'a> {
             wbits: 0,
             offset: 0,
             extra: 0,
-            sane: true,
             back: 0,
             was: 0,
             chunksize: 0,
@@ -1260,7 +1266,7 @@ impl<'a> State<'a> {
             let mut copy = self.offset - copy;
 
             if copy > self.window.have() {
-                if self.sane {
+                if self.flags.contains(Flags::SANE) {
                     self.mode = Mode::Bad;
                     return self.bad("invalid distance too far back\0");
                 }
@@ -1641,7 +1647,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                         if dist as usize > written {
                             // copy fropm the window
                             if (dist as usize - written) > state.window.have() {
-                                if state.sane {
+                                if state.flags.contains(Flags::SANE) {
                                     bad = Some("invalid distance too far back\0");
                                     state.mode = Mode::Bad;
                                     break 'outer;
@@ -1903,6 +1909,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 
     state.flags.update(Flags::IS_LAST_BLOCK, false);
     state.flags.update(Flags::HAVE_DICT, false);
+    state.flags.update(Flags::SANE, true);
     state.gzip_flags = -1;
     state.dmax = 32768;
     state.head = None;
@@ -1912,7 +1919,6 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     state.len_table = Table::default();
     state.dist_table = Table::default();
 
-    state.sane = true;
     state.back = usize::MAX;
 
     ReturnCode::Ok
@@ -2138,7 +2144,6 @@ pub unsafe fn copy<'a>(
         length: state.length,
         offset: state.offset,
         extra: state.extra,
-        sane: state.sane,
         back: state.back,
         was: state.was,
         chunksize: state.chunksize,
@@ -2186,7 +2191,7 @@ pub unsafe fn copy<'a>(
 }
 
 pub fn undermine(stream: &mut InflateStream, subvert: i32) -> ReturnCode {
-    stream.state.sane = (!subvert) != 0;
+    stream.state.flags.update(Flags::SANE, (!subvert) != 0);
 
     ReturnCode::Ok
 }
