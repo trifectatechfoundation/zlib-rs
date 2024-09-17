@@ -49,6 +49,11 @@ impl<'a> Writer<'a> {
         self.capacity() - self.filled
     }
 
+    #[inline]
+    pub fn is_full(&self) -> bool {
+        self.filled == self.buf.len()
+    }
+
     pub fn push(&mut self, byte: u8) {
         self.buf[self.filled] = MaybeUninit::new(byte);
 
