@@ -66,6 +66,8 @@ fn main() {
     let mut dest_len = dest_vec.len() as std::ffi::c_ulong;
     let dest = dest_vec.as_mut_ptr();
 
+    let silesia_small_tar_gz = include_bytes!("../../silesia-small.tar.gz");
+
     match it.next().unwrap().as_str() {
         "ng" => {
             let path = it.next().unwrap();
@@ -90,18 +92,22 @@ fn main() {
         "ng-chunked" => {
             let chunk_log: usize = it.next().unwrap().parse().unwrap();
 
-            let path = it.next().unwrap();
-            let input = std::fs::read(&path).unwrap();
-
-            let _ = chunked!("chunked-ng", 1 << chunk_log, &mut dest_vec, &input);
+            let _ = chunked!(
+                "chunked-ng",
+                1 << chunk_log,
+                &mut dest_vec,
+                &silesia_small_tar_gz
+            );
         }
         "rs-chunked" => {
             let chunk_log: usize = it.next().unwrap().parse().unwrap();
 
-            let path = it.next().unwrap();
-            let input = std::fs::read(&path).unwrap();
-
-            let _ = chunked!("chunked-rs", 1 << chunk_log, &mut dest_vec, &input);
+            let _ = chunked!(
+                "chunked-rs",
+                1 << chunk_log,
+                &mut dest_vec,
+                &silesia_small_tar_gz
+            );
         }
         "ng-adler" => {
             let chunk_log: usize = it.next().unwrap().parse().unwrap();
