@@ -1685,7 +1685,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             }
 
                             let copy = Ord::min(op, len as usize);
-                            writer.extend(&state.window.as_slice()[from..][..copy]);
+                            writer.extend_from_window(&state.window, from..from + copy);
 
                             if op < len as usize {
                                 // here we need some bytes from the output itself
