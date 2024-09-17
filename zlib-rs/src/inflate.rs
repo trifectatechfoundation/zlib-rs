@@ -887,10 +887,11 @@ impl<'a> State<'a> {
         ReturnCode::StreamError
     }
 
+    #[inline(always)]
     fn lit(&mut self) -> ReturnCode {
-        if self.writer.remaining() == 0 {
+        if self.writer.is_full() {
             #[cfg(all(test, feature = "std"))]
-            eprintln!("Ok: read_buf is full ({} bytes)", self.writer.capacity());
+            eprintln!("Ok: writer is full ({} bytes)", self.writer.capacity());
             return self.inflate_leave(ReturnCode::Ok);
         }
 
@@ -1236,22 +1237,18 @@ impl<'a> State<'a> {
     }
 
     /// copy match from window to output
-
     fn match_(&mut self) -> ReturnCode {
-        if self.writer.remaining() == 0 {
+        if self.writer.is_full() {
             #[cfg(all(feature = "std", test))]
             eprintln!(
-                "BufError: read_buf is full ({} bytes)",
+                "BufError: writer is full ({} bytes)",
                 self.writer.capacity()
             );
             return self.inflate_leave(ReturnCode::Ok);
         }
 
-        // this is not quite right. not sure when that matters
-        let out = self.writer.remaining() + self.writer.len();
         let left = self.writer.remaining();
-
-        let copy = out - left;
+        let copy = self.writer.len();
 
         let copy = if self.offset > copy {
             // copy from window to output
@@ -1285,7 +1282,7 @@ impl<'a> State<'a> {
 
             copy
         } else {
-            let copy = Ord::min(self.length, self.writer.remaining());
+            let copy = Ord::min(self.length, left);
             self.writer.copy_match(self.offset, copy);
 
             copy
