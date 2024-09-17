@@ -1,5 +1,6 @@
 use core::fmt;
 use core::mem::MaybeUninit;
+use core::ops::Range;
 
 pub struct Writer<'a> {
     buf: &'a mut [MaybeUninit<u8>],
@@ -67,6 +68,53 @@ impl<'a> Writer<'a> {
         self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
 
         self.filled += buf.len();
+    }
+
+    #[inline(always)]
+    pub fn extend_from_window(&mut self, window: &super::window::Window, range: Range<usize>) {
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx512() {
+            return self.extend_from_window_help::<core::arch::x86_64::__m512i>(window, range);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx2() {
+            return self.extend_from_window_help::<core::arch::x86_64::__m256i>(window, range);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_sse() {
+            return self.extend_from_window_help::<core::arch::x86_64::__m128i>(window, range);
+        }
+
+        self.extend_from_window_help::<u64>(window, range)
+    }
+
+    #[inline(always)]
+    fn extend_from_window_help<C: Chunk>(
+        &mut self,
+        window: &super::window::Window,
+        range: Range<usize>,
+    ) {
+        let len = range.end - range.start;
+        if self.remaining() >= 32 {
+            // Safety: we know that our window has at least a core::mem::size_of::<C>() extra bytes
+            // at the end, making it always safe to perform an (unaligned) Chunk read anywhere in
+            // the window slice.
+            unsafe {
+                let src = window.as_ptr();
+                Self::copy_chunk_unchecked::<C>(
+                    src.wrapping_add(range.start),
+                    self.next_out(),
+                    src.wrapping_add(range.end),
+                )
+            }
+        } else {
+            let buf = &window.as_slice()[range];
+            self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
+        }
+
+        self.filled += len;
     }
 
     #[inline(always)]

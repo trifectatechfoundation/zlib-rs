@@ -66,6 +66,10 @@ impl<'a> Window<'a> {
         unsafe { slice_assume_init(&self.buf[..self.have]) }
     }
 
+    pub fn as_ptr(&self) -> *const MaybeUninit<u8> {
+        self.buf.as_ptr()
+    }
+
     #[cfg(test)]
     fn extend_adler32(&mut self, slice: &[u8], checksum: &mut u32) {
         self.extend(slice, 0, true, checksum, &mut Crc32Fold::new());
