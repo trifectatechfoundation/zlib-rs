@@ -146,6 +146,12 @@ impl<'a> Writer<'a> {
         mut dst: *mut MaybeUninit<u8>,
         end: *const MaybeUninit<u8>,
     ) {
+        let chunk = C::load_chunk(src);
+        C::store_chunk(dst, chunk);
+
+        src = src.add(core::mem::size_of::<C>());
+        dst = dst.add(core::mem::size_of::<C>());
+
         while src < end {
             let chunk = C::load_chunk(src);
             C::store_chunk(dst, chunk);
