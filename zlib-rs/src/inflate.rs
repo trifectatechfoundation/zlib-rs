@@ -1278,7 +1278,8 @@ impl<'a> State<'a> {
             copy = Ord::min(copy, self.length);
             copy = Ord::min(copy, left);
 
-            self.writer.extend(&self.window.as_slice()[from..][..copy]);
+            self.writer
+                .extend_from_window(&self.window, from..from + copy);
 
             copy
         } else {
@@ -1675,7 +1676,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                                     // window, and part of it has wrapped around to the start. Copy
                                     // the end section here, the start section will be copied below.
                                     len -= op as u16;
-                                    writer.extend(&state.window.as_slice()[from..][..op]);
+                                    writer.extend_from_window(&state.window, from..from + op);
                                     from = 0;
                                     op = window_next;
                                 }

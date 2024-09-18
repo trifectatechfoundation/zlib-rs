@@ -97,7 +97,7 @@ impl<'a> Writer<'a> {
         range: Range<usize>,
     ) {
         let len = range.end - range.start;
-        if self.remaining() >= 32 {
+        if self.remaining() >= core::mem::size_of::<C>() {
             // Safety: we know that our window has at least a core::mem::size_of::<C>() extra bytes
             // at the end, making it always safe to perform an (unaligned) Chunk read anywhere in
             // the window slice.
