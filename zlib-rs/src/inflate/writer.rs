@@ -151,14 +151,31 @@ impl<'a> Writer<'a> {
         // X and Y, a string reference with <length = 5, distance = 2>
         // adds X,Y,X,Y,X to the output stream.
 
+        #[inline(always)]
+        fn chunkcopy<const N: usize>(buf: &mut [MaybeUninit<u8>], current: usize, length: usize) {
+            let tmp = *buf[..current].last_chunk::<N>().unwrap();
+            let mut it = buf[current..][..length].chunks_exact_mut(N);
+            while let Some(chunk) = it.next() {
+                chunk.copy_from_slice(&tmp);
+            }
+
+            let rem = it.into_remainder();
+            rem.copy_from_slice(&tmp[..rem.len()]);
+        }
+
         if end > current {
-            if offset_from_end == 1 {
-                // this will just repeat this value many times
-                let element = self.buf[current - 1];
-                self.buf[current..][..length].fill(element);
-            } else {
-                for i in 0..length {
-                    self.buf[current + i] = self.buf[start + i];
+            match offset_from_end {
+                1 => {
+                    // this will just repeat this value many times
+                    let element = self.buf[current - 1];
+                    self.buf[current..][..length].fill(element);
+                }
+                2 if length >= 4 => chunkcopy::<2>(self.buf, current, length),
+                4 if length >= 4 => chunkcopy::<4>(self.buf, current, length),
+                _ => {
+                    for i in 0..length {
+                        self.buf[current + i] = self.buf[start + i];
+                    }
                 }
             }
         } else {
