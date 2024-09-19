@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use super::{BASE, NMAX};
 
 const UNROLL_MORE: bool = true;
@@ -91,26 +89,6 @@ pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
 pub(crate) fn adler32_len_16(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     for b in buf {
         adler += (*b) as u32;
-        sum2 += adler;
-    }
-
-    adler %= BASE;
-    sum2 %= BASE; /* only added so many BASE's */
-    /* return recombined sums */
-    adler | (sum2 << 16)
-}
-
-#[cfg_attr(not(target_arch = "x86_64"), allow(unused))]
-pub(crate) fn adler32_copy_len_16(
-    mut adler: u32,
-    dst: &mut [MaybeUninit<u8>],
-    src: &[u8],
-    mut sum2: u32,
-) -> u32 {
-    for (source, destination) in src.iter().zip(dst.iter_mut()) {
-        let v = *source;
-        *destination = MaybeUninit::new(v);
-        adler += v as u32;
         sum2 += adler;
     }
 
