@@ -1122,11 +1122,11 @@ impl<'a> State<'a> {
                 pull_byte!(self);
             }
 
-            self.bit_reader.drop_bits(last.bits as usize);
+            self.bit_reader.drop_bits(last.bits);
             self.back += last.bits as usize;
         }
 
-        self.bit_reader.drop_bits(here.bits as usize);
+        self.bit_reader.drop_bits(here.bits);
         self.back += here.bits as usize;
         self.length = here.val as usize;
 
@@ -1159,7 +1159,7 @@ impl<'a> State<'a> {
         if extra != 0 {
             need_bits!(self, extra);
             self.length += self.bit_reader.bits(extra) as usize;
-            self.bit_reader.drop_bits(extra);
+            self.bit_reader.drop_bits(extra as u8);
             self.back += extra;
         }
 
@@ -1197,11 +1197,11 @@ impl<'a> State<'a> {
                 pull_byte!(self);
             }
 
-            self.bit_reader.drop_bits(last.bits as usize);
+            self.bit_reader.drop_bits(last.bits);
             self.back += last.bits as usize;
         }
 
-        self.bit_reader.drop_bits(here.bits as usize);
+        self.bit_reader.drop_bits(here.bits);
 
         if here.op & 64 != 0 {
             self.mode = Mode::Bad;
@@ -1221,7 +1221,7 @@ impl<'a> State<'a> {
         if extra > 0 {
             need_bits!(self, extra);
             self.offset += self.bit_reader.bits(extra) as usize;
-            self.bit_reader.drop_bits(extra);
+            self.bit_reader.drop_bits(extra as u8);
             self.back += extra;
         }
 
@@ -1378,7 +1378,7 @@ impl<'a> State<'a> {
                 pull_byte!(self);
             };
 
-            let here_bits = here.bits as usize;
+            let here_bits = here.bits;
 
             match here.val {
                 0..=15 => {
@@ -1387,7 +1387,7 @@ impl<'a> State<'a> {
                     self.have += 1;
                 }
                 16 => {
-                    need_bits!(self, here_bits + 2);
+                    need_bits!(self, here_bits as usize + 2);
                     self.bit_reader.drop_bits(here_bits);
                     if self.have == 0 {
                         self.mode = Mode::Bad;
@@ -1409,7 +1409,7 @@ impl<'a> State<'a> {
                     }
                 }
                 17 => {
-                    need_bits!(self, here_bits + 3);
+                    need_bits!(self, here_bits as usize + 3);
                     self.bit_reader.drop_bits(here_bits);
                     let len = 0;
                     let copy = 3 + self.bit_reader.bits(3) as usize;
@@ -1426,7 +1426,7 @@ impl<'a> State<'a> {
                     }
                 }
                 18.. => {
-                    need_bits!(self, here_bits + 7);
+                    need_bits!(self, here_bits as usize + 7);
                     self.bit_reader.drop_bits(here_bits);
                     let len = 0;
                     let copy = 11 + self.bit_reader.bits(7) as usize;
@@ -1587,18 +1587,18 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
 
         if here.op == 0 {
             writer.push(here.val as u8);
-            bit_reader.drop_bits(here.bits as usize);
+            bit_reader.drop_bits(here.bits);
             here = lcode[(bit_reader.hold() & lmask) as usize];
 
             if here.op == 0 {
                 writer.push(here.val as u8);
-                bit_reader.drop_bits(here.bits as usize);
+                bit_reader.drop_bits(here.bits);
                 here = lcode[(bit_reader.hold() & lmask) as usize];
             }
         }
 
         'dolen: loop {
-            bit_reader.drop_bits(here.bits as usize);
+            bit_reader.drop_bits(here.bits);
             let op = here.op;
 
             if op == 0 {
@@ -1606,7 +1606,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
             } else if op & 16 != 0 {
                 let op = op & MAX_BITS;
                 let mut len = here.val + bit_reader.bits(op as usize) as u16;
-                bit_reader.drop_bits(op as usize);
+                bit_reader.drop_bits(op);
 
                 here = dcode[(bit_reader.hold() & dmask) as usize];
 
@@ -1617,7 +1617,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                 }
 
                 'dodist: loop {
-                    bit_reader.drop_bits(here.bits as usize);
+                    bit_reader.drop_bits(here.bits);
                     let op = here.op;
 
                     if op & 16 != 0 {
@@ -1630,7 +1630,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             break 'outer;
                         }
 
-                        bit_reader.drop_bits(op as usize);
+                        bit_reader.drop_bits(op);
 
                         // max distance in output
                         let written = writer.len();
