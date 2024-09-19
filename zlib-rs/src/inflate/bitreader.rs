@@ -139,9 +139,9 @@ impl<'a> BitReader<'a> {
     }
 
     #[inline(always)]
-    pub fn drop_bits(&mut self, n: usize) {
+    pub fn drop_bits(&mut self, n: u8) {
         self.bit_buffer >>= n;
-        self.bits_used -= n as u8;
+        self.bits_used -= n;
     }
 
     #[inline(always)]
