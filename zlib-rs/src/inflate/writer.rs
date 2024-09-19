@@ -120,26 +120,40 @@ impl<'a> Writer<'a> {
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
         #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::{__m128i, __m256i, __m512i};
+
+        #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx512() {
-            return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
+            return self.copy_match_help::<__m512i, __m128i>(offset_from_end, length);
         }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx2() {
-            return self.copy_match_help::<core::arch::x86_64::__m256i>(offset_from_end, length);
+            return self.copy_match_help::<__m256i, __m128i>(offset_from_end, length);
         }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_sse() {
-            return self.copy_match_help::<core::arch::x86_64::__m128i>(offset_from_end, length);
+            return self.copy_match_help::<__m128i, __m128i>(offset_from_end, length);
         }
 
-        self.copy_match_help::<u64>(offset_from_end, length)
+        self.copy_match_help::<u64, u64>(offset_from_end, length)
     }
 
     #[inline(always)]
-    fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
+    fn copy_match_help<C: Chunk, CM: ChunkMemset>(
+        &mut self,
+        offset_from_end: usize,
+        length: usize,
+    ) {
         assert!(self.filled + length <= self.capacity());
+
+        if length == 0 {
+            return;
+        }
+
+        // an offset of 0 does not make sense
+        debug_assert!(offset_from_end > 0);
 
         let current = self.filled;
 
@@ -151,32 +165,22 @@ impl<'a> Writer<'a> {
         // X and Y, a string reference with <length = 5, distance = 2>
         // adds X,Y,X,Y,X to the output stream.
 
-        #[inline(always)]
-        fn chunkcopy<const N: usize>(buf: &mut [MaybeUninit<u8>], current: usize, length: usize) {
-            let tmp = *buf[..current].last_chunk::<N>().unwrap();
-            let mut it = buf[current..][..length].chunks_exact_mut(N);
-            while let Some(chunk) = it.next() {
-                chunk.copy_from_slice(&tmp);
-            }
-
-            let rem = it.into_remainder();
-            rem.copy_from_slice(&tmp[..rem.len()]);
-        }
-
         if end > current {
-            match offset_from_end {
-                1 => {
-                    // this will just repeat this value many times
-                    let element = self.buf[current - 1];
-                    self.buf[current..][..length].fill(element);
-                }
-                2 if length >= 4 => chunkcopy::<2>(self.buf, current, length),
-                4 if length >= 4 => chunkcopy::<4>(self.buf, current, length),
-                _ => {
-                    for i in 0..length {
-                        self.buf[current + i] = self.buf[start + i];
-                    }
-                }
+            if offset_from_end == 1 {
+                // this will just repeat this value many times
+                let element = self.buf[current - 1];
+                self.buf[current..][..length].fill(element);
+            } else if offset_from_end > core::mem::size_of::<CM>() {
+                let ptr = self.next_out();
+                unsafe {
+                    Self::copy_chunk_unchecked::<CM>(
+                        ptr.sub(offset_from_end),
+                        ptr,
+                        ptr.sub(offset_from_end).add(length),
+                    )
+                };
+            } else {
+                unsafe { CM::chunkmemset(self.next_out(), offset_from_end, length) }
             }
         } else {
             Self::copy_chunked_within::<C>(self.buf, current, start, end)
@@ -315,6 +319,156 @@ impl Chunk for core::arch::x86_64::__m512i {
     }
 }
 
+trait ChunkMemset: Chunk + Sized + Copy {
+    unsafe fn load(next_out: *const MaybeUninit<u8>, offset_from_end: usize) -> (u8, Self);
+
+    unsafe fn chunkmemset(next_out: *mut MaybeUninit<u8>, offset_from_end: usize, length: usize) {
+        let (chunk_mod, chunk_load) = Self::load(next_out, offset_from_end);
+
+        let mut len = length;
+        let mut out = next_out;
+
+        // attempt to perform 2 stores per iteration.
+        // for most ISAs, especially x86, this is beneficial
+        if chunk_mod == 0 {
+            while len >= (2 * core::mem::size_of::<Self>()) {
+                Self::store_chunk(out, chunk_load);
+                Self::store_chunk(out.add(core::mem::size_of::<Self>()), chunk_load);
+                out = out.add(2 * core::mem::size_of::<Self>());
+                len -= 2 * core::mem::size_of::<Self>();
+            }
+        }
+
+        /* If we don't have a "dist" length that divides evenly into a vector
+         * register, we can write the whole vector register but we need only
+         * advance by the amount of the whole string that fits in our Self.
+         * If we do divide evenly into the vector length, adv_amount = core::mem::size_of::<Self>() */
+        let adv_amount = core::mem::size_of::<Self>() - chunk_mod as usize;
+        while len >= core::mem::size_of::<Self>() {
+            Self::store_chunk(out, chunk_load);
+            len -= adv_amount;
+            out = out.add(adv_amount);
+        }
+
+        if len > 0 {
+            core::ptr::copy_nonoverlapping(&chunk_load as *const _ as *const _, out, len);
+        }
+    }
+}
+
+impl ChunkMemset for u64 {
+    unsafe fn load(next_out: *const MaybeUninit<u8>, offset_from_end: usize) -> (u8, Self) {
+        let from = next_out.sub(offset_from_end);
+
+        match offset_from_end {
+            2 => {
+                let tmp = from.cast::<u16>().read_unaligned() as u64;
+                (0, tmp | tmp << 16 | tmp << 32 | tmp << 48)
+            }
+            4 => {
+                let tmp = from.cast::<u32>().read_unaligned() as u64;
+                (0, tmp | tmp << 32)
+            }
+            8 => {
+                let tmp = from.cast::<u64>().read_unaligned();
+                (0, tmp)
+            }
+            _ => {
+                let mut chunk_load = [0u8; 8];
+                let mut bytes_remaining = core::mem::size_of::<Self>();
+                let mut cur_chunk = chunk_load.as_mut_ptr().cast();
+                let mut cpy_dist = 0;
+
+                while bytes_remaining > 0 {
+                    cpy_dist = Ord::min(offset_from_end, bytes_remaining);
+                    core::ptr::copy_nonoverlapping(from, cur_chunk, cpy_dist);
+                    bytes_remaining -= cpy_dist;
+                    cur_chunk = cur_chunk.add(cpy_dist);
+                }
+
+                (cpy_dist as u8, u64::from_le_bytes(chunk_load))
+            }
+        }
+    }
+}
+
+impl ChunkMemset for core::arch::x86_64::__m128i {
+    #[target_feature(enable = "ssse3")]
+    unsafe fn load(next_out: *const MaybeUninit<u8>, offset_from_end: usize) -> (u8, Self) {
+        let from = next_out.sub(offset_from_end);
+
+        match offset_from_end {
+            2 => {
+                let tmp = from.cast::<i16>().read_unaligned();
+                (0, core::arch::x86_64::_mm_set1_epi16(tmp))
+            }
+            4 => {
+                let tmp = from.cast::<i32>().read_unaligned();
+                (0, core::arch::x86_64::_mm_set1_epi32(tmp))
+            }
+            8 => {
+                let tmp = from.cast::<i64>().read_unaligned();
+                (0, core::arch::x86_64::_mm_set1_epi64x(tmp))
+            }
+            16 => {
+                let tmp = core::arch::x86_64::__m128i::load_chunk(from);
+                (0, tmp)
+            }
+            _ => {
+                use core::arch::x86_64::*;
+
+                // calculates `16 % index`
+                const PERM_IDX_LUT: [u8; 13] = [
+                    1, /* 3 */
+                    0, /* don't care */
+                    1, /* 5 */
+                    4, /* 6 */
+                    2, /* 7 */
+                    0, /* don't care */
+                    7, /* 9 */
+                    6, /* 10 */
+                    5, /* 11 */
+                    4, /* 12 */
+                    3, /* 13 */
+                    2, /* 14 */
+                    1, /* 15 */
+                ];
+
+                let lut_rem_remval = PERM_IDX_LUT[offset_from_end - 3];
+
+                const fn helper(array: [u8; 16]) -> __m128i {
+                    unsafe { core::mem::transmute(array) }
+                }
+
+                const PERMUTE_TABLE_128: [__m128i; 16] = [
+                    helper([0; 16]),                                               // dist 0
+                    helper([0; 16]),                                               // dist 1
+                    helper([0; 16]),                                               // dist 2
+                    helper([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0]),      // dist 3
+                    helper([0; 16]),                                               // dist 4
+                    helper([0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0]),      // dist 5
+                    helper([0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3]),      // dist 6
+                    helper([0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1]),      // dist 7
+                    helper([0; 16]),                                               // dist 8
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 3, 4, 5, 6]),      // dist 9
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5]),      // dist 10
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4]),     // dist 11
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3]),    // dist 12
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2]),   // dist 13
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1]),  // dist 14
+                    helper([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0]), // dist 15
+                ];
+
+                let ret_vec = _mm_loadu_si128(from.cast());
+                let perm_vec = PERMUTE_TABLE_128[offset_from_end];
+                let ret_vec = _mm_shuffle_epi8(ret_vec, perm_vec);
+
+                (lut_rem_remval, ret_vec)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -340,8 +494,8 @@ mod test {
             naive[M + i] = naive[M - offset_from_end + i];
         }
 
-        let buf = unsafe { core::mem::transmute::<[MaybeUninit<u8>; 128], [u8; N]>(buf) };
-        let naive = unsafe { core::mem::transmute::<[MaybeUninit<u8>; 128], [u8; N]>(naive) };
+        let buf = unsafe { core::mem::transmute::<[MaybeUninit<u8>; N], [u8; N]>(buf) };
+        let naive = unsafe { core::mem::transmute::<[MaybeUninit<u8>; N], [u8; N]>(naive) };
         assert_eq!(
             buf[M..][..length],
             naive[M..][..length],
@@ -373,20 +527,20 @@ mod test {
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx512() {
-            helper!(Writer::copy_match_help::<__m512i>);
+            helper!(Writer::copy_match_help::<__m512i, __m128i>);
         }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx2() {
-            helper!(Writer::copy_match_help::<__m256i>);
+            helper!(Writer::copy_match_help::<__m256i, __m128i>);
         }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_sse() {
-            helper!(Writer::copy_match_help::<__m128i>);
+            helper!(Writer::copy_match_help::<__m128i, __m128i>);
         }
 
-        helper!(Writer::copy_match_help::<u64>);
+        helper!(Writer::copy_match_help::<u64, u64>);
     }
 
     #[test]
@@ -409,5 +563,56 @@ mod test {
         writer.copy_match(3, 2);
 
         assert_eq!(buf.map(|e| unsafe { e.assume_init() }), [1, 2, 3, 1, 2]);
+    }
+
+    #[test]
+    fn chunk_memset_u64() {
+        for offset_from_end in 2..=8 {
+            for length in offset_from_end + 1..=8 + 8 + 1 {
+                let mut buf = test_array();
+                unsafe { u64::chunkmemset(buf[M..].as_mut_ptr(), offset_from_end, length) };
+
+                let mut naive = test_array();
+                for i in 0..length {
+                    naive[M + i] = naive[M - offset_from_end + i];
+                }
+
+                let buf = unsafe { core::mem::transmute::<_, [u8; N]>(buf) };
+                let naive = unsafe { core::mem::transmute::<_, [u8; N]>(naive) };
+                assert_eq!(
+                    buf[M..][..length],
+                    naive[M..][..length],
+                    "{} {}",
+                    offset_from_end,
+                    length
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn chunk_memset_u128() {
+        for offset_from_end in 2..=16 {
+            for length in offset_from_end + 1..=16 + 16 + 1 {
+                let mut buf = test_array();
+                unsafe {
+                    core::arch::x86_64::__m128i::chunkmemset(
+                        buf[M..].as_mut_ptr(),
+                        offset_from_end,
+                        length,
+                    )
+                };
+
+                let mut naive = test_array();
+                for i in 0..length {
+                    naive[M + i] = naive[M - offset_from_end + i];
+                }
+
+                let buf = unsafe { core::mem::transmute::<_, [u8; N]>(buf) };
+                let naive = unsafe { core::mem::transmute::<_, [u8; N]>(naive) };
+                assert_eq!(buf[M..][..length], naive[M..][..length]);
+            }
+        }
     }
 }
