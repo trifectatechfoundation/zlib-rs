@@ -23,14 +23,10 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
 pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: &[u8]) -> u32 {
     debug_assert!(dst.len() >= src.len(), "{} < {}", dst.len(), src.len());
 
-    #[cfg(target_arch = "x86_64")]
-    if crate::cpu_features::is_enabled_avx2() {
-        return avx2::adler32_fold_copy_avx2(start_checksum, dst, src);
-    }
-
-    let adler = adler32(start_checksum, src);
+    // integrating the memcpy into the adler32 function did not have any benefits, and in fact was
+    // a bit slower for very small chunk sizes.
     dst[..src.len()].copy_from_slice(slice_to_uninit(src));
-    adler
+    adler32(start_checksum, src)
 }
 
 pub fn adler32_combine(adler1: u32, adler2: u32, len2: u64) -> u32 {
