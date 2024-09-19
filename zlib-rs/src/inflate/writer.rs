@@ -176,12 +176,9 @@ impl<'a> Writer<'a> {
         end: usize,
     ) {
         if (end - start).next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
+            let ptr = buf.as_mut_ptr();
             unsafe {
-                Self::copy_chunk_unchecked::<C>(
-                    buf.as_ptr().add(start),
-                    buf.as_mut_ptr().add(current),
-                    buf.as_ptr().add(end),
-                )
+                Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), ptr.add(end))
             }
         } else {
             // a full simd copy does not fit in the output buffer
@@ -298,5 +295,102 @@ impl Chunk for core::arch::x86_64::__m512i {
         //
         // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_storeu_si512&expand=3420&ig_expand=4110,6550
         core::ptr::write_unaligned(out.cast(), chunk)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const N: usize = 128;
+    const M: usize = 64;
+
+    fn test_array() -> [MaybeUninit<u8>; N] {
+        core::array::from_fn(|i| MaybeUninit::new(if i < M { i as u8 } else { 0xAAu8 }))
+    }
+
+    fn test_copy_match(offset_from_end: usize, length: usize) {
+        let mut buf = test_array();
+        let mut writer = Writer {
+            buf: &mut buf,
+            filled: M,
+        };
+        writer.copy_match(offset_from_end, length);
+        assert_eq!(writer.filled, M + length);
+
+        let mut naive = test_array();
+        for i in 0..length {
+            naive[M + i] = naive[M - offset_from_end + i];
+        }
+
+        let buf = unsafe { core::mem::transmute::<[MaybeUninit<u8>; 128], [u8; N]>(buf) };
+        let naive = unsafe { core::mem::transmute::<[MaybeUninit<u8>; 128], [u8; N]>(naive) };
+        assert_eq!(
+            buf[M..][..length],
+            naive[M..][..length],
+            "{} {}",
+            offset_from_end,
+            length
+        );
+    }
+
+    #[test]
+    fn copy_chunk_unchecked() {
+        let offset_from_end = 17;
+        let length = 17;
+
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::{__m128i, __m256i, __m512i};
+
+        macro_rules! helper {
+            ($func:expr) => {
+                let mut buf = test_array();
+                let mut writer = Writer {
+                    buf: &mut buf,
+                    filled: M,
+                };
+
+                $func(&mut writer, offset_from_end, length);
+            };
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx512() {
+            helper!(Writer::copy_match_help::<__m512i>);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_avx2() {
+            helper!(Writer::copy_match_help::<__m256i>);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if crate::cpu_features::is_enabled_sse() {
+            helper!(Writer::copy_match_help::<__m128i>);
+        }
+
+        helper!(Writer::copy_match_help::<u64>);
+    }
+
+    #[test]
+    fn copy_match() {
+        for offset_from_end in 1..=64 {
+            for length in 0..=64 {
+                test_copy_match(offset_from_end, length)
+            }
+        }
+    }
+
+    #[test]
+    fn copy_match_insufficient_space_for_simd() {
+        let mut buf = [1, 2, 3, 0xAA, 0xAA].map(MaybeUninit::new);
+        let mut writer = Writer {
+            buf: &mut buf,
+            filled: 3,
+        };
+
+        writer.copy_match(3, 2);
+
+        assert_eq!(buf.map(|e| unsafe { e.assume_init() }), [1, 2, 3, 1, 2]);
     }
 }
