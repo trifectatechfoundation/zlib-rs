@@ -103,11 +103,7 @@ impl<'a> Writer<'a> {
             // the window slice.
             unsafe {
                 let src = window.as_ptr();
-                Self::copy_chunk_unchecked::<C>(
-                    src.wrapping_add(range.start),
-                    self.next_out(),
-                    src.wrapping_add(range.end),
-                )
+                Self::copy_chunk_unchecked::<C>(src.wrapping_add(range.start), self.next_out(), len)
             }
         } else {
             let buf = &window.as_slice()[range];
@@ -142,47 +138,43 @@ impl<'a> Writer<'a> {
         assert!(self.filled + length <= self.capacity());
 
         let current = self.filled;
-
-        let start = current.checked_sub(offset_from_end).expect("in bounds");
-        let end = start.checked_add(length).expect("in bounds");
+        self.filled += length;
 
         // Note also that the referenced string may overlap the current
         // position; for example, if the last 2 bytes decoded have values
         // X and Y, a string reference with <length = 5, distance = 2>
         // adds X,Y,X,Y,X to the output stream.
 
-        if end > current {
+        if length > offset_from_end {
             if offset_from_end == 1 {
                 // this will just repeat this value many times
                 let element = self.buf[current - 1];
                 self.buf[current..][..length].fill(element);
             } else {
                 for i in 0..length {
-                    self.buf[current + i] = self.buf[start + i];
+                    self.buf[current + i] = self.buf[current - offset_from_end + i];
                 }
             }
         } else {
-            Self::copy_chunked_within::<C>(self.buf, current, start, end)
+            Self::copy_chunked_within::<C>(self.buf, current, offset_from_end, length)
         }
-
-        self.filled += length
     }
 
     #[inline(always)]
     fn copy_chunked_within<C: Chunk>(
         buf: &mut [MaybeUninit<u8>],
         current: usize,
-        start: usize,
-        end: usize,
+        offset_from_end: usize,
+        length: usize,
     ) {
-        if (end - start).next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
+        let start = current.checked_sub(offset_from_end).expect("in bounds");
+
+        if length.next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
             let ptr = buf.as_mut_ptr();
-            unsafe {
-                Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), ptr.add(end))
-            }
+            unsafe { Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), length) }
         } else {
             // a full simd copy does not fit in the output buffer
-            buf.copy_within(start..end, current);
+            buf.copy_within(start..start + length, current);
         }
     }
 
@@ -194,8 +186,10 @@ impl<'a> Writer<'a> {
     unsafe fn copy_chunk_unchecked<C: Chunk>(
         mut src: *const MaybeUninit<u8>,
         mut dst: *mut MaybeUninit<u8>,
-        end: *const MaybeUninit<u8>,
+        length: usize,
     ) {
+        let end = src.add(length);
+
         let chunk = C::load_chunk(src);
         C::store_chunk(dst, chunk);
 
