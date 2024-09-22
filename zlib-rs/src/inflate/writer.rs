@@ -135,7 +135,7 @@ impl<'a> Writer<'a> {
 
     #[inline(always)]
     fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
-        assert!(self.filled + length <= self.capacity());
+        let buf = &mut self.buf[..self.filled + length];
 
         let current = self.filled;
         self.filled += length;
@@ -146,17 +146,23 @@ impl<'a> Writer<'a> {
         // adds X,Y,X,Y,X to the output stream.
 
         if length > offset_from_end {
-            if offset_from_end == 1 {
-                // this will just repeat this value many times
-                let element = self.buf[current - 1];
-                self.buf[current..][..length].fill(element);
-            } else {
-                for i in 0..length {
-                    self.buf[current + i] = self.buf[current - offset_from_end + i];
+            match offset_from_end {
+                1 => {
+                    // this will just repeat this value many times
+                    let element = buf[current - 1];
+                    buf[current..][..length].fill(element);
+                }
+                _ => {
+                    // there is a SIMD implementation of this logic, which _should_ be faster, but
+                    // isn't in measurements on x86_64. It still might be for other architectures,
+                    // adds a lot of complexity and unsafe code.
+                    for i in 0..length {
+                        buf[current + i] = buf[current - offset_from_end + i];
+                    }
                 }
             }
         } else {
-            Self::copy_chunked_within::<C>(self.buf, current, offset_from_end, length)
+            Self::copy_chunked_within::<C>(buf, current, offset_from_end, length)
         }
     }
 
