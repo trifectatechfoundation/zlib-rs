@@ -146,6 +146,7 @@ impl<'a> Writer<'a> {
 
     #[inline(always)]
     fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
+        let capacity = self.buf.len();
         let buf = &mut self.buf[..self.filled + length];
 
         let current = self.filled;
@@ -173,20 +174,21 @@ impl<'a> Writer<'a> {
                 }
             }
         } else {
-            Self::copy_chunked_within::<C>(buf, current, offset_from_end, length)
+            Self::copy_chunked_within::<C>(buf, capacity, current, offset_from_end, length)
         }
     }
 
     #[inline(always)]
     fn copy_chunked_within<C: Chunk>(
         buf: &mut [MaybeUninit<u8>],
+        capacity: usize,
         current: usize,
         offset_from_end: usize,
         length: usize,
     ) {
         let start = current.checked_sub(offset_from_end).expect("in bounds");
 
-        if current + length < buf.len() {
+        if current + length + core::mem::size_of::<C>() < capacity {
             let ptr = buf.as_mut_ptr();
             unsafe { Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), length) }
         } else {
