@@ -24,7 +24,6 @@ ZLIB_DEBUG = []
 
 [dependencies]
 arbitrary = { workspace = true, optional = true, features = ["derive"] }
-libz-sys = { workspace = true, optional = true }
 quickcheck = { workspace = true, optional = true }
 
 [dev-dependencies]
