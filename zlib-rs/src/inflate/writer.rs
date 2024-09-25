@@ -87,6 +87,11 @@ impl<'a> Writer<'a> {
             return self.extend_from_window_help::<core::arch::x86_64::__m128i>(window, range);
         }
 
+        #[cfg(target_arch = "aarch64")]
+        if crate::cpu_features::is_enabled_neon() {
+            return self.extend_from_window_help::<core::arch::aarch64::uint8x16_t>(window, range);
+        }
+
         self.extend_from_window_help::<u64>(window, range)
     }
 
@@ -128,6 +133,12 @@ impl<'a> Writer<'a> {
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_sse() {
             return self.copy_match_help::<core::arch::x86_64::__m128i>(offset_from_end, length);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        if crate::cpu_features::is_enabled_neon() {
+            return self
+                .copy_match_help::<core::arch::aarch64::uint8x16_t>(offset_from_end, length);
         }
 
         self.copy_match_help::<u64>(offset_from_end, length)
@@ -295,6 +306,19 @@ impl Chunk for core::arch::x86_64::__m512i {
         //
         // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_storeu_si512&expand=3420&ig_expand=4110,6550
         core::ptr::write_unaligned(out.cast(), chunk)
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+impl Chunk for core::arch::aarch64::uint8x16_t {
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        core::arch::aarch64::vld1q_u8(from.cast())
+    }
+
+    #[inline(always)]
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        core::arch::aarch64::vst1q_u8(out.cast(), chunk)
     }
 }
 
