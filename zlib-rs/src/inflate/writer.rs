@@ -186,7 +186,7 @@ impl<'a> Writer<'a> {
     ) {
         let start = current.checked_sub(offset_from_end).expect("in bounds");
 
-        if length.next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
+        if current + length < buf.len() {
             let ptr = buf.as_mut_ptr();
             unsafe { Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), length) }
         } else {
