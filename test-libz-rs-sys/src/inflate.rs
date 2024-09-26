@@ -1206,6 +1206,21 @@ fn gzip_chunked_2_bytes() {
 }
 
 #[test]
+fn gzip_chunked_15_bytes() {
+    gzip_chunked(15);
+}
+
+#[test]
+fn gzip_chunked_16_bytes() {
+    gzip_chunked(16);
+}
+
+#[test]
+fn gzip_chunked_17_bytes() {
+    gzip_chunked(17);
+}
+
+#[test]
 fn gzip_chunked_32_bytes() {
     gzip_chunked(32);
 }
