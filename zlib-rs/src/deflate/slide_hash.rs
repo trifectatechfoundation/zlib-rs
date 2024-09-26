@@ -16,6 +16,11 @@ fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         return neon::slide_hash_chain(table, wsize);
     }
 
+    #[cfg(target_arch = "wasm32")]
+    if crate::cpu_features::is_enabled_simd128() {
+        return wasm::slide_hash_chain(table, wsize);
+    }
+
     rust::slide_hash_chain(table, wsize);
 }
 
@@ -93,6 +98,34 @@ mod avx2 {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+mod wasm {
+    use core::arch::wasm32::{u16x8_splat, u16x8_sub_sat, v128, v128_load, v128_store};
+
+    pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        assert_eq!(table.len() % 8, 0);
+        unsafe { slide_hash_chain_internal(table, wsize) }
+    }
+
+    #[target_feature(enable = "simd128")]
+    unsafe fn slide_hash_chain_internal(table: &mut [u16], wsize: u16) {
+        let wsize_v128 = u16x8_splat(wsize);
+
+        for chunk in table.chunks_exact_mut(8) {
+            let chunk_ptr = chunk.as_mut_ptr() as *mut v128;
+
+            // Load the 128-bit value
+            let value = v128_load(chunk_ptr);
+
+            // Perform saturating subtraction
+            let result = u16x8_sub_sat(value, wsize_v128);
+
+            // Store the result back
+            v128_store(chunk_ptr, result);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +172,18 @@ mod tests {
             let mut input = INPUT;
 
             neon::slide_hash_chain(&mut input, WSIZE);
+
+            assert_eq!(input, OUTPUT);
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "wasm32")]
+    fn test_slide_hash_neon() {
+        if crate::cpu_features::is_enabled_simd128() {
+            let mut input = INPUT;
+
+            wasm::slide_hash_chain(&mut input, WSIZE);
 
             assert_eq!(input, OUTPUT);
         }
