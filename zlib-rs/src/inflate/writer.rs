@@ -92,6 +92,11 @@ impl<'a> Writer<'a> {
             return self.extend_from_window_help::<core::arch::aarch64::uint8x16_t>(window, range);
         }
 
+        #[cfg(target_arch = "wasm32")]
+        if crate::cpu_features::is_enabled_simd128() {
+            return self.extend_from_window_help::<core::arch::wasm32::v128>(window, range);
+        }
+
         self.extend_from_window_help::<u64>(window, range)
     }
 
@@ -139,6 +144,11 @@ impl<'a> Writer<'a> {
         if crate::cpu_features::is_enabled_neon() {
             return self
                 .copy_match_help::<core::arch::aarch64::uint8x16_t>(offset_from_end, length);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if crate::cpu_features::is_enabled_simd128() {
+            return self.copy_match_help::<core::arch::wasm32::v128>(offset_from_end, length);
         }
 
         self.copy_match_help::<u64>(offset_from_end, length)
@@ -324,6 +334,19 @@ impl Chunk for core::arch::aarch64::uint8x16_t {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl Chunk for core::arch::wasm32::v128 {
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        core::arch::wasm32::v128_load(from.cast())
+    }
+
+    #[inline(always)]
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        core::arch::wasm32::v128_store(out as *mut Self, chunk)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -368,6 +391,12 @@ mod test {
         #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::{__m128i, __m256i, __m512i};
 
+        #[cfg(target_arch = "aarch64")]
+        use core::arch::aarch64::uint8x16_t;
+
+        #[cfg(target_arch = "wasm32")]
+        use core::arch::wasm32::v128;
+
         macro_rules! helper {
             ($func:expr) => {
                 let mut buf = test_array();
@@ -393,6 +422,16 @@ mod test {
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_sse() {
             helper!(Writer::copy_match_help::<__m128i>);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        if crate::cpu_features::is_enabled_neon() {
+            helper!(Writer::copy_match_help::<uint8x16_t>);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if crate::cpu_features::is_enabled_simd128() {
+            helper!(Writer::copy_match_help::<v128>);
         }
 
         helper!(Writer::copy_match_help::<u64>);
