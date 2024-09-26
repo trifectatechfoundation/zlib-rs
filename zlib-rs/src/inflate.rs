@@ -712,17 +712,28 @@ impl<'a> State<'a> {
             if !extra_slice.is_empty() {
                 if let Some(head) = self.head.as_mut() {
                     if !head.extra.is_null() {
+                        // at `head.extra`, the caller has reserved `head.extra_max` bytes.
+                        // in the deflated byte stream, we've found a gzip header with
+                        // `head.extra_len` bytes of data. We must be careful because
+                        // `head.extra_len` may be larger than `head.extra_max`.
+
+                        // how many bytes we've already written into `head.extra`
                         let written_so_far = head.extra_len as usize - self.length;
 
+                        // min of number of bytes available at dst and at src
                         let count = Ord::min(
                             (head.extra_max as usize).saturating_sub(written_so_far),
                             extra_slice.len(),
                         );
 
+                        // location where we'll write: this saturates at the
+                        // `head.extra.add(head.extra.max)` to prevent UB
+                        let next_write_offset = Ord::min(written_so_far, head.extra_max as usize);
+
                         unsafe {
                             core::ptr::copy_nonoverlapping(
                                 self.bit_reader.as_ptr(),
-                                head.extra.add(written_so_far),
+                                head.extra.add(next_write_offset),
                                 count,
                             );
                         }
