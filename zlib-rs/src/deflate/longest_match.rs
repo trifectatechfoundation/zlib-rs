@@ -5,6 +5,7 @@ type Pos = u16;
 const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
 const UNALIGNED_OK: bool = cfg!(any(
+    target_arch = "wasm32",
     target_arch = "x86",
     target_arch = "x86_64",
     target_arch = "arm",
@@ -13,6 +14,7 @@ const UNALIGNED_OK: bool = cfg!(any(
 ));
 
 const UNALIGNED64_OK: bool = cfg!(any(
+    target_arch = "wasm32",
     target_arch = "x86_64",
     target_arch = "aarch64",
     target_arch = "powerpc64",
