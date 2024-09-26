@@ -15,7 +15,7 @@ macro_rules! assert_eq_rs_ng {
         #[allow(clippy::macro_metavars_in_unsafe)]
         #[allow(unused_braces)]
         #[allow(unused_unsafe)]
-        let ng = unsafe {
+        let _ng = unsafe {
             use libz_sys::*;
 
             $tt
@@ -24,14 +24,14 @@ macro_rules! assert_eq_rs_ng {
         #[allow(clippy::macro_metavars_in_unsafe)]
         #[allow(unused_braces)]
         #[allow(unused_unsafe)]
-        let rs = unsafe {
+        let _rs = unsafe {
             use libz_rs_sys::*;
 
             $tt
         };
 
         #[cfg(not(miri))]
-        assert_eq!(rs, ng);
+        assert_eq!(_rs, _ng);
     };
 }
 
