@@ -3842,7 +3842,6 @@ mod test {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn insufficient_compress_space() {
         const DATA: &[u8] = include_bytes!("deflate/test-data/inflate_buf_error.dat");
 
