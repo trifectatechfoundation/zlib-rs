@@ -2448,12 +2448,12 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
             'inner: loop {
                 match state.mode {
                     Mode::Head => {
-                        if (state.wrap == 0) {
+                        if state.wrap == 0 {
                             state.mode = Mode::TypeDo;
                             break;
                         }
                         NEEDBITS!(16);
-                        if ((state.wrap & 2 > 0) && hold == 0x8b1f) {
+                        if (state.wrap & 2 > 0) && hold == 0x8b1f {
                             /* gzip header */
                             todo!()
                             //                if (state.wbits == 0) {
@@ -2469,22 +2469,22 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                             head.done = -1;
                         }
 
-                        if (!(state.wrap & 1 != 0) ||   /* check if zlib header allowed */
-                ((BITS!(8) << 8) + (hold >> 8)) % 31 > 0)
+                        if !(state.wrap & 1 != 0) ||   /* check if zlib header allowed */
+                ((BITS!(8) << 8) + (hold >> 8)) % 31 > 0
                         {
                             SET_BAD!("incorrect header check");
                             break;
                         }
-                        if (BITS!(4) != Z_DEFLATED as u64) {
+                        if BITS!(4) != Z_DEFLATED as u64 {
                             SET_BAD!("unknown compression method");
                             break;
                         }
                         DROPBITS!(4);
                         len = BITS!(4) + 8;
-                        if (state.wbits == 0) {
+                        if state.wbits == 0 {
                             state.wbits = len as u8;
                         }
-                        if (len as i32 > MAX_WBITS || len > state.wbits as u64) {
+                        if len as i32 > MAX_WBITS || len > state.wbits as u64 {
                             SET_BAD!("invalid window size");
                             break;
                         }
@@ -2585,7 +2585,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         /* get and verify stored block length */
                         BYTEBITS!(); /* go to byte boundary */
                         NEEDBITS!(32);
-                        if ((hold & 0xffff) != ((hold >> 16) ^ 0xffff)) {
+                        if (hold & 0xffff) != ((hold >> 16) ^ 0xffff) {
                             SET_BAD!("invalid stored block lengths");
                             break;
                         }
@@ -2593,7 +2593,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         // Tracev((stderr, "inflate:       stored length %u\n", state.length));
                         INITBITS!();
                         state.mode = Mode::CopyBlock;
-                        if (flush as i32 == Z_TREES) {
+                        if flush as i32 == Z_TREES {
                             break 'inf_leave;
                         }
 
@@ -2601,10 +2601,10 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                     }
                     Mode::CopyBlock => {
                         copy = state.length as i32;
-                        if (copy > 0) {
+                        if copy > 0 {
                             copy = Ord::min(copy, have as i32);
                             copy = Ord::min(copy, left as i32);
-                            if (copy == 0) {
+                            if copy == 0 {
                                 break 'inf_leave;
                             }
                             // memcpy(put, next, copy);
@@ -2628,7 +2628,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                             state.total += out as usize;
 
                             /* compute crc32 checksum if not in raw mode */
-                            if (state.wrap & 4 > 0) {
+                            if state.wrap & 4 > 0 {
                                 if (out) > 0 {
                                     // inf_chksum(strm, put - out, out);
 
@@ -2686,19 +2686,19 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         /* get a literal, length, or end-of-block code */
                         loop {
                             here = state.len_table_get(BITS!(state.len_table.bits) as usize);
-                            if (here.bits as u64 <= bits as u64) {
+                            if here.bits as u64 <= bits as u64 {
                                 break;
                             }
                             PULLBYTE!();
                         }
-                        if (here.op > 0 && (here.op & 0xf0) == 0) {
+                        if here.op > 0 && (here.op & 0xf0) == 0 {
                             last = here;
                             loop {
                                 here = state.len_table_get(
                                     (last.val as u64 + (BITS!(last.bits + last.op) >> last.bits))
                                         as usize,
                                 );
-                                if (last.bits + here.bits <= bits) {
+                                if last.bits + here.bits <= bits {
                                     break;
                                 }
                                 PULLBYTE!();
@@ -2711,7 +2711,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         state.length = here.val as usize;
 
                         /* process literal */
-                        if (here.op == 0) {
+                        if here.op == 0 {
                             //                Tracevv((stderr, here.val >= 0x20 && here.val < 0x7f ?
                             //                        "inflate:         literal '%c'\n" :
                             //                        "inflate:         literal 0x%02x\n", here.val));
@@ -2755,7 +2755,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                     }
                     Mode::LenExt => {
                         /* get extra bits, if any */
-                        if (state.extra > 0) {
+                        if state.extra > 0 {
                             NEEDBITS!(state.extra as u8);
                             state.length += BITS!(state.extra) as usize;
                             DROPBITS!(state.extra as u8);
@@ -2770,19 +2770,19 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         /* get distance code */
                         loop {
                             here = state.dist_table_get(BITS!(state.dist_table.bits) as usize);
-                            if (here.bits <= bits) {
+                            if here.bits <= bits {
                                 break;
                             }
                             PULLBYTE!();
                         }
-                        if ((here.op & 0xf0) == 0) {
+                        if (here.op & 0xf0) == 0 {
                             last = here;
                             loop {
                                 here = state.dist_table_get(
                                     last.val as usize
                                         + ((BITS!(last.bits + last.op) as usize) >> last.bits),
                                 );
-                                if (last.bits + here.bits <= bits) {
+                                if last.bits + here.bits <= bits {
                                     break;
                                 }
                                 PULLBYTE!();
@@ -2823,12 +2823,12 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                     }
                     Mode::Match => {
                         /* copy match from window to output */
-                        if (left == 0) {
+                        if left == 0 {
                             break 'inf_leave;
                         }
 
                         copy = (out - left) as i32;
-                        if (state.offset > copy as usize) {
+                        if state.offset > copy as usize {
                             /* copy from window */
                             copy = state.offset as i32 - copy;
                             if copy > state.window.have() as i32 {
@@ -2851,17 +2851,17 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                 //                     break;
                                 // #endif
                             }
-                            if (copy as usize > state.window.next()) {
+                            if copy as usize > state.window.next() {
                                 copy -= state.window.next() as i32;
                                 from = state
                                     .window
                                     .as_ptr()
-                                    .add((state.window.size() - copy as usize));
+                                    .add(state.window.size() - copy as usize);
                             } else {
                                 from = state
                                     .window
                                     .as_ptr()
-                                    .add((state.window.next() - copy as usize));
+                                    .add(state.window.next() - copy as usize);
                             }
                             copy = Ord::min(copy, state.length as i32);
                             copy = Ord::min(copy, left as i32);
@@ -2895,7 +2895,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         }
                         left -= copy as u32;
                         state.length -= copy as usize;
-                        if (state.length == 0) {
+                        if state.length == 0 {
                             state.mode = Mode::Len;
                         }
                         break;
@@ -2928,7 +2928,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                             state.have += 1;
                             DROPBITS!(3);
                         }
-                        while (state.have < 19) {
+                        while state.have < 19 {
                             state.lens[ORDER[state.have as usize] as usize] = 0;
                             state.have += 1;
                         }
@@ -2959,10 +2959,10 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         // dbg!(state.have, state.nlen, state.ndist, hold, bits,);
 
                         /* get length and distance code code lengths */
-                        while (state.have < state.nlen + state.ndist) {
+                        while state.have < state.nlen + state.ndist {
                             loop {
                                 here = state.len_table_get(BITS!(state.len_table.bits) as usize);
-                                if (here.bits <= bits) {
+                                if here.bits <= bits {
                                     break;
                                 }
                                 PULLBYTE!();
@@ -2972,17 +2972,17 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                 state.lens[state.have] = here.val;
                                 state.have += 1;
                             } else {
-                                if (here.val == 16) {
+                                if here.val == 16 {
                                     NEEDBITS!(here.bits + 2);
                                     DROPBITS!(here.bits);
-                                    if (state.have == 0) {
+                                    if state.have == 0 {
                                         SET_BAD!("invalid bit length repeat");
                                         break;
                                     }
                                     len = state.lens[state.have - 1] as u64;
                                     copy = 3 + BITS!(2) as i32;
                                     DROPBITS!(2);
-                                } else if (here.val == 17) {
+                                } else if here.val == 17 {
                                     NEEDBITS!(here.bits + 3);
                                     DROPBITS!(here.bits);
                                     len = 0;
@@ -2995,7 +2995,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                     copy = 11 + BITS!(7) as i32;
                                     DROPBITS!(7);
                                 }
-                                if ((state.have + copy as usize) > state.nlen + state.ndist) {
+                                if (state.have + copy as usize) > state.nlen + state.ndist {
                                     SET_BAD!("invalid bit length repeat");
                                     break;
                                 }
@@ -3013,7 +3013,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         }
 
                         /* check for end-of-block code (better have one) */
-                        if (state.lens[256] == 0) {
+                        if state.lens[256] == 0 {
                             SET_BAD!("invalid code -- missing end-of-block");
                             break;
                         }
@@ -3136,7 +3136,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
 
     strm.data_type = state.decoding_state();
 
-    if (((in_ == 0 && out == 0) || flush as i32 == Z_FINISH) && ret as i32 == Z_OK) {
+    if ((in_ == 0 && out == 0) || flush as i32 == Z_FINISH) && ret as i32 == Z_OK {
         /* when no sliding window is used, hash the output bytes if no CHECK state */
         //        TODO why don't we do this?
         //        if (INFLATE_NEED_CHECKSUM(strm) && !state.wsize && flush == Z_FINISH) {
