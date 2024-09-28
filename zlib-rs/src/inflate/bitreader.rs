@@ -4,10 +4,10 @@ use crate::ReturnCode;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BitReader<'a> {
-    ptr: *const u8,
+    pub ptr: *const u8,
     end: *const u8,
-    bit_buffer: u64,
-    bits_used: u8,
+    pub bit_buffer: u64,
+    pub bits_used: u8,
     _marker: PhantomData<&'a [u8]>,
 }
 

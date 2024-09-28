@@ -61,7 +61,7 @@ fn main() {
 
     let _ = it.next().unwrap();
 
-    let mut dest_vec = vec![0u8; 1 << 28];
+    let mut dest_vec = vec![0xAA; 1 << 28];
 
     let mut dest_len = dest_vec.len() as std::ffi::c_ulong;
     let dest = dest_vec.as_mut_ptr();

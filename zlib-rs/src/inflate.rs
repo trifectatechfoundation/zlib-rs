@@ -264,7 +264,7 @@ pub enum Mode {
     Bad,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
 enum Codes {
     #[default]
@@ -274,7 +274,7 @@ enum Codes {
     Dist,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 struct Table {
     codes: Codes,
     bits: usize,
@@ -906,6 +906,7 @@ impl<'a> State<'a> {
             return self.inflate_leave(ReturnCode::Ok);
         }
 
+        dbg!(self.length as u8);
         self.writer.push(self.length as u8);
 
         self.mode = Mode::Len;
@@ -915,6 +916,7 @@ impl<'a> State<'a> {
 
     fn check(&mut self) -> ReturnCode {
         if self.wrap != 0 {
+            dbg!(self.checksum);
             need_bits!(self, 32);
 
             self.total += self.writer.len();
@@ -935,6 +937,8 @@ impl<'a> State<'a> {
             };
 
             self.out_available = self.writer.capacity() - self.writer.len();
+
+            dbg!(self.bit_reader.hold() as u32, self.checksum);
 
             if self.wrap & 4 != 0 && given_checksum != self.checksum {
                 self.mode = Mode::Bad;
@@ -1102,9 +1106,9 @@ impl<'a> State<'a> {
         // space available. This means for many SIMD operations we don't need to process a
         // remainder; we just copy blindly, and a later operation will overwrite the extra copied
         // bytes
-        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
-            return inflate_fast_help(self, 0);
-        }
+        //        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
+        //            return inflate_fast_help(self, 0);
+        //        }
 
         self.back = 0;
 
@@ -1289,12 +1293,20 @@ impl<'a> State<'a> {
             copy = Ord::min(copy, self.length);
             copy = Ord::min(copy, left);
 
+            dbg!(&self.window.as_slice()[from..][..copy]);
+
             self.writer
                 .extend_from_window(&self.window, from..from + copy);
 
             copy
         } else {
             let copy = Ord::min(self.length, left);
+            unsafe {
+                dbg!(core::slice::from_raw_parts(
+                    self.writer.next_out().sub(self.offset) as *const u8,
+                    copy as usize
+                ));
+            }
             self.writer.copy_match(self.offset, copy);
 
             copy
@@ -1378,6 +1390,8 @@ impl<'a> State<'a> {
     /// get length and distance code code lengths
 
     fn code_lens(&mut self) -> ReturnCode {
+        // dbg!( self.have, self.nlen, self.ndist, self.bit_reader.hold(), self.bit_reader.bits_in_buffer());
+
         while self.have < self.nlen + self.ndist {
             let here = loop {
                 let bits = self.bit_reader.bits(self.len_table.bits);
@@ -1927,6 +1941,8 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
+    return inflate_as_match(stream, flush);
+
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return ReturnCode::StreamError as _;
     }
@@ -2314,4 +2330,820 @@ mod tests {
         let (_decompressed, err) = uncompress_slice(&mut output, &input, config);
         assert_eq!(err, ReturnCode::DataError);
     }
+}
+
+pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
+    use crate::c_api::*;
+
+    if strm.next_out.is_null() || (strm.next_in.is_null() && strm.avail_in != 0) {
+        return ReturnCode::StreamError as _;
+    }
+
+    let mut len;
+    let mut copy: i32;
+    let mut here;
+    let mut last;
+    let mut from;
+
+    let state = &mut strm.state;
+
+    if matches!(state.mode, Mode::Type) {
+        state.mode = Mode::TypeDo;
+    }
+
+    let mut put;
+    let mut left;
+    let mut next;
+    let mut have;
+    let mut hold;
+    let mut bits;
+
+    macro_rules! LOAD {
+        () => {
+            put = strm.next_out;
+            left = strm.avail_out;
+            next = strm.next_in;
+            have = strm.avail_in;
+            hold = state.bit_reader.hold();
+            bits = state.bit_reader.bits_in_buffer();
+        };
+    }
+
+    macro_rules! RESTORE {
+        () => {
+            strm.next_out = put;
+            strm.avail_out = left;
+            strm.next_in = next;
+            strm.avail_in = have;
+            state.bit_reader.bit_buffer = hold;
+            state.bit_reader.bits_used = bits;
+        };
+    }
+
+    macro_rules! INITBITS {
+        () => {
+            hold = 0;
+            bits = 0;
+        };
+    }
+
+    macro_rules! BITS {
+        ($n:expr) => {
+            (hold & ((1 << $n) - 1))
+        };
+    }
+
+    macro_rules! DROPBITS {
+        ($n:expr) => {
+            hold >>= $n;
+            bits -= $n;
+        };
+    }
+
+    macro_rules! BYTEBITS {
+        () => {
+            hold >>= bits & 7;
+            bits -= bits & 7;
+        };
+    }
+
+    macro_rules! SET_BAD {
+        ($msg:tt) => {
+            const MSG: &str = concat!($msg, '\0');
+            dbg!(MSG);
+            state.mode = Mode::Bad;
+            strm.msg = MSG.as_ptr() as *const core::ffi::c_char as *mut _;
+        };
+    }
+
+    LOAD!();
+
+    let mut in_ = have;
+    let mut out = left;
+    let mut ret = ReturnCode::Ok;
+
+    'inf_leave: {
+        macro_rules! PULLBYTE {
+            () => {
+                if have == 0 {
+                    break 'inf_leave;
+                } else {
+                    have -= 1;
+                    hold += (*next as u64) << bits;
+                    next = next.add(1);
+                    bits += 8;
+                }
+            };
+        }
+
+        macro_rules! NEEDBITS {
+            ($n:expr) => {
+                while bits < $n {
+                    PULLBYTE!()
+                }
+            };
+        }
+
+        'outer: loop {
+            'inner: loop {
+                match state.mode {
+                    Mode::Head => {
+                        if (state.wrap == 0) {
+                            state.mode = Mode::TypeDo;
+                            break;
+                        }
+                        NEEDBITS!(16);
+                        if ((state.wrap & 2 > 0) && hold == 0x8b1f) {
+                            /* gzip header */
+                            todo!()
+                            //                if (state.wbits == 0) {
+                            //                    state.wbits = MAX_WBITS;
+                            //                }
+                            //                state.checksum = CRC32_INITIAL_VALUE;
+                            //                CRC2(state.checksum, hold);
+                            //                INITBITS!();
+                            //                state.mode = FLAGS;
+                            //                break;
+                        }
+                        if let Some(head) = &mut state.head {
+                            head.done = -1;
+                        }
+
+                        if (!(state.wrap & 1 != 0) ||   /* check if zlib header allowed */
+                ((BITS!(8) << 8) + (hold >> 8)) % 31 > 0)
+                        {
+                            SET_BAD!("incorrect header check");
+                            break;
+                        }
+                        if (BITS!(4) != Z_DEFLATED as u64) {
+                            SET_BAD!("unknown compression method");
+                            break;
+                        }
+                        DROPBITS!(4);
+                        len = BITS!(4) + 8;
+                        if (state.wbits == 0) {
+                            state.wbits = len as u8;
+                        }
+                        if (len as i32 > MAX_WBITS || len > state.wbits as u64) {
+                            SET_BAD!("invalid window size");
+                            break;
+                        }
+                        state.dmax = 1 << len;
+                        state.gzip_flags = 0; /* indicate zlib header */
+                        super::trace!("inflate:   zlib header ok\n");
+                        strm.adler = super::ADLER32_INITIAL_VALUE as u64;
+                        state.checksum = super::ADLER32_INITIAL_VALUE as u32;
+                        state.mode = if hold & 0x200 > 0 {
+                            Mode::DictId
+                        } else {
+                            Mode::Type
+                        };
+                        INITBITS!();
+                        break;
+                    }
+                    Mode::Flags => todo!(),
+                    Mode::Time => todo!(),
+                    Mode::Os => todo!(),
+                    Mode::ExLen => todo!(),
+                    Mode::Extra => todo!(),
+                    Mode::Name => todo!(),
+                    Mode::Comment => todo!(),
+                    Mode::HCrc => todo!(),
+                    Mode::Sync => todo!(),
+                    Mode::Mem => todo!(),
+                    Mode::Length => {
+                        if state.wrap > 0 && state.gzip_flags > 0 {
+                            NEEDBITS!(32);
+                            if (state.wrap & 4) > 0 && hold != (state.total as u64 & 0xffffffff) {
+                                SET_BAD!("incorrect length check");
+                                break;
+                            }
+                            INITBITS!();
+                            // Tracev((stderr, "inflate:   length matches trailer\n"));
+                        }
+                        state.mode = Mode::Done;
+                        continue;
+                    }
+                    Mode::Type => {
+                        if flush as i32 == Z_BLOCK || flush as i32 == Z_TREES {
+                            break 'inf_leave;
+                        }
+
+                        state.mode = Mode::TypeDo;
+                        continue;
+                    }
+                    Mode::TypeDo => {
+                        if state.flags.contains(Flags::IS_LAST_BLOCK) {
+                            BYTEBITS!();
+                            state.mode = Mode::Check;
+                            break;
+                        }
+                        NEEDBITS!(3);
+
+                        state.flags.update(Flags::IS_LAST_BLOCK, BITS!(1) != 0);
+
+                        DROPBITS!(1);
+                        match BITS!(2) {
+                            0 => {
+                                /* stored block */
+                                // trace!( "inflate:     stored block%s\n", state.last ? " (last)" : "");
+                                state.mode = Mode::Stored;
+                            }
+                            1 => {
+                                /* fixed block */
+                                state.len_table = Table {
+                                    codes: Codes::Fixed,
+                                    bits: 9,
+                                };
+
+                                state.dist_table = Table {
+                                    codes: Codes::Fixed,
+                                    bits: 5,
+                                };
+
+                                // Tracev((stderr, "inflate:     fixed codes block%s\n", state.last ? " (last)" : ""));
+                                state.mode = Mode::Len_; /* decode codes */
+                                if flush as i32 == Z_TREES {
+                                    DROPBITS!(2);
+                                    break 'inf_leave;
+                                }
+                            }
+                            2 => {
+                                /* dynamic block */
+                                // Tracev((stderr, "inflate:     dynamic codes block%s\n", state.last ? " (last)" : ""));
+                                state.mode = Mode::Table;
+                            }
+                            _ => {
+                                SET_BAD!("invalid block type");
+                            }
+                        }
+                        DROPBITS!(2);
+                        break;
+                    }
+
+                    Mode::Stored => {
+                        /* get and verify stored block length */
+                        BYTEBITS!(); /* go to byte boundary */
+                        NEEDBITS!(32);
+                        if ((hold & 0xffff) != ((hold >> 16) ^ 0xffff)) {
+                            SET_BAD!("invalid stored block lengths");
+                            break;
+                        }
+                        state.length = hold as usize & 0xFFFF;
+                        // Tracev((stderr, "inflate:       stored length %u\n", state.length));
+                        INITBITS!();
+                        state.mode = Mode::CopyBlock;
+                        if (flush as i32 == Z_TREES) {
+                            break 'inf_leave;
+                        }
+
+                        continue;
+                    }
+                    Mode::CopyBlock => {
+                        copy = state.length as i32;
+                        if (copy > 0) {
+                            copy = Ord::min(copy, have as i32);
+                            copy = Ord::min(copy, left as i32);
+                            if (copy == 0) {
+                                break 'inf_leave;
+                            }
+                            // memcpy(put, next, copy);
+                            core::ptr::copy(next, put, copy as usize);
+                            have -= copy as u32;
+                            next = next.add(copy as usize);
+                            left -= copy as u32;
+                            put = put.add(copy as usize);
+                            state.length -= copy as usize;
+                            break;
+                        }
+                        // Tracev((stderr, "inflate:       stored end\n"));
+                        state.mode = Mode::Type;
+                        break;
+                    }
+                    Mode::Check => {
+                        if (state.wrap) != 0 {
+                            NEEDBITS!(32);
+                            out -= left;
+                            strm.total_out += out as u64;
+                            state.total += out as usize;
+
+                            /* compute crc32 checksum if not in raw mode */
+                            if (state.wrap & 4 > 0) {
+                                if (out) > 0 {
+                                    // inf_chksum(strm, put - out, out);
+
+                                    let slice = core::slice::from_raw_parts(
+                                        put.sub(out as usize),
+                                        out as usize,
+                                    );
+
+                                    state.checksum = adler32(state.checksum, slice);
+                                }
+                                if (state.gzip_flags) != 0 {
+                                    // strm->adler = state.check = functable.crc32_fold_final(&state.crc_fold);
+                                }
+                            }
+                            out = left;
+
+                            if (state.wrap & 4 > 0)
+                                && (if state.gzip_flags != 0 {
+                                    hold as u32
+                                } else {
+                                    zswap32(hold as u32)
+                                }) != state.checksum
+                            {
+                                SET_BAD!("incorrect data check");
+                                break;
+                            }
+                            INITBITS!();
+                            // Tracev((stderr, "inflate:   check matches trailer\n"));
+                        }
+
+                        state.mode = Mode::Length;
+
+                        continue;
+                    }
+                    Mode::Len_ => {
+                        state.mode = Mode::Len;
+
+                        continue;
+                    }
+                    Mode::Len => {
+                        // TODO inflate_fast
+
+                        //            /* use inflate_fast() if we have enough input and output */
+                        //            if (have >= INFLATE_FAST_MIN_HAVE && left >= INFLATE_FAST_MIN_LEFT) {
+                        //                RESTORE();
+                        //                functable.inflate_fast(strm, out);
+                        //                LOAD();
+                        //                if (state.mode == TYPE)
+                        //                    state.back = -1;
+                        //                break;
+                        //            }
+
+                        state.back = 0;
+
+                        /* get a literal, length, or end-of-block code */
+                        loop {
+                            here = state.len_table_get(BITS!(state.len_table.bits) as usize);
+                            if (here.bits as u64 <= bits as u64) {
+                                break;
+                            }
+                            PULLBYTE!();
+                        }
+                        if (here.op > 0 && (here.op & 0xf0) == 0) {
+                            last = here;
+                            loop {
+                                here = state.len_table_get(
+                                    (last.val as u64 + (BITS!(last.bits + last.op) >> last.bits))
+                                        as usize,
+                                );
+                                if (last.bits + here.bits <= bits) {
+                                    break;
+                                }
+                                PULLBYTE!();
+                            }
+                            DROPBITS!(last.bits);
+                            state.back += last.bits as usize;
+                        }
+                        DROPBITS!(here.bits);
+                        state.back += here.bits as usize;
+                        state.length = here.val as usize;
+
+                        /* process literal */
+                        if (here.op == 0) {
+                            //                Tracevv((stderr, here.val >= 0x20 && here.val < 0x7f ?
+                            //                        "inflate:         literal '%c'\n" :
+                            //                        "inflate:         literal 0x%02x\n", here.val));
+                            state.mode = Mode::Lit;
+                            break;
+                        }
+
+                        /* process end of block */
+                        if (here.op & 32) > 0 {
+                            // Tracevv((stderr, "inflate:         end of block\n"));
+                            state.back = usize::MAX;
+                            state.mode = Mode::Type;
+                            break;
+                        }
+
+                        /* invalid code */
+                        if (here.op & 64) > 0 {
+                            SET_BAD!("invalid literal/length code");
+                            break;
+                        }
+
+                        /* length code */
+                        state.extra = (here.op & MAX_BITS) as usize;
+                        state.mode = Mode::LenExt;
+
+                        continue;
+                    }
+
+                    Mode::Lit => {
+                        if left == 0 {
+                            break 'inf_leave;
+                        }
+
+                        *put = state.length as u8;
+                        put = put.add(1);
+
+                        left -= 1;
+                        state.mode = Mode::Len;
+
+                        break;
+                    }
+                    Mode::LenExt => {
+                        /* get extra bits, if any */
+                        if (state.extra > 0) {
+                            NEEDBITS!(state.extra as u8);
+                            state.length += BITS!(state.extra) as usize;
+                            DROPBITS!(state.extra as u8);
+                            state.back += state.extra;
+                        }
+                        // Tracevv((stderr, "inflate:         length %u\n", state.length));
+                        state.was = state.length;
+                        state.mode = Mode::Dist;
+                        continue;
+                    }
+                    Mode::Dist => {
+                        /* get distance code */
+                        loop {
+                            here = state.dist_table_get(BITS!(state.dist_table.bits) as usize);
+                            if (here.bits <= bits) {
+                                break;
+                            }
+                            PULLBYTE!();
+                        }
+                        if ((here.op & 0xf0) == 0) {
+                            last = here;
+                            loop {
+                                here = state.dist_table_get(
+                                    last.val as usize
+                                        + ((BITS!(last.bits + last.op) as usize) >> last.bits),
+                                );
+                                if (last.bits + here.bits <= bits) {
+                                    break;
+                                }
+                                PULLBYTE!();
+                            }
+                            DROPBITS!(last.bits);
+                            state.back += last.bits as usize;
+                        }
+                        DROPBITS!(here.bits);
+                        state.back += here.bits as usize;
+                        if (here.op & 64) > 0 {
+                            SET_BAD!("invalid distance code");
+                            break;
+                        }
+                        state.offset = here.val as usize;
+                        state.extra = (here.op & MAX_BITS) as usize;
+                        state.mode = Mode::DistExt;
+
+                        continue;
+                    }
+                    Mode::DistExt => {
+                        /* get distance extra bits, if any */
+                        if state.extra > 0 {
+                            NEEDBITS!(state.extra as u8);
+                            state.offset += BITS!(state.extra) as usize;
+                            DROPBITS!(state.extra as u8);
+                            state.back += state.extra;
+                        }
+                        // #ifdef INFLATE_STRICT
+                        //             if (state.offset > state.dmax) {
+                        //                 SET_BAD("invalid distance too far back");
+                        //                 break;
+                        //             }
+                        // #endif
+                        // Tracevv((stderr, "inflate:         distance %u\n", state.offset));
+                        state.mode = Mode::Match;
+
+                        continue;
+                    }
+                    Mode::Match => {
+                        /* copy match from window to output */
+                        if (left == 0) {
+                            break 'inf_leave;
+                        }
+
+                        copy = (out - left) as i32;
+                        if (state.offset > copy as usize) {
+                            /* copy from window */
+                            copy = state.offset as i32 - copy;
+                            if copy > state.window.have() as i32 {
+                                if state.flags.contains(Flags::SANE) {
+                                    SET_BAD!("invalid distance too far back");
+                                    break;
+                                }
+                                // #ifdef INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
+                                //                     Trace((stderr, "inflate.c too far\n"));
+                                //                     copy -= state.whave;
+                                //                     copy = MIN(copy, state.length);
+                                //                     copy = MIN(copy, left);
+                                //                     left -= copy;
+                                //                     state.length -= copy;
+                                //                     do {
+                                //                         *put++ = 0;
+                                //                     } while (--copy);
+                                //                     if (state.length == 0)
+                                //                         state.mode = LEN;
+                                //                     break;
+                                // #endif
+                            }
+                            if (copy as usize > state.window.next()) {
+                                copy -= state.window.next() as i32;
+                                from = state
+                                    .window
+                                    .as_ptr()
+                                    .add((state.window.size() - copy as usize));
+                            } else {
+                                from = state
+                                    .window
+                                    .as_ptr()
+                                    .add((state.window.next() - copy as usize));
+                            }
+                            copy = Ord::min(copy, state.length as i32);
+                            copy = Ord::min(copy, left as i32);
+
+                            // put = chunkcopy_safe(put, from, copy, put + left);
+                            //                            dbg!(
+                            //                                &state.window.as_slice()
+                            //                                    [(from as usize - state.window.as_ptr() as usize)..]
+                            //                                    [..copy as usize]
+                            //                            );
+                            for i in 0..copy as usize {
+                                *put.add(i) = (*from.add(i)).assume_init();
+                            }
+
+                            put = put.add(copy as usize);
+                        } else {
+                            copy = Ord::min(state.length as i32, left as i32);
+
+                            // put = functable.chunkmemset_safe(put, state.offset, copy, left);
+                            //                            dbg!(core::slice::from_raw_parts(
+                            //                                put.sub(state.offset),
+                            //                                copy as usize
+                            //                            ));
+                            // core::ptr::copy(put.sub(state.offset), put, copy as usize);
+                            let from = put.sub(state.offset);
+                            for i in 0..copy as usize {
+                                *put.add(i) = *from.add(i);
+                            }
+
+                            put = put.add(copy as usize);
+                        }
+                        left -= copy as u32;
+                        state.length -= copy as usize;
+                        if (state.length == 0) {
+                            state.mode = Mode::Len;
+                        }
+                        break;
+                    }
+                    Mode::Table => {
+                        /* get dynamic table entries descriptor */
+                        NEEDBITS!(14);
+                        state.nlen = BITS!(5) as usize + 257;
+                        DROPBITS!(5);
+                        state.ndist = BITS!(5) as usize + 1;
+                        DROPBITS!(5);
+                        state.ncode = BITS!(4) as usize + 4;
+                        DROPBITS!(4);
+
+                        // skipped: pkzip_bug_workaround
+                        // Tracev((stderr, "inflate:       table sizes ok\n"));
+                        state.have = 0;
+                        state.mode = Mode::LenLens;
+                        continue;
+                    }
+                    Mode::LenLens => {
+                        const ORDER: [u16; 19] = [
+                            16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+                        ];
+
+                        /* get code length code lengths (not a typo) */
+                        while state.have < state.ncode {
+                            NEEDBITS!(3);
+                            state.lens[ORDER[state.have as usize] as usize] = BITS!(3) as u16;
+                            state.have += 1;
+                            DROPBITS!(3);
+                        }
+                        while (state.have < 19) {
+                            state.lens[ORDER[state.have as usize] as usize] = 0;
+                            state.have += 1;
+                        }
+
+                        state.len_table.bits = 7;
+
+                        let InflateTable::Success(root) = inflate_table(
+                            CodeType::Codes,
+                            &state.lens,
+                            19,
+                            &mut state.codes_codes,
+                            state.len_table.bits,
+                            &mut state.work,
+                        ) else {
+                            SET_BAD!("invalid code lengths set");
+                            break;
+                        };
+
+                        state.len_table.codes = Codes::Codes;
+                        state.len_table.bits = root;
+
+                        state.have = 0;
+                        state.mode = Mode::CodeLens;
+
+                        continue;
+                    }
+                    Mode::CodeLens => {
+                        // dbg!(state.have, state.nlen, state.ndist, hold, bits,);
+
+                        /* get length and distance code code lengths */
+                        while (state.have < state.nlen + state.ndist) {
+                            loop {
+                                here = state.len_table_get(BITS!(state.len_table.bits) as usize);
+                                if (here.bits <= bits) {
+                                    break;
+                                }
+                                PULLBYTE!();
+                            }
+                            if here.val < 16 {
+                                DROPBITS!(here.bits);
+                                state.lens[state.have] = here.val;
+                                state.have += 1;
+                            } else {
+                                if (here.val == 16) {
+                                    NEEDBITS!(here.bits + 2);
+                                    DROPBITS!(here.bits);
+                                    if (state.have == 0) {
+                                        SET_BAD!("invalid bit length repeat");
+                                        break;
+                                    }
+                                    len = state.lens[state.have - 1] as u64;
+                                    copy = 3 + BITS!(2) as i32;
+                                    DROPBITS!(2);
+                                } else if (here.val == 17) {
+                                    NEEDBITS!(here.bits + 3);
+                                    DROPBITS!(here.bits);
+                                    len = 0;
+                                    copy = 3 + BITS!(3) as i32;
+                                    DROPBITS!(3);
+                                } else {
+                                    NEEDBITS!(here.bits + 7);
+                                    DROPBITS!(here.bits);
+                                    len = 0;
+                                    copy = 11 + BITS!(7) as i32;
+                                    DROPBITS!(7);
+                                }
+                                if ((state.have + copy as usize) > state.nlen + state.ndist) {
+                                    SET_BAD!("invalid bit length repeat");
+                                    break;
+                                }
+                                while copy > 0 {
+                                    copy -= 1;
+                                    state.lens[state.have] = len as u16;
+                                    state.have += 1;
+                                }
+                            }
+                        }
+
+                        /* handle error breaks in while */
+                        if matches!(state.mode, Mode::Bad) {
+                            break;
+                        }
+
+                        /* check for end-of-block code (better have one) */
+                        if (state.lens[256] == 0) {
+                            SET_BAD!("invalid code -- missing end-of-block");
+                            break;
+                        }
+
+                        // build code tables
+
+                        state.len_table.bits = 10;
+
+                        let InflateTable::Success(root) = inflate_table(
+                            CodeType::Lens,
+                            &state.lens,
+                            state.nlen,
+                            &mut state.len_codes,
+                            state.len_table.bits,
+                            &mut state.work,
+                        ) else {
+                            SET_BAD!("invalid distances set");
+                            break;
+                        };
+
+                        state.len_table.codes = Codes::Len;
+                        state.len_table.bits = root;
+
+                        state.dist_table.bits = 9;
+
+                        let InflateTable::Success(root) = inflate_table(
+                            CodeType::Dists,
+                            &state.lens[state.nlen..],
+                            state.ndist,
+                            &mut state.dist_codes,
+                            state.dist_table.bits,
+                            &mut state.work,
+                        ) else {
+                            SET_BAD!("invalid distances set");
+                            break;
+                        };
+
+                        state.dist_table.bits = root;
+                        state.dist_table.codes = Codes::Dist;
+
+                        // Tracev((stderr, "inflate:       codes ok\n"));
+                        state.mode = Mode::Len_;
+                        if flush as i32 == Z_TREES {
+                            break 'inf_leave;
+                        }
+
+                        continue;
+                    }
+                    Mode::DictId => todo!(),
+                    Mode::Dict => todo!(),
+                    Mode::Done => {
+                        /* inflate stream terminated properly */
+                        ret = ReturnCode::StreamEnd;
+                        break 'inf_leave;
+                    }
+                    Mode::Bad => {
+                        ret = ReturnCode::DataError;
+                        break 'inf_leave;
+                    }
+                }
+            }
+        }
+    }
+
+    // inf_leave:
+
+    RESTORE!();
+
+    let check_bytes = out - strm.avail_out;
+
+    let valid_mode = |mode| !matches!(mode, Mode::Bad | Mode::Mem | Mode::Sync);
+    let not_done = |mode| {
+        !matches!(
+            mode,
+            Mode::Check | Mode::Length | Mode::Bad | Mode::Mem | Mode::Sync
+        )
+    };
+
+    let must_update_window = state.window.size() != 0
+        || (out != strm.avail_out
+            && valid_mode(state.mode)
+            && (not_done(state.mode) || !matches!(state.flush, InflateFlush::Finish)));
+
+    let update_checksum = state.wrap & 4 != 0;
+
+    if must_update_window {
+        'blk: {
+            // initialize the window if needed
+            if state.window.size() == 0 {
+                match Window::new_in(&strm.alloc, state.wbits as usize) {
+                    Some(window) => state.window = window,
+                    None => {
+                        state.mode = Mode::Mem;
+                        ret = ReturnCode::MemError;
+                        break 'blk;
+                    }
+                }
+            }
+
+            let slice = core::slice::from_raw_parts(
+                strm.next_out.sub(check_bytes as usize),
+                check_bytes as usize,
+            );
+
+            state.window.extend(
+                slice,
+                state.gzip_flags,
+                update_checksum,
+                &mut state.checksum,
+                &mut state.crc_fold,
+            );
+        }
+    }
+
+    in_ -= strm.avail_in;
+    out -= strm.avail_out;
+    strm.total_in += in_ as u64;
+    strm.total_out += out as u64;
+    state.total += out as usize;
+
+    strm.data_type = state.decoding_state();
+
+    if (((in_ == 0 && out == 0) || flush as i32 == Z_FINISH) && ret as i32 == Z_OK) {
+        /* when no sliding window is used, hash the output bytes if no CHECK state */
+        //        TODO why don't we do this?
+        //        if (INFLATE_NEED_CHECKSUM(strm) && !state.wsize && flush == Z_FINISH) {
+        //            inf_chksum(strm, put - check_bytes, check_bytes);
+        //        }
+        ret = ReturnCode::BufError;
+    }
+
+    ret
 }
