@@ -1941,7 +1941,9 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
-    return inflate_as_match(stream, flush);
+    if true {
+        return inflate_as_match(stream, flush);
+    }
 
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return ReturnCode::StreamError as _;
