@@ -1106,9 +1106,9 @@ impl<'a> State<'a> {
         // space available. This means for many SIMD operations we don't need to process a
         // remainder; we just copy blindly, and a later operation will overwrite the extra copied
         // bytes
-        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
-            return inflate_fast_help(self, 0);
-        }
+        //        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
+        //            return inflate_fast_help(self, 0);
+        //        }
 
         self.back = 0;
 
@@ -1942,18 +1942,22 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
 
                             if op < len as usize {
                                 /* still need some from output */
+                                let bar = len;
                                 len -= op as u16;
+                                let foo = out;
                                 out = chunkcopy_safe(out, from.cast(), op, safe);
                                 out = CHUNKUNROLL(out, &mut dist, &mut len);
                                 out =
                                     chunkcopy_safe(out, out.sub(dist as usize), len as usize, safe);
-                                dbg!("here");
+                                assert_eq!(out as usize - foo as usize, bar as usize)
                             } else {
-                                let old = out;
-                                out = chunkcopy_safe(out, from.cast(), len as usize, safe);
-                                assert_eq!(out as usize - old as usize, len as usize);
+                                // out = chunkcopy_safe(out, from.cast(), len as usize, safe);
 
-                                dbg!(core::slice::from_raw_parts(from.cast::<u8>(), len as usize));
+                                for i in 0..len as usize {
+                                    *out.add(i) = (*from.add(i)).assume_init();
+                                }
+
+                                out = out.add(len as usize);
                             }
                         } else if extra_safe {
                             panic!();
@@ -1982,9 +1986,7 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                                     out.sub(dist as usize).cast(), out.cast(), len as usize
                                 );
                                 out = out.add(len as usize);
-                                dbg!("here");
                             } else {
-                                dbg!("here");
                                 out = CHUNKMEMSET(out, dist as usize, len as usize);
                             }
                         }
@@ -2366,7 +2368,8 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
-    if std::env::var("MATCH").as_deref() == Ok("1") {
+    //    if std::env::var("MATCH").as_deref() == Ok("1") {
+    if true {
         return inflate_as_match(stream, flush);
     }
 
@@ -2438,8 +2441,6 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
                     }
                 }
             }
-
-            dbg!(&state.writer.filled()[..10]);
 
             state.window.extend(
                 &state.writer.filled()[..out_written],
@@ -3105,18 +3106,18 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         // TODO inflate_fast
 
                         //            /* use inflate_fast() if we have enough input and output */
-                        if have as usize >= INFLATE_FAST_MIN_HAVE
-                            && left as usize >= INFLATE_FAST_MIN_LEFT
-                        {
-                            RESTORE!();
-                            unsafe { inflate_fast_help_match(strm, out as usize) };
-                            state = &mut strm.state;
-                            LOAD!();
-                            if matches!(state.mode, Mode::Type) {
-                                state.back = usize::MAX;
-                            }
-                            break;
-                        }
+                        //                        if have as usize >= INFLATE_FAST_MIN_HAVE
+                        //                            && left as usize >= INFLATE_FAST_MIN_LEFT
+                        //                        {
+                        //                            RESTORE!();
+                        //                            unsafe { inflate_fast_help_match(strm, out as usize) };
+                        //                            state = &mut strm.state;
+                        //                            LOAD!();
+                        //                            if matches!(state.mode, Mode::Type) {
+                        //                                state.back = usize::MAX;
+                        //                            }
+                        //                            break;
+                        //                        }
 
                         state.back = 0;
 
@@ -3309,8 +3310,6 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                 copy as usize,
                                 put.add(left as usize),
                             );
-
-                            put = put.add(copy as usize);
                         } else {
                             copy = Ord::min(state.length as i32, left as i32);
 
@@ -3551,8 +3550,6 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                 strm.next_out.sub(check_bytes as usize),
                 check_bytes as usize,
             );
-
-            dbg!(&slice[..10]);
 
             state.window.extend(
                 slice,
