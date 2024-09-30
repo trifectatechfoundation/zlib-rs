@@ -1106,9 +1106,9 @@ impl<'a> State<'a> {
         // space available. This means for many SIMD operations we don't need to process a
         // remainder; we just copy blindly, and a later operation will overwrite the extra copied
         // bytes
-        //        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
-        //            return inflate_fast_help(self, 0);
-        //        }
+        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
+            return inflate_fast_help(self, 0);
+        }
 
         self.back = 0;
 
@@ -1772,6 +1772,439 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     }
 }
 
+unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
+    let state = &mut strm.state;
+
+    let mut in_; /* local strm.next_in */
+    let last; /* have enough input while in < last */
+
+    let mut out; /* local strm.next_out */
+    let beg; /* inflate()'s initial strm.next_out */
+    let end; /* while out < end, enough space available */
+    let safe; /* can use chunkcopy provided out < safe */
+    let dmax; /* maximum distance from zlib header */
+    let wsize; /* window size or zero if not using window */
+    let whave; /* valid bytes in the window */
+    let wnext; /* window write index */
+
+    let mut hold; /* local strm.hold */
+    let mut bits; /* local strm.bits */
+    let lmask; /* mask for first level of length codes */
+    let dmask; /* mask for first level of distance codes */
+    let mut here; /* retrieved table entry */
+    let mut op: u8; /* code bits, operation, extra bits, or  window position, window bytes to copy */
+
+    let mut len; /* match length, unused bytes */
+    let mut dist; /* match distance */
+    let mut from; /* where to copy match from */
+    let extra_safe; /* copy chunks safely in all cases */
+
+    in_ = strm.next_in;
+    last = in_.add(strm.avail_in as usize - (INFLATE_FAST_MIN_HAVE - 1));
+    out = strm.next_out;
+    beg = out.sub(start - strm.avail_out as usize);
+    end = out.add(strm.avail_out as usize - (INFLATE_FAST_MIN_LEFT - 1));
+    safe = out.add(strm.avail_out as usize);
+    dmax = state.dmax;
+    wsize = state.window.size();
+    whave = state.window.have();
+    wnext = state.window.next();
+
+    hold = state.bit_reader.hold();
+    bits = state.bit_reader.bits_in_buffer();
+
+    let lcode = state.len_table_ref();
+    let dcode = state.dist_table_ref();
+
+    lmask = (1 << state.len_table.bits) - 1;
+    dmask = (1 << state.dist_table.bits) - 1;
+
+    /* Detect if out and window point to the same memory allocation. In this instance it is
+    necessary to use safe chunk copy functions to prevent overwriting the window. If the
+    window is overwritten then future matches with far distances will fail to copy correctly. */
+    extra_safe = wsize != 0
+        && out.cast_const() >= state.window.as_ptr().cast()
+        && out.cast_const().add(INFLATE_FAST_MIN_LEFT) <= state.window.as_ptr().add(wsize).cast();
+
+    macro_rules! SET_BAD {
+        ($msg:tt) => {
+            const MSG: &str = concat!($msg, '\0');
+            dbg!(MSG);
+            state.mode = Mode::Bad;
+            strm.msg = MSG.as_ptr() as *const core::ffi::c_char as *mut _;
+        };
+    }
+
+    macro_rules! DROPBITS {
+        ($n:expr) => {
+            hold >>= $n;
+            dbg!(bits, $n);
+            bits -= $n;
+        };
+    }
+
+    macro_rules! BITS {
+        ($n:expr) => {
+            (hold & ((1 << $n) - 1))
+        };
+    }
+
+    fn load_64_bits(ptr: *const u8, bits_in_buffer: u8) -> u64 {
+        let read = unsafe { core::ptr::read_unaligned(ptr.cast::<u64>()) }.to_le();
+        read << bits_in_buffer
+    }
+
+    macro_rules! REFILL {
+        () => {
+            hold |= load_64_bits(in_, bits);
+            in_ = in_.add(7);
+            in_ = in_.sub(((bits >> 3) & 7) as usize);
+            bits |= 56
+        };
+    }
+
+    /* decode literals and length/distances until end-of-block or not enough
+    input data or output space */
+    'outer: loop {
+        println!("outer");
+        REFILL!();
+        here = lcode[hold as usize & lmask];
+        if here.op == 0 {
+            *out = here.val as u8;
+            out = out.add(1);
+            DROPBITS!(here.bits);
+            here = lcode[hold as usize & lmask];
+            if here.op == 0 {
+                *out = here.val as u8;
+                out = out.add(1);
+                DROPBITS!(here.bits);
+                here = lcode[hold as usize & lmask];
+            }
+        }
+        'dolen: loop {
+            println!("dolen");
+            DROPBITS!(here.bits);
+            op = here.op;
+            if op == 0 {
+                /* literal */
+                // Tracevv((stderr, here.val >= 0x20 && here.val < 0x7f ? "inflate:         literal '%c'\n" : "inflate:         literal 0x%02x\n", here.val));
+                *out = here.val as u8;
+                out = out.add(1);
+            } else if op & 16 != 0 {
+                /* length base */
+                len = here.val;
+                op &= MAX_BITS; /* number of extra bits */
+                len += BITS!(op) as u16;
+                DROPBITS!(op);
+                // Tracevv((stderr, "inflate:         length %u\n", len));
+                here = dcode[hold as usize & dmask];
+                dbg!(bits, MAX_BITS + MAX_DIST_EXTRA_BITS);
+                if bits < MAX_BITS + MAX_DIST_EXTRA_BITS {
+                    REFILL!();
+                }
+
+                'dodist: loop {
+                    println!("dodist");
+                    DROPBITS!(here.bits);
+                    op = here.op;
+                    if op & 16 != 0 {
+                        /* distance base */
+                        dist = here.val;
+                        op &= MAX_BITS; /* number of extra bits */
+                        dist += BITS!(op) as u16;
+                        if dist as usize > dmax {
+                            SET_BAD!("invalid distance too far back");
+                            break 'outer;
+                        }
+                        DROPBITS!(op);
+                        // Tracevv((stderr, "inflate:         distance %u\n", dist));
+                        let mut op = out as usize - beg as usize; /* max distance in output */
+                        if dist > op as u16 {
+                            /* see if copy from window */
+                            op = dist as usize - op; /* distance back in window */
+                            if op as usize > whave {
+                                if state.flags.contains(Flags::SANE) {
+                                    SET_BAD!("invalid distance too far back");
+                                    break 'outer;
+                                }
+
+                                from = state.window.as_ptr();
+                                if wnext == 0 {
+                                    /* very common case */
+                                    from = from.add(wsize - op as usize);
+                                } else if wnext >= op as usize {
+                                    /* contiguous in window */
+                                    from = from.add(wnext - op as usize);
+                                } else {
+                                    /* wrap around window */
+                                    op -= wnext;
+                                    from = from.add(wsize - op);
+                                    if op < len as usize {
+                                        /* some from end of window */
+                                        len -= op as u16;
+                                        out = chunkcopy_safe(out, from.cast(), op, safe);
+                                        from = state.window.as_ptr(); /* more from start of window */
+                                        op = wnext;
+                                        /* This (rare) case can create a situation where
+                                          the first chunkcopy below must be checked.
+                                        */
+                                    }
+                                }
+
+                                if op < len as usize {
+                                    /* still need some from output */
+                                    len -= op as u16;
+                                    out = chunkcopy_safe(out, from.cast(), op, safe);
+                                    out = CHUNKUNROLL(out, &mut dist, &mut len);
+                                    out = chunkcopy_safe(
+                                        out,
+                                        out.sub(dist as usize),
+                                        len as usize,
+                                        safe,
+                                    );
+                                } else {
+                                    out = chunkcopy_safe(out, from.cast(), len as usize, safe);
+                                }
+                            } else if extra_safe {
+                                /* Whole reference is in range of current output. */
+                                if dist >= len || dist as usize >= state.chunksize {
+                                    out = chunkcopy_safe(
+                                        out,
+                                        out.sub(dist as usize),
+                                        len as usize,
+                                        safe,
+                                    );
+                                } else {
+                                    out = CHUNKMEMSET_SAFE(
+                                        out,
+                                        dist as usize,
+                                        len as usize,
+                                        (safe as usize - out as usize) + 1,
+                                    );
+                                }
+                            } else {
+                                /* Whole reference is in range of current output.  No range checks are
+                                   necessary because we start with room for at least 258 bytes of output,
+                                   so unroll and roundoff operations can write beyond `out+len` so long
+                                   as they stay within 258 bytes of `out`.
+                                */
+                                if dist >= len || dist as usize >= state.chunksize {
+                                    crate::inflate::writer::Writer::copy_chunk_unchecked::<
+                                        core::arch::x86_64::__m256i,
+                                    >(
+                                        out.sub(dist as usize).cast(), out.cast(), len as usize
+                                    );
+                                    out = out.add(len as usize);
+                                } else {
+                                    out = CHUNKMEMSET(out, dist as usize, len as usize);
+                                }
+                            }
+                        } else if (op & 64) == 0 {
+                            /* 2nd level distance code */
+                            here = dcode[here.val as usize + BITS!(op) as usize];
+                            break 'dodist;
+                        } else {
+                            SET_BAD!("invalid distance code");
+                            break 'outer;
+                        }
+                    }
+                }
+            } else if (op & 64) == 0 {
+                /* 2nd level length code */
+                here = lcode[here.val as usize + BITS!(op) as usize];
+                break 'dolen;
+            } else if (op & 32) != 0 {
+                /* end-of-block */
+                // Tracevv((stderr, "inflate:         end of block\n"));
+                state.mode = Mode::Type;
+                break 'outer;
+            } else {
+                SET_BAD!("invalid literal/length code");
+                break 'outer;
+            }
+        }
+
+        if !(in_ < last && out < end) {
+            break 'outer;
+        }
+    }
+
+    /* return unused bytes (on entry, bits < 8, so in won't go too far back) */
+    len = bits as u16 >> 3;
+    in_ = in_.sub(len as usize);
+    bits -= (len as u8) << 3;
+    hold &= (1 << bits) - 1;
+
+    /* update state and return */
+    strm.next_in = in_;
+    strm.next_out = out;
+    strm.avail_in = if in_ < last {
+        (INFLATE_FAST_MIN_HAVE - 1) + (last as usize - in_ as usize)
+    } else {
+        (INFLATE_FAST_MIN_HAVE - 1) - (in_ as usize - last as usize)
+    } as u32;
+    strm.avail_out = if out < end {
+        (INFLATE_FAST_MIN_LEFT - 1) + (end as usize - out as usize)
+    } else {
+        (INFLATE_FAST_MIN_LEFT - 1) - (out as usize - end as usize)
+    } as u32;
+
+    assert!(bits <= 32, "Remaining bits greater than 32");
+
+    state.bit_reader.bit_buffer = hold;
+    state.bit_reader.bits_used = bits;
+}
+
+unsafe fn CHUNKMEMSET_SAFE(mut out: *mut u8, dist: usize, mut len: usize, left: usize) -> *mut u8 {
+    type chunk_t = core::arch::x86_64::__m256i;
+
+    len = Ord::min(len, left);
+    let mut from = out.sub(dist);
+    if left < (3 * core::mem::size_of::<chunk_t>()) {
+        while len > 0 {
+            *out = *from;
+            out = out.add(1);
+            from = from.add(1);
+            len -= 1;
+        }
+        return out;
+    }
+    if len != 0 {
+        return CHUNKMEMSET(out, dist, len);
+    }
+
+    return out;
+}
+
+unsafe fn CHUNKUNROLL(mut out: *mut u8, dist: &mut u16, len: &mut u16) -> *mut u8 {
+    type chunk_t = core::arch::x86_64::__m256i;
+
+    let from = out.add(*dist as usize);
+    while *dist < *len && (*dist as usize) < core::mem::size_of::<chunk_t>() {
+        let chunk = from.cast::<chunk_t>().read_unaligned();
+        out.cast::<chunk_t>().write_unaligned(chunk);
+        out = out.add(*dist as usize);
+        *len -= *dist;
+        *dist += *dist;
+    }
+    return out;
+}
+
+unsafe fn CHUNKMEMSET(mut out: *mut u8, dist: usize, len: usize) -> *mut u8 {
+    type chunk_t = core::arch::x86_64::__m256i;
+
+    let mut from = out.sub(dist);
+
+    if dist == 1 {
+        out.write_bytes(*from, len);
+        return out.add(len);
+    } else if dist > core::mem::size_of::<chunk_t>() {
+        // return CHUNKCOPY(out, out.sub(dist), len);
+        crate::inflate::writer::Writer::copy_chunk_unchecked::<chunk_t>(
+            out.sub(dist).cast(),
+            out.cast(),
+            len,
+        );
+        return out.add(len);
+    }
+
+    for _ in 0..len {
+        *out = *from;
+        out = out.add(1);
+        from = from.add(1);
+    }
+
+    out
+}
+
+unsafe fn chunkcopy_safe(
+    mut out: *mut u8,
+    mut from: *const u8,
+    mut len: usize,
+    safe: *const u8,
+) -> *mut u8 {
+    let safelen = (safe as u64 - out as u64) + 1;
+    len = Ord::min(len, safelen as usize);
+    let olap_src = from >= out && from < out.add(len);
+    let olap_dst = out.cast_const() >= from && out.cast_const() < from.add(len);
+    let mut tocopy;
+
+    let memcpy = |dst, src, count| unsafe { core::ptr::copy(src, dst, count) };
+
+    /* For all cases without overlap, memcpy is ideal */
+    if !(olap_src || olap_dst) {
+        memcpy(out, from, len);
+        return out.add(len);
+    }
+
+    /* Complete overlap: Source == destination */
+    if out.cast_const() == from {
+        return out.add(len);
+    }
+
+    /* We are emulating a self-modifying copy loop here. To do this in a way that doesn't produce undefined behavior,
+     * we have to get a bit clever. First if the overlap is such that src falls between dst and dst+len, we can do the
+     * initial bulk memcpy of the nonoverlapping region. Then, we can leverage the size of this to determine the safest
+     * atomic memcpy size we can pick such that we have non-overlapping regions. This effectively becomes a safe look
+     * behind or lookahead distance. */
+    let non_olap_size = (from as isize - out as isize).unsigned_abs(); // llabs vs labs for compatibility with windows
+
+    memcpy(out, from, non_olap_size);
+    out = out.add(non_olap_size);
+    from = from.add(non_olap_size);
+    len -= non_olap_size;
+
+    /* So this doesn't give use a worst case scenario of function calls in a loop,
+     * we want to instead break this down into copy blocks of fixed lengths */
+    while len > 0 {
+        tocopy = Ord::min(non_olap_size, len);
+        len -= tocopy;
+
+        while tocopy >= 32 {
+            memcpy(out, from, 32);
+            out = out.add(32);
+            from = from.add(32);
+            tocopy -= 32;
+        }
+
+        if tocopy >= 16 {
+            memcpy(out, from, 16);
+            out = out.add(16);
+            from = from.add(16);
+            tocopy -= 16;
+        }
+
+        if tocopy >= 8 {
+            memcpy(out, from, 8);
+            out = out.add(8);
+            from = from.add(8);
+            tocopy -= 8;
+        }
+
+        if tocopy >= 4 {
+            memcpy(out, from, 4);
+            out = out.add(4);
+            from = from.add(4);
+            tocopy -= 4;
+        }
+
+        if tocopy >= 2 {
+            memcpy(out, from, 2);
+            out = out.add(2);
+            from = from.add(2);
+            tocopy -= 2;
+        }
+
+        if tocopy > 0 {
+            *out = *from;
+            out = out.add(1);
+            from = from.add(1);
+        }
+    }
+
+    return out;
+}
+
 pub fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> ReturnCode {
     if bits == 0 {
         /* fall through */
@@ -2347,7 +2780,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
     let mut last;
     let mut from;
 
-    let state = &mut strm.state;
+    let mut state = &mut strm.state;
 
     if matches!(state.mode, Mode::Type) {
         state.mode = Mode::TypeDo;
@@ -2642,7 +3075,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                     state.checksum = adler32(state.checksum, slice);
                                 }
                                 if (state.gzip_flags) != 0 {
-                                    // strm->adler = state.check = functable.crc32_fold_final(&state.crc_fold);
+                                    // strm.adler = state.check = functable.crc32_fold_final(&state.crc_fold);
                                 }
                             }
                             out = left;
@@ -2674,14 +3107,18 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         // TODO inflate_fast
 
                         //            /* use inflate_fast() if we have enough input and output */
-                        //            if (have >= INFLATE_FAST_MIN_HAVE && left >= INFLATE_FAST_MIN_LEFT) {
-                        //                RESTORE();
-                        //                functable.inflate_fast(strm, out);
-                        //                LOAD();
-                        //                if (state.mode == TYPE)
-                        //                    state.back = -1;
-                        //                break;
-                        //            }
+                        if have as usize >= INFLATE_FAST_MIN_HAVE
+                            && left as usize >= INFLATE_FAST_MIN_LEFT
+                        {
+                            RESTORE!();
+                            unsafe { inflate_fast_help_match(strm, out as usize) };
+                            state = &mut strm.state;
+                            LOAD!();
+                            if matches!(state.mode, Mode::Type) {
+                                state.back = usize::MAX;
+                            }
+                            break;
+                        }
 
                         state.back = 0;
 
@@ -2868,15 +3305,12 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                             copy = Ord::min(copy, state.length as i32);
                             copy = Ord::min(copy, left as i32);
 
-                            // put = chunkcopy_safe(put, from, copy, put + left);
-                            //                            dbg!(
-                            //                                &state.window.as_slice()
-                            //                                    [(from as usize - state.window.as_ptr() as usize)..]
-                            //                                    [..copy as usize]
-                            //                            );
-                            for i in 0..copy as usize {
-                                *put.add(i) = (*from.add(i)).assume_init();
-                            }
+                            put = chunkcopy_safe(
+                                put,
+                                from.cast(),
+                                copy as usize,
+                                put.add(left as usize),
+                            );
 
                             put = put.add(copy as usize);
                         } else {

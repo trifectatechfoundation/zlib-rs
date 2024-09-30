@@ -212,7 +212,7 @@ impl<'a> Writer<'a> {
     /// `src` must be safe to perform unaligned reads in `core::mem::size_of::<C>()` chunks until
     /// `end` is reached. `dst` must be safe to (unalingned) write that number of chunks.
     #[inline(always)]
-    unsafe fn copy_chunk_unchecked<C: Chunk>(
+    pub(crate) unsafe fn copy_chunk_unchecked<C: Chunk>(
         mut src: *const MaybeUninit<u8>,
         mut dst: *mut MaybeUninit<u8>,
         length: usize,
