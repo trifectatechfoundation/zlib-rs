@@ -906,7 +906,6 @@ impl<'a> State<'a> {
             return self.inflate_leave(ReturnCode::Ok);
         }
 
-        dbg!(self.length as u8);
         self.writer.push(self.length as u8);
 
         self.mode = Mode::Len;
@@ -1301,12 +1300,6 @@ impl<'a> State<'a> {
             copy
         } else {
             let copy = Ord::min(self.length, left);
-            unsafe {
-                dbg!(core::slice::from_raw_parts(
-                    self.writer.next_out().sub(self.offset) as *const u8,
-                    copy as usize
-                ));
-            }
             self.writer.copy_match(self.offset, copy);
 
             copy
@@ -1662,6 +1655,11 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
 
                         if dist as usize > written {
                             // copy fropm the window
+                            if dist == 24206 {
+                                dbg!(dist, dist as usize - written, state.window.have());
+                                panic!();
+                            }
+
                             if (dist as usize - written) > state.window.have() {
                                 if state.flags.contains(Flags::SANE) {
                                     bad = Some("invalid distance too far back\0");
@@ -1720,6 +1718,8 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                             writer.copy_match(dist as usize, len as usize)
                         }
                     } else if (op & 64) == 0 {
+                        dbg!(here.val, op, bit_reader.bits(op as usize));
+                        panic!();
                         // 2nd level distance code
                         here = dcode[(here.val + bit_reader.bits(op as usize) as u16) as usize];
                         continue 'dodist;
@@ -1838,7 +1838,6 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
     macro_rules! DROPBITS {
         ($n:expr) => {
             hold >>= $n;
-            dbg!(bits, $n);
             bits -= $n;
         };
     }
@@ -1866,7 +1865,6 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
     /* decode literals and length/distances until end-of-block or not enough
     input data or output space */
     'outer: loop {
-        println!("outer");
         REFILL!();
         here = lcode[hold as usize & lmask];
         if here.op == 0 {
@@ -1882,7 +1880,6 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
             }
         }
         'dolen: loop {
-            println!("dolen");
             DROPBITS!(here.bits);
             op = here.op;
             if op == 0 {
@@ -1898,13 +1895,11 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                 DROPBITS!(op);
                 // Tracevv((stderr, "inflate:         length %u\n", len));
                 here = dcode[hold as usize & dmask];
-                dbg!(bits, MAX_BITS + MAX_DIST_EXTRA_BITS);
                 if bits < MAX_BITS + MAX_DIST_EXTRA_BITS {
                     REFILL!();
                 }
 
                 'dodist: loop {
-                    println!("dodist");
                     DROPBITS!(here.bits);
                     op = here.op;
                     if op & 16 != 0 {
@@ -1922,6 +1917,9 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                         if dist > op as u16 {
                             /* see if copy from window */
                             op = dist as usize - op; /* distance back in window */
+                            if dist == 24206 {
+                                dbg!(dist, op, whave);
+                            }
                             if op as usize > whave {
                                 if state.flags.contains(Flags::SANE) {
                                     SET_BAD!("invalid distance too far back");
@@ -1965,54 +1963,52 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                                 } else {
                                     out = chunkcopy_safe(out, from.cast(), len as usize, safe);
                                 }
-                            } else if extra_safe {
-                                /* Whole reference is in range of current output. */
-                                if dist >= len || dist as usize >= state.chunksize {
-                                    out = chunkcopy_safe(
-                                        out,
-                                        out.sub(dist as usize),
-                                        len as usize,
-                                        safe,
-                                    );
-                                } else {
-                                    out = CHUNKMEMSET_SAFE(
-                                        out,
-                                        dist as usize,
-                                        len as usize,
-                                        (safe as usize - out as usize) + 1,
-                                    );
-                                }
-                            } else {
-                                /* Whole reference is in range of current output.  No range checks are
-                                   necessary because we start with room for at least 258 bytes of output,
-                                   so unroll and roundoff operations can write beyond `out+len` so long
-                                   as they stay within 258 bytes of `out`.
-                                */
-                                if dist >= len || dist as usize >= state.chunksize {
-                                    crate::inflate::writer::Writer::copy_chunk_unchecked::<
-                                        core::arch::x86_64::__m256i,
-                                    >(
-                                        out.sub(dist as usize).cast(), out.cast(), len as usize
-                                    );
-                                    out = out.add(len as usize);
-                                } else {
-                                    out = CHUNKMEMSET(out, dist as usize, len as usize);
-                                }
                             }
-                        } else if (op & 64) == 0 {
-                            /* 2nd level distance code */
-                            here = dcode[here.val as usize + BITS!(op) as usize];
-                            break 'dodist;
+                        } else if extra_safe {
+                            /* Whole reference is in range of current output. */
+                            if dist >= len || dist as usize >= state.chunksize {
+                                out =
+                                    chunkcopy_safe(out, out.sub(dist as usize), len as usize, safe);
+                            } else {
+                                out = CHUNKMEMSET_SAFE(
+                                    out,
+                                    dist as usize,
+                                    len as usize,
+                                    (safe as usize - out as usize) + 1,
+                                );
+                            }
                         } else {
-                            SET_BAD!("invalid distance code");
-                            break 'outer;
+                            /* Whole reference is in range of current output.  No range checks are
+                               necessary because we start with room for at least 258 bytes of output,
+                               so unroll and roundoff operations can write beyond `out+len` so long
+                               as they stay within 258 bytes of `out`.
+                            */
+                            if dist >= len || dist as usize >= state.chunksize {
+                                crate::inflate::writer::Writer::copy_chunk_unchecked::<
+                                    core::arch::x86_64::__m256i,
+                                >(
+                                    out.sub(dist as usize).cast(), out.cast(), len as usize
+                                );
+                                out = out.add(len as usize);
+                            } else {
+                                out = CHUNKMEMSET(out, dist as usize, len as usize);
+                            }
                         }
+                    } else if (op & 64) == 0 {
+                        /* 2nd level distance code */
+                        here = dcode[here.val as usize + BITS!(op) as usize];
+                        continue 'dodist;
+                    } else {
+                        SET_BAD!("invalid distance code");
+                        break 'outer;
                     }
+
+                    break 'dodist;
                 }
             } else if (op & 64) == 0 {
                 /* 2nd level length code */
                 here = lcode[here.val as usize + BITS!(op) as usize];
-                break 'dolen;
+                continue 'dolen;
             } else if (op & 32) != 0 {
                 /* end-of-block */
                 // Tracevv((stderr, "inflate:         end of block\n"));
@@ -2022,6 +2018,8 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                 SET_BAD!("invalid literal/length code");
                 break 'outer;
             }
+
+            break 'dolen;
         }
 
         if !(in_ < last && out < end) {
@@ -2374,7 +2372,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
-    if true {
+    if false {
         return inflate_as_match(stream, flush);
     }
 
@@ -3316,7 +3314,7 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                         } else {
                             copy = Ord::min(state.length as i32, left as i32);
 
-                            // put = functable.chunkmemset_safe(put, state.offset, copy, left);
+                            // put = CHUNKMEMSET_SAFE(put, state.offset, copy, left);
                             //                            dbg!(core::slice::from_raw_parts(
                             //                                put.sub(state.offset),
                             //                                copy as usize
