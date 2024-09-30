@@ -925,6 +925,7 @@ impl<'a> State<'a> {
                     self.crc_fold.fold(self.writer.filled(), self.checksum);
                     self.checksum = self.crc_fold.finish();
                 } else {
+                    dbg!(self.writer.filled().len());
                     self.checksum = adler32(self.checksum, self.writer.filled());
                 }
             }
@@ -937,7 +938,7 @@ impl<'a> State<'a> {
 
             self.out_available = self.writer.capacity() - self.writer.len();
 
-            dbg!(self.bit_reader.hold() as u32, self.checksum);
+            dbg!(self.checksum);
 
             if self.wrap & 4 != 0 && given_checksum != self.checksum {
                 self.mode = Mode::Bad;
@@ -1291,8 +1292,6 @@ impl<'a> State<'a> {
 
             copy = Ord::min(copy, self.length);
             copy = Ord::min(copy, left);
-
-            dbg!(&self.window.as_slice()[from..][..copy]);
 
             self.writer
                 .extend_from_window(&self.window, from..from + copy);
@@ -1655,11 +1654,6 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
 
                         if dist as usize > written {
                             // copy fropm the window
-                            if dist == 24206 {
-                                dbg!(dist, dist as usize - written, state.window.have());
-                                panic!();
-                            }
-
                             if (dist as usize - written) > state.window.have() {
                                 if state.flags.contains(Flags::SANE) {
                                     bad = Some("invalid distance too far back\0");
@@ -1715,11 +1709,9 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
                         } else if extra_safe {
                             todo!()
                         } else {
-                            writer.copy_match(dist as usize, len as usize)
+                            writer.copy_match(dist as usize, len as usize);
                         }
                     } else if (op & 64) == 0 {
-                        dbg!(here.val, op, bit_reader.bits(op as usize));
-                        panic!();
                         // 2nd level distance code
                         here = dcode[(here.val + bit_reader.bits(op as usize) as u16) as usize];
                         continue 'dodist;
@@ -1914,57 +1906,57 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                         DROPBITS!(op);
                         // Tracevv((stderr, "inflate:         distance %u\n", dist));
                         let mut op = out as usize - beg as usize; /* max distance in output */
-                        if dist > op as u16 {
+
+                        if dist as usize > op {
                             /* see if copy from window */
                             op = dist as usize - op; /* distance back in window */
-                            if dist == 24206 {
-                                dbg!(dist, op, whave);
-                            }
                             if op as usize > whave {
                                 if state.flags.contains(Flags::SANE) {
                                     SET_BAD!("invalid distance too far back");
                                     break 'outer;
                                 }
+                            }
 
-                                from = state.window.as_ptr();
-                                if wnext == 0 {
-                                    /* very common case */
-                                    from = from.add(wsize - op as usize);
-                                } else if wnext >= op as usize {
-                                    /* contiguous in window */
-                                    from = from.add(wnext - op as usize);
-                                } else {
-                                    /* wrap around window */
-                                    op -= wnext;
-                                    from = from.add(wsize - op);
-                                    if op < len as usize {
-                                        /* some from end of window */
-                                        len -= op as u16;
-                                        out = chunkcopy_safe(out, from.cast(), op, safe);
-                                        from = state.window.as_ptr(); /* more from start of window */
-                                        op = wnext;
-                                        /* This (rare) case can create a situation where
-                                          the first chunkcopy below must be checked.
-                                        */
-                                    }
-                                }
-
+                            from = state.window.as_ptr();
+                            if wnext == 0 {
+                                /* very common case */
+                                from = from.add(wsize - op as usize);
+                            } else if wnext >= op as usize {
+                                /* contiguous in window */
+                                from = from.add(wnext - op as usize);
+                            } else {
+                                /* wrap around window */
+                                op -= wnext;
+                                from = from.add(wsize - op);
                                 if op < len as usize {
-                                    /* still need some from output */
+                                    /* some from end of window */
                                     len -= op as u16;
                                     out = chunkcopy_safe(out, from.cast(), op, safe);
-                                    out = CHUNKUNROLL(out, &mut dist, &mut len);
-                                    out = chunkcopy_safe(
-                                        out,
-                                        out.sub(dist as usize),
-                                        len as usize,
-                                        safe,
-                                    );
-                                } else {
-                                    out = chunkcopy_safe(out, from.cast(), len as usize, safe);
+                                    from = state.window.as_ptr(); /* more from start of window */
+                                    op = wnext;
+                                    /* This (rare) case can create a situation where
+                                      the first chunkcopy below must be checked.
+                                    */
                                 }
                             }
+
+                            if op < len as usize {
+                                /* still need some from output */
+                                len -= op as u16;
+                                out = chunkcopy_safe(out, from.cast(), op, safe);
+                                out = CHUNKUNROLL(out, &mut dist, &mut len);
+                                out =
+                                    chunkcopy_safe(out, out.sub(dist as usize), len as usize, safe);
+                                dbg!("here");
+                            } else {
+                                let old = out;
+                                out = chunkcopy_safe(out, from.cast(), len as usize, safe);
+                                assert_eq!(out as usize - old as usize, len as usize);
+
+                                dbg!(core::slice::from_raw_parts(from.cast::<u8>(), len as usize));
+                            }
                         } else if extra_safe {
+                            panic!();
                             /* Whole reference is in range of current output. */
                             if dist >= len || dist as usize >= state.chunksize {
                                 out =
@@ -1990,7 +1982,9 @@ unsafe fn inflate_fast_help_match(strm: &mut InflateStream, start: usize) {
                                     out.sub(dist as usize).cast(), out.cast(), len as usize
                                 );
                                 out = out.add(len as usize);
+                                dbg!("here");
                             } else {
+                                dbg!("here");
                                 out = CHUNKMEMSET(out, dist as usize, len as usize);
                             }
                         }
@@ -2372,7 +2366,7 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
-    if false {
+    if std::env::var("MATCH").as_deref() == Ok("1") {
         return inflate_as_match(stream, flush);
     }
 
@@ -2444,6 +2438,8 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
                     }
                 }
             }
+
+            dbg!(&state.writer.filled()[..10]);
 
             state.window.extend(
                 &state.writer.filled()[..out_written],
@@ -3070,13 +3066,17 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                                         out as usize,
                                     );
 
+                                    dbg!(state.checksum, slice.len());
                                     state.checksum = adler32(state.checksum, slice);
+                                    strm.adler = state.checksum as u64;
                                 }
                                 if (state.gzip_flags) != 0 {
                                     // strm.adler = state.check = functable.crc32_fold_final(&state.crc_fold);
                                 }
                             }
                             out = left;
+
+                            dbg!(state.checksum);
 
                             if (state.wrap & 4 > 0)
                                 && (if state.gzip_flags != 0 {
@@ -3551,6 +3551,8 @@ pub unsafe fn inflate_as_match(strm: &mut InflateStream, flush: InflateFlush) ->
                 strm.next_out.sub(check_bytes as usize),
                 check_bytes as usize,
             );
+
+            dbg!(&slice[..10]);
 
             state.window.extend(
                 slice,

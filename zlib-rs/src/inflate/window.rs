@@ -118,6 +118,9 @@ impl<'a> Window<'a> {
                     crc_fold.fold_copy(dst, end_part);
                 } else {
                     *checksum = adler32_fold_copy(*checksum, dst, end_part);
+                    if *checksum == 3406506998 || *checksum == 1562651906 {
+                        panic!();
+                    }
                 }
             } else {
                 let end_part = unsafe { slice_to_uninit(end_part) };
