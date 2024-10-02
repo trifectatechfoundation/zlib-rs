@@ -61,6 +61,7 @@ impl<'a> Window<'a> {
         self.next = 0;
     }
 
+    #[inline(always)]
     pub fn as_slice(&self) -> &[u8] {
         // safety: the slice is always from the initialized part of buf
         unsafe { slice_assume_init(&self.buf[..self.have]) }
@@ -188,6 +189,7 @@ unsafe fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
 }
 
 // TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
+#[inline(always)]
 unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
     &*(slice as *const [MaybeUninit<u8>] as *const [u8])
 }
