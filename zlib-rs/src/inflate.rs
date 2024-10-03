@@ -707,9 +707,8 @@ impl<'a> State<'a> {
         if (self.gzip_flags & 0x0400) != 0 {
             // self.length is the number of remaining `extra` bytes. But they may not all be available
             let extra_available = Ord::min(self.length, self.bit_reader.bytes_remaining());
-            let extra_slice = &self.bit_reader.as_slice()[..extra_available];
 
-            if !extra_slice.is_empty() {
+            if extra_available > 0 {
                 if let Some(head) = self.head.as_mut() {
                     if !head.extra.is_null() {
                         // at `head.extra`, the caller has reserved `head.extra_max` bytes.
@@ -723,7 +722,7 @@ impl<'a> State<'a> {
                         // min of number of bytes available at dst and at src
                         let count = Ord::min(
                             (head.extra_max as usize).saturating_sub(written_so_far),
-                            extra_slice.len(),
+                            extra_available,
                         );
 
                         // location where we'll write: this saturates at the
@@ -732,7 +731,7 @@ impl<'a> State<'a> {
 
                         unsafe {
                             core::ptr::copy_nonoverlapping(
-                                self.bit_reader.as_ptr(),
+                                self.bit_reader.as_mut_ptr(),
                                 head.extra.add(next_write_offset),
                                 count,
                             );
@@ -742,6 +741,7 @@ impl<'a> State<'a> {
 
                 // Checksum
                 if (self.gzip_flags & 0x0200) != 0 && (self.wrap & 4) != 0 {
+                    let extra_slice = &self.bit_reader.as_slice()[..extra_available];
                     self.checksum = crc32(self.checksum, extra_slice)
                 }
 

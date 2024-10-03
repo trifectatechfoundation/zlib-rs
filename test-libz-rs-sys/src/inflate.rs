@@ -205,9 +205,9 @@ fn gzip_header_check() {
     }
 
     let mut out = vec![0u8; len];
-    let extra: [u8; 14] = [0; 14];
-    let name: [u8; 9] = [0; 9];
-    let comment: [u8; 10] = [0; 10];
+    let mut extra: [u8; 14] = [0; 14];
+    let mut name: [u8; 9] = [0; 9];
+    let mut comment: [u8; 10] = [0; 10];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -216,12 +216,12 @@ fn gzip_header_check() {
         time: 0,
         xflags: 0,
         os: 0,
-        extra: extra.as_ptr() as *mut u8,
+        extra: extra.as_mut_ptr(),
         extra_len: 0,
         extra_max: 14,
-        name: name.as_ptr() as *mut u8,
+        name: name.as_mut_ptr(),
         name_max: 9, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
+        comment: comment.as_mut_ptr(),
         comm_max: 10,
         hcrc: 0,
         done: 0,
@@ -293,9 +293,9 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
     let mut out = vec![0u8; len];
 
-    let extra: [u8; 1024] = [0; 1024];
-    let name: [u8; 64] = [0; 64];
-    let comment: [u8; 64] = [0; 64];
+    let mut extra: [u8; 1024] = [0; 1024];
+    let mut name: [u8; 64] = [0; 64];
+    let mut comment: [u8; 64] = [0; 64];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -304,12 +304,12 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         time: 0,
         xflags: 0,
         os: 0,
-        extra: extra.as_ptr() as *mut u8,
+        extra: extra.as_mut_ptr(),
         extra_len: 0,
         extra_max: 1024,
-        name: name.as_ptr() as *mut u8,
+        name: name.as_mut_ptr(),
         name_max: 64, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
+        comment: comment.as_mut_ptr(),
         comm_max: 64,
         hcrc: 0,
         done: 0,
@@ -638,6 +638,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     /* allocate work areas */
     let size = len << 3;
     let mut out = vec![0; size];
+    dbg!(out.as_slice().as_ptr_range());
     // let mut win = vec![0; 32768];
 
     //    /* first with inflate */
@@ -1145,6 +1146,11 @@ fn inflate_get_header_non_gzip_stream() {
         unsafe { inflateGetHeader(&mut stream, &mut header) },
         ReturnCode::StreamError as i32
     );
+
+    let ret = unsafe { inflateEnd(&mut stream) };
+    assert_eq!(ret, Z_OK);
+
+    mem_done(&mut stream);
 }
 
 #[test]
@@ -1426,6 +1432,8 @@ fn chunked_output_rs() {
     let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
     assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
+    unsafe { inflateEnd(stream) };
+
     assert_eq!(stream.total_out, 33);
 }
 
@@ -1482,14 +1490,13 @@ fn version_error() {
 fn issue_109() {
     let input = &include_bytes!("test-data/issue-109.gz")[10..][..32758];
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
-
     let window_bits = -15;
 
-    let mut buf = [0; 8192];
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
 
-    {
+        let mut buf = [0; 8192];
+
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1514,48 +1521,17 @@ fn issue_109() {
             let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
 
             if ReturnCode::from(err) == ReturnCode::BufError {
-                output_rs.extend(&buf[..stream.avail_out as usize]);
+                output.extend(&buf[..stream.avail_out as usize]);
                 stream.avail_out = buf.len() as _;
                 continue;
             }
         }
-    }
 
-    {
-        use libz_sys::*;
-
-        let mut stream = MaybeUninit::<libz_sys::z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
+        let err = inflateEnd(stream);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
-
-            if ReturnCode::from(err) == ReturnCode::BufError {
-                output_ng.extend(&buf[..stream.avail_out as usize]);
-                stream.avail_out = buf.len() as _;
-                continue;
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 #[test]
@@ -1617,12 +1593,11 @@ fn op_len_edge_case() {
 
     let input = &include_bytes!("test-data/op-len-edge-case.zraw");
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
 
-    let mut buf = [0; 266];
+        let mut buf = [0; 266];
 
-    {
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1647,48 +1622,17 @@ fn op_len_edge_case() {
             let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
 
             if ReturnCode::from(err) == ReturnCode::BufError {
-                output_rs.extend(&buf[..stream.avail_out as usize]);
+                output.extend(&buf[..stream.avail_out as usize]);
                 stream.avail_out = buf.len() as _;
                 continue;
             }
         }
-    }
 
-    {
-        use libz_sys::*;
-
-        let mut stream = MaybeUninit::<libz_sys::z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
+        let err = inflateEnd(stream);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
-
-            if ReturnCode::from(err) == ReturnCode::BufError {
-                output_ng.extend(&buf[..stream.avail_out as usize]);
-                stream.avail_out = buf.len() as _;
-                continue;
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 // Fills the provided buffer with pseudorandom bytes based on the given seed
@@ -1844,6 +1788,9 @@ fn issue_172() {
                 eprintln!("Output did not match at chunk size {}\n", chunk);
                 exitcode = 1;
             }
+
+            let err = inflateEnd(strm);
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
         }
 
         assert!(exitcode == 0);

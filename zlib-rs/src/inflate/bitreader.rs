@@ -48,6 +48,11 @@ impl<'a> BitReader<'a> {
     }
 
     #[inline(always)]
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.ptr as *mut u8
+    }
+
+    #[inline(always)]
     pub fn as_slice(&self) -> &[u8] {
         let len = self.bytes_remaining();
         unsafe { core::slice::from_raw_parts(self.ptr, len) }
