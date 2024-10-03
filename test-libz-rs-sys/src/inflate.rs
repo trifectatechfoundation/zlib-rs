@@ -1730,6 +1730,7 @@ fn prng_bytes(seed: u64, bytes: &mut [u8], step: usize) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "slow")]
 fn test_inflate_flush_block() {
     let window_bits = -15; // Raw
     const CHUNK: usize = 16384;
