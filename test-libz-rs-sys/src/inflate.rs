@@ -1450,6 +1450,9 @@ fn version_error() {
     };
     assert_eq!(ret, Z_OK);
 
+    let ret = unsafe { inflateEnd(stream.as_mut_ptr()) };
+    assert_eq!(ret, Z_OK);
+
     // invalid stream size
     let ret = unsafe { inflateInit_(stream.as_mut_ptr(), zlibVersion(), 1) };
     assert_eq!(ret, Z_VERSION_ERROR);
