@@ -282,7 +282,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
                 }
-                if let Some(pending) = pending {
+                if let Some(mut pending) = pending {
                     pending.drop_in(&alloc);
                 }
                 if let Some(head) = head {
@@ -594,7 +594,7 @@ pub fn copy<'a>(
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
                 }
-                if let Some(pending) = pending {
+                if let Some(mut pending) = pending {
                     pending.drop_in(alloc);
                 }
                 if let Some(head) = head {
