@@ -121,12 +121,18 @@ impl<'a> Window<'a> {
                 }
             } else {
                 let end_part = unsafe { slice_to_uninit(end_part) };
+
                 self.buf[self.next..][..end_part.len()].copy_from_slice(end_part);
+
+                // Initialize extra bytes so that SIMD reads from the window are always allowd.
+                // This is important for `Writer::extend_from_window`.
+                self.buf[self.next + end_part.len()..][..Self::padding()].fill(MaybeUninit::new(0));
             }
 
             if !start_part.is_empty() {
+                let dst = &mut self.buf[..start_part.len()];
+
                 if update_checksum {
-                    let dst = &mut self.buf[..start_part.len()];
                     if flags != 0 {
                         crc_fold.fold_copy(dst, start_part);
                     } else {
@@ -134,7 +140,7 @@ impl<'a> Window<'a> {
                     }
                 } else {
                     let start_part = unsafe { slice_to_uninit(start_part) };
-                    self.buf[..start_part.len()].copy_from_slice(start_part);
+                    dst.copy_from_slice(start_part);
                 }
 
                 self.next = start_part.len();
