@@ -638,7 +638,6 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     /* allocate work areas */
     let size = len << 3;
     let mut out = vec![0; size];
-    dbg!(out.as_slice().as_ptr_range());
     // let mut win = vec![0; 32768];
 
     //    /* first with inflate */
@@ -1655,6 +1654,7 @@ fn prng_bytes(seed: u64, bytes: &mut [u8], step: usize) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "slow")]
 fn test_inflate_flush_block() {
     let window_bits = -15; // Raw
     const CHUNK: usize = 16384;
