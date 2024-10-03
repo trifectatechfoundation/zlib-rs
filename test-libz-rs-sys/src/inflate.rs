@@ -6,6 +6,8 @@ use zlib_rs::deflate::{compress_slice, DeflateConfig};
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
 
+use crate::assert_eq_rs_ng;
+
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
@@ -1030,7 +1032,7 @@ fn hello_world_uncompressed() {
 
 #[test]
 fn copy_direct_from_next_in_to_next_out() {
-    crate::assert_eq_rs_ng!({
+    assert_eq_rs_ng!({
         let input = [120, 1, 1, 2, 0, 253, 255, 6, 10, 0, 24, 0, 17];
         let mut dest_vec = vec![0u8; 1 << 16];
 
@@ -1564,12 +1566,10 @@ fn window_match_bug() {
 
     let window_bits = -10;
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
+        let mut buf = [0; 402];
 
-    let mut buf = [0; 402];
-
-    {
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1593,7 +1593,7 @@ fn window_match_bug() {
 
             let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
 
-            output_rs.extend(&buf[..buf.len() - stream.avail_out as usize]);
+            output.extend(&buf[..buf.len() - stream.avail_out as usize]);
 
             match ReturnCode::from(err) {
                 ReturnCode::BufError => {
@@ -1604,48 +1604,11 @@ fn window_match_bug() {
                 other => panic!("unexpected {:?}", other),
             }
         }
-    }
 
-    {
-        use libz_sys::*;
+        inflateEnd(stream);
 
-        let mut stream = MaybeUninit::<z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
-
-            output_ng.extend(&buf[..buf.len() - stream.avail_out as usize]);
-
-            match ReturnCode::from(err) {
-                ReturnCode::BufError => {
-                    assert_eq!(stream.avail_out, 0);
-                    stream.avail_out = buf.len() as _;
-                }
-                ReturnCode::StreamEnd => break,
-                other => panic!("unexpected {:?}", other),
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 #[test]
@@ -1847,7 +1810,7 @@ fn issue_172() {
         45, 1, 0, 176, 1, 57, 179, 15, 0, 0, 0,
     ];
 
-    crate::assert_eq_rs_ng!({
+    assert_eq_rs_ng!({
         let mut exitcode = 0;
         for chunk in 1..BUF.len() {
             let mut ret;
