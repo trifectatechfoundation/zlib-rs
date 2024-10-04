@@ -1792,6 +1792,8 @@ fn issue_172() {
                 eprintln!("Output did not match at chunk size {}\n", chunk);
                 exitcode = 1;
             }
+
+            inflateEnd(strm);
         }
 
         assert!(exitcode == 0);
