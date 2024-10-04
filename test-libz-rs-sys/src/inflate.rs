@@ -6,6 +6,8 @@ use zlib_rs::deflate::{compress_slice, DeflateConfig};
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
 
+use crate::assert_eq_rs_ng;
+
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
@@ -1143,6 +1145,11 @@ fn inflate_get_header_non_gzip_stream() {
         unsafe { inflateGetHeader(&mut stream, &mut header) },
         ReturnCode::StreamError as i32
     );
+
+    let ret = unsafe { inflateEnd(&mut stream) };
+    assert_eq!(ret, Z_OK);
+
+    mem_done(&mut stream);
 }
 
 #[test]
@@ -1409,6 +1416,8 @@ fn chunked_output_rs() {
     let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
     assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
+    unsafe { inflateEnd(stream) };
+
     assert_eq!(stream.total_out, 33);
 }
 
@@ -1424,6 +1433,8 @@ fn version_error() {
         )
     };
     assert_eq!(ret, Z_OK);
+
+    unsafe { inflateEnd(stream.as_mut_ptr()) };
 
     // invalid stream size
     let ret = unsafe { inflateInit_(stream.as_mut_ptr(), zlibVersion(), 1) };
@@ -1465,14 +1476,13 @@ fn version_error() {
 fn issue_109() {
     let input = &include_bytes!("test-data/issue-109.gz")[10..][..32758];
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
-
     let window_bits = -15;
 
-    let mut buf = [0; 8192];
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
 
-    {
+        let mut buf = [0; 8192];
+
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1497,48 +1507,17 @@ fn issue_109() {
             let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
 
             if ReturnCode::from(err) == ReturnCode::BufError {
-                output_rs.extend(&buf[..stream.avail_out as usize]);
+                output.extend(&buf[..stream.avail_out as usize]);
                 stream.avail_out = buf.len() as _;
                 continue;
             }
         }
-    }
 
-    {
-        use libz_sys::*;
-
-        let mut stream = MaybeUninit::<libz_sys::z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
+        let err = inflateEnd(stream);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
-
-            if ReturnCode::from(err) == ReturnCode::BufError {
-                output_ng.extend(&buf[..stream.avail_out as usize]);
-                stream.avail_out = buf.len() as _;
-                continue;
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 #[test]
@@ -1549,12 +1528,11 @@ fn window_match_bug() {
 
     let window_bits = -10;
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
 
-    let mut buf = [0; 402];
+        let mut buf = [0; 402];
 
-    {
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1578,7 +1556,7 @@ fn window_match_bug() {
 
             let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
 
-            output_rs.extend(&buf[..buf.len() - stream.avail_out as usize]);
+            output.extend(&buf[..buf.len() - stream.avail_out as usize]);
 
             match ReturnCode::from(err) {
                 ReturnCode::BufError => {
@@ -1589,48 +1567,12 @@ fn window_match_bug() {
                 other => panic!("unexpected {:?}", other),
             }
         }
-    }
 
-    {
-        use libz_sys::*;
-
-        let mut stream = MaybeUninit::<z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
+        let err = inflateEnd(stream);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::Finish as _) };
-
-            output_ng.extend(&buf[..buf.len() - stream.avail_out as usize]);
-
-            match ReturnCode::from(err) {
-                ReturnCode::BufError => {
-                    assert_eq!(stream.avail_out, 0);
-                    stream.avail_out = buf.len() as _;
-                }
-                ReturnCode::StreamEnd => break,
-                other => panic!("unexpected {:?}", other),
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 #[test]
@@ -1639,12 +1581,11 @@ fn op_len_edge_case() {
 
     let input = &include_bytes!("test-data/op-len-edge-case.zraw");
 
-    let mut output_rs: Vec<u8> = Vec::with_capacity(1 << 15);
-    let mut output_ng: Vec<u8> = Vec::with_capacity(1 << 15);
+    assert_eq_rs_ng!({
+        let mut output: Vec<u8> = Vec::with_capacity(1 << 15);
 
-    let mut buf = [0; 266];
+        let mut buf = [0; 266];
 
-    {
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1669,48 +1610,17 @@ fn op_len_edge_case() {
             let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
 
             if ReturnCode::from(err) == ReturnCode::BufError {
-                output_rs.extend(&buf[..stream.avail_out as usize]);
+                output.extend(&buf[..stream.avail_out as usize]);
                 stream.avail_out = buf.len() as _;
                 continue;
             }
         }
-    }
 
-    {
-        use libz_sys::*;
-
-        let mut stream = MaybeUninit::<libz_sys::z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
+        let err = inflateEnd(stream);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let stream = unsafe { stream.assume_init_mut() };
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = input.len() as _;
-
-        while stream.avail_in != 0 {
-            stream.next_out = buf.as_mut_ptr();
-            stream.avail_out = buf.len() as _;
-
-            let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
-
-            if ReturnCode::from(err) == ReturnCode::BufError {
-                output_ng.extend(&buf[..stream.avail_out as usize]);
-                stream.avail_out = buf.len() as _;
-                continue;
-            }
-        }
-    }
-
-    assert_eq!(output_rs, output_ng);
+        output
+    });
 }
 
 // Fills the provided buffer with pseudorandom bytes based on the given seed
