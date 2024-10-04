@@ -264,7 +264,7 @@ pub enum Mode {
     Bad,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
 enum Codes {
     #[default]
@@ -1096,6 +1096,19 @@ impl<'a> State<'a> {
     }
 
     fn len_as_blocks(&mut self) -> ReturnCode {
+        if let Mode::Len = self.mode {
+            let avail_in = self.bit_reader.bytes_remaining();
+            let avail_out = self.writer.remaining();
+
+            // INFLATE_FAST_MIN_LEFT is important. It makes sure there is at least 32 bytes of free
+            // space available. This means for many SIMD operations we don't need to process a
+            // remainder; we just copy blindly, and a later operation will overwrite the extra copied
+            // bytes
+            if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
+                return inflate_fast_help(self, 0);
+            }
+        }
+
         let mut mode;
         let mut writer;
         let mut bit_reader;
@@ -1156,50 +1169,30 @@ impl<'a> State<'a> {
 
                                 /* Len */
 
-                                // if .. { /* fall through to Lit */ } else { break 'len_ext };
+                                'len_loop: loop {
+                                    let avail_in = bit_reader.bytes_remaining();
+                                    let avail_out = writer.remaining();
 
-                                let avail_in = bit_reader.bytes_remaining();
-                                let avail_out = writer.remaining();
-
-                                // INFLATE_FAST_MIN_LEFT is important. It makes sure there is at least 32 bytes of free
-                                // space available. This means for many SIMD operations we don't need to process a
-                                // remainder; we just copy blindly, and a later operation will overwrite the extra copied
-                                // bytes
-                                if avail_in >= INFLATE_FAST_MIN_HAVE
-                                    && avail_out >= INFLATE_FAST_MIN_LEFT
-                                {
-                                    restore!();
-                                    return inflate_fast_help(self, 0);
-                                }
-
-                                self.back = 0;
-
-                                // get a literal, length, or end-of-block code
-                                let mut here;
-                                loop {
-                                    let bits = bit_reader.bits(self.len_table.bits);
-                                    here = len_table[bits as usize];
-
-                                    if here.bits <= bit_reader.bits_in_buffer() {
-                                        break;
+                                    // INFLATE_FAST_MIN_LEFT is important. It makes sure there is at least 32 bytes of free
+                                    // space available. This means for many SIMD operations we don't need to process a
+                                    // remainder; we just copy blindly, and a later operation will overwrite the extra copied
+                                    // bytes
+                                    if avail_in >= INFLATE_FAST_MIN_HAVE
+                                        && avail_out >= INFLATE_FAST_MIN_LEFT
+                                    {
+                                        restore!();
+                                        return inflate_fast_help(self, 0);
                                     }
 
-                                    match bit_reader.pull_byte() {
-                                        Err(return_code) => {
-                                            restore!();
-                                            return self.inflate_leave(return_code);
-                                        }
-                                        Ok(_) => (),
-                                    };
-                                }
+                                    self.back = 0;
 
-                                if here.op != 0 && here.op & 0xf0 == 0 {
-                                    let last = here;
+                                    // get a literal, length, or end-of-block code
+                                    let mut here;
                                     loop {
-                                        let bits =
-                                            bit_reader.bits((last.bits + last.op) as usize) as u16;
-                                        here = len_table[(last.val + (bits >> last.bits)) as usize];
-                                        if last.bits + here.bits <= bit_reader.bits_in_buffer() {
+                                        let bits = bit_reader.bits(self.len_table.bits);
+                                        here = len_table[bits as usize];
+
+                                        if here.bits <= bit_reader.bits_in_buffer() {
                                             break;
                                         }
 
@@ -1212,44 +1205,84 @@ impl<'a> State<'a> {
                                         };
                                     }
 
-                                    bit_reader.drop_bits(last.bits);
-                                    self.back += last.bits as usize;
-                                }
+                                    if here.op != 0 && here.op & 0xf0 == 0 {
+                                        let last = here;
+                                        loop {
+                                            let bits = bit_reader
+                                                .bits((last.bits + last.op) as usize)
+                                                as u16;
+                                            here = len_table
+                                                [(last.val + (bits >> last.bits)) as usize];
+                                            if last.bits + here.bits <= bit_reader.bits_in_buffer()
+                                            {
+                                                break;
+                                            }
 
-                                bit_reader.drop_bits(here.bits);
-                                self.back += here.bits as usize;
-                                self.length = here.val as usize;
+                                            match bit_reader.pull_byte() {
+                                                Err(return_code) => {
+                                                    restore!();
+                                                    return self.inflate_leave(return_code);
+                                                }
+                                                Ok(_) => (),
+                                            };
+                                        }
 
-                                if here.op == 0 {
-                                    mode = Mode::Lit;
-                                    /* fall through */
-                                } else if here.op & 32 != 0 {
-                                    // end of block
-
-                                    // eprintln!("inflate:         end of block");
-
-                                    self.back = usize::MAX;
-                                    mode = Mode::Type;
-
-                                    restore!();
-                                    return self.type_();
-                                } else if here.op & 64 != 0 {
-                                    mode = Mode::Bad;
-                                    {
-                                        restore!();
-                                        let this = &mut *self;
-                                        let msg: &'static str = "invalid literal/length code\0";
-                                        #[cfg(all(feature = "std", test))]
-                                        dbg!(msg);
-                                        this.error_message = Some(msg);
-                                        return this.inflate_leave(ReturnCode::DataError);
+                                        bit_reader.drop_bits(last.bits);
+                                        self.back += last.bits as usize;
                                     }
-                                } else {
-                                    // length code
-                                    self.extra = (here.op & MAX_BITS) as usize;
-                                    mode = Mode::LenExt;
 
-                                    break 'len_ext;
+                                    bit_reader.drop_bits(here.bits);
+                                    self.back += here.bits as usize;
+                                    self.length = here.val as usize;
+
+                                    if here.op == 0 {
+                                        mode = Mode::Lit;
+
+                                        if writer.is_full() {
+                                            restore!();
+                                            #[cfg(all(test, feature = "std"))]
+                                            eprintln!(
+                                                "Ok: writer is full ({} bytes)",
+                                                self.writer.capacity()
+                                            );
+                                            return self.inflate_leave(ReturnCode::Ok);
+                                        }
+
+                                        writer.push(self.length as u8);
+
+                                        mode = Mode::Len;
+
+                                        continue 'len_loop;
+
+                                        /* fall through */
+                                    } else if here.op & 32 != 0 {
+                                        // end of block
+
+                                        // eprintln!("inflate:         end of block");
+
+                                        self.back = usize::MAX;
+                                        mode = Mode::Type;
+
+                                        restore!();
+                                        return self.type_();
+                                    } else if here.op & 64 != 0 {
+                                        mode = Mode::Bad;
+                                        {
+                                            restore!();
+                                            let this = &mut *self;
+                                            let msg: &'static str = "invalid literal/length code\0";
+                                            #[cfg(all(feature = "std", test))]
+                                            dbg!(msg);
+                                            this.error_message = Some(msg);
+                                            return this.inflate_leave(ReturnCode::DataError);
+                                        }
+                                    } else {
+                                        // length code
+                                        self.extra = (here.op & MAX_BITS) as usize;
+                                        mode = Mode::LenExt;
+
+                                        break 'len_ext;
+                                    }
                                 }
                             }
 
@@ -1386,66 +1419,68 @@ impl<'a> State<'a> {
 
             /* Match */
 
-            if writer.is_full() {
-                restore!();
-                #[cfg(all(feature = "std", test))]
-                eprintln!(
-                    "BufError: writer is full ({} bytes)",
-                    self.writer.capacity()
-                );
-                return self.inflate_leave(ReturnCode::Ok);
-            }
-
-            let left = writer.remaining();
-            let copy = writer.len();
-
-            let copy = if self.offset > copy {
-                // copy from window to output
-
-                let mut copy = self.offset - copy;
-
-                if copy > self.window.have() {
-                    if self.flags.contains(Flags::SANE) {
-                        restore!();
-                        self.mode = Mode::Bad;
-                        return self.bad("invalid distance too far back\0");
-                    }
-
-                    // TODO INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
-                    panic!("INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR")
+            'match_loop: loop {
+                if writer.is_full() {
+                    restore!();
+                    #[cfg(all(feature = "std", test))]
+                    eprintln!(
+                        "BufError: writer is full ({} bytes)",
+                        self.writer.capacity()
+                    );
+                    return self.inflate_leave(ReturnCode::Ok);
                 }
 
-                let wnext = self.window.next();
-                let wsize = self.window.size();
+                let left = writer.remaining();
+                let copy = writer.len();
 
-                let from = if copy > wnext {
-                    copy -= wnext;
-                    wsize - copy
+                let copy = if self.offset > copy {
+                    // copy from window to output
+
+                    let mut copy = self.offset - copy;
+
+                    if copy > self.window.have() {
+                        if self.flags.contains(Flags::SANE) {
+                            restore!();
+                            self.mode = Mode::Bad;
+                            return self.bad("invalid distance too far back\0");
+                        }
+
+                        // TODO INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
+                        panic!("INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR")
+                    }
+
+                    let wnext = self.window.next();
+                    let wsize = self.window.size();
+
+                    let from = if copy > wnext {
+                        copy -= wnext;
+                        wsize - copy
+                    } else {
+                        wnext - copy
+                    };
+
+                    copy = Ord::min(copy, self.length);
+                    copy = Ord::min(copy, left);
+
+                    writer.extend_from_window(&self.window, from..from + copy);
+
+                    copy
                 } else {
-                    wnext - copy
+                    let copy = Ord::min(self.length, left);
+                    writer.copy_match(self.offset, copy);
+
+                    copy
                 };
 
-                copy = Ord::min(copy, self.length);
-                copy = Ord::min(copy, left);
+                self.length -= copy;
 
-                writer.extend_from_window(&self.window, from..from + copy);
-
-                copy
-            } else {
-                let copy = Ord::min(self.length, left);
-                writer.copy_match(self.offset, copy);
-
-                copy
-            };
-
-            self.length -= copy;
-
-            if self.length == 0 {
-                mode = Mode::Len;
-                continue;
-            } else {
-                mode = Mode::Match;
-                continue;
+                if self.length == 0 {
+                    mode = Mode::Len;
+                    continue 'outer;
+                } else {
+                    // mode = Mode::Match;
+                    continue 'match_loop;
+                }
             }
         }
     }
@@ -2259,14 +2294,22 @@ impl<'a> State<'a> {
 
 #[inline(never)]
 fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
-    let mut bit_reader = BitReader::new(&[]);
-    core::mem::swap(&mut bit_reader, &mut state.bit_reader);
+    let mut writer;
+    let mut bit_reader;
 
-    let mut writer = Writer::new(&mut []);
-    core::mem::swap(&mut writer, &mut state.writer);
+    writer = core::mem::replace(&mut state.writer, Writer::new(&mut []));
+    bit_reader = state.bit_reader;
 
-    let lcode = state.len_table_ref();
-    let dcode = state.dist_table_ref();
+    //    let mut bit_reader = BitReader::new(&[]);
+    //    core::mem::swap(&mut bit_reader, &mut state.bit_reader);
+    //
+    //    let mut writer = Writer::new(&mut []);
+    //    core::mem::swap(&mut writer, &mut state.writer);
+
+    // let lcode = state.len_table_ref();
+    // let dcode = state.dist_table_ref();
+    let lcode = &state.len_codes;
+    let dcode = &state.dist_codes;
 
     // IDEA: use const generics for the bits here?
     let lmask = (1u64 << state.len_table.bits) - 1;
