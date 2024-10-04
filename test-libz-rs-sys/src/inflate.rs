@@ -205,9 +205,9 @@ fn gzip_header_check() {
     }
 
     let mut out = vec![0u8; len];
-    let extra: [u8; 14] = [0; 14];
-    let name: [u8; 9] = [0; 9];
-    let comment: [u8; 10] = [0; 10];
+    let mut extra: [u8; 14] = [0; 14];
+    let mut name: [u8; 9] = [0; 9];
+    let mut comment: [u8; 10] = [0; 10];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -216,12 +216,12 @@ fn gzip_header_check() {
         time: 0,
         xflags: 0,
         os: 0,
-        extra: extra.as_ptr() as *mut u8,
+        extra: extra.as_mut_ptr(),
         extra_len: 0,
         extra_max: 14,
-        name: name.as_ptr() as *mut u8,
+        name: name.as_mut_ptr(),
         name_max: 9, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
+        comment: comment.as_mut_ptr(),
         comm_max: 10,
         hcrc: 0,
         done: 0,
@@ -293,9 +293,9 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
     let mut out = vec![0u8; len];
 
-    let extra: [u8; 1024] = [0; 1024];
-    let name: [u8; 64] = [0; 64];
-    let comment: [u8; 64] = [0; 64];
+    let mut extra: [u8; 1024] = [0; 1024];
+    let mut name: [u8; 64] = [0; 64];
+    let mut comment: [u8; 64] = [0; 64];
 
     // Set header
     // See: https://www.zlib.net/manual.html
@@ -304,12 +304,12 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
         time: 0,
         xflags: 0,
         os: 0,
-        extra: extra.as_ptr() as *mut u8,
+        extra: extra.as_mut_ptr(),
         extra_len: 0,
         extra_max: 1024,
-        name: name.as_ptr() as *mut u8,
+        name: name.as_mut_ptr(),
         name_max: 64, // How / where should this be set?
-        comment: comment.as_ptr() as *mut u8,
+        comment: comment.as_mut_ptr(),
         comm_max: 64,
         hcrc: 0,
         done: 0,
