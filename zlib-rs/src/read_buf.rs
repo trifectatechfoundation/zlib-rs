@@ -256,12 +256,9 @@ impl<'a> ReadBuf<'a> {
         end: usize,
     ) {
         if (end - start).next_multiple_of(core::mem::size_of::<C>()) <= (buf.len() - current) {
+            let ptr = buf.as_mut_ptr();
             unsafe {
-                Self::copy_chunk_unchecked::<C>(
-                    buf.as_ptr().add(start),
-                    buf.as_mut_ptr().add(current),
-                    buf.as_ptr().add(end),
-                )
+                Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), ptr.add(end))
             }
         } else {
             // a full simd copy does not fit in the output buffer
