@@ -1583,7 +1583,8 @@ fn window_match_bug() {
             }
         }
 
-        inflateEnd(stream);
+        let err = inflateEnd(stream);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         output
     });
