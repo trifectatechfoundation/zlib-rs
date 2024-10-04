@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys-cdylib"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 readme = "README.md"
 license = "Zlib"
@@ -21,4 +21,4 @@ rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"] # by default,
 custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 
 [dependencies]
-libz-rs-sys = { version = "0.3.0", path = "../libz-rs-sys", default-features = false }
+libz-rs-sys = { version = "0.3.1", path = "../libz-rs-sys", default-features = false }
