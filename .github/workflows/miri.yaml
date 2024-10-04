@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  miri:
+    name: "Miri"
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - target: "x86_64-unknown-linux-gnu"
+            features: ""
+          - target: "x86_64-unknown-linux-gnu"
+            features: "+avx2,+pclmulqdq"
+
+          - target: "aarch64-unknown-linux-gnu"
+            features: ""
+          - target: "aarch64-unknown-linux-gnu"
+            features: "+neon,+crc"
+
+          - target: "wasm32-unknown-unknown"
+            features: ""
+          - target: "wasm32-unknown-unknown"
+            features: "+simd128"
+
+          - target: "s390x-unknown-linux-gnu"
+            features: ""
+
+          - target: "i686-unknown-linux-gnu"
+            features: ""
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-nextest
+      - name: Test public C api with NULL arguments
+        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=${{ matrix.features }}"
+          MIRIFLAGS: "-Zmiri-tree-borrows"

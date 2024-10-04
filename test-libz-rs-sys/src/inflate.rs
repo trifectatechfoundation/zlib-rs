@@ -638,6 +638,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     /* allocate work areas */
     let size = len << 3;
     let mut out = vec![0; size];
+    dbg!(out.as_slice().as_ptr_range());
     // let mut win = vec![0; 32768];
 
     //    /* first with inflate */
