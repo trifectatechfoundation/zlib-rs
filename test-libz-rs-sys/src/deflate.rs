@@ -530,14 +530,12 @@ fn deflate_medium_fizzle_bug() {
     assert_eq!(output, EXPECTED);
 }
 
-fn deflate_bound_correct_help(
-    (config, source_len): (DeflateConfig, c_ulong),
-) -> (c_ulong, c_ulong) {
-    let rs_bound = unsafe {
+fn assert_deflate_bound_correct((config, source_len): (DeflateConfig, c_ulong)) {
+    assert_eq_rs_ng!({
         let mut strm = MaybeUninit::zeroed();
 
         // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
+        let err = deflateInit2_(
             strm.as_mut_ptr(),
             config.level,
             config.method as i32,
@@ -550,41 +548,34 @@ fn deflate_bound_correct_help(
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
-    };
+        let bound = deflateBound(strm.as_mut_ptr(), source_len);
 
-    let ng_bound = unsafe {
-        let mut strm = MaybeUninit::zeroed();
+        let ret = unsafe { deflateEnd(strm.as_mut_ptr()) };
+        assert_eq!(ret, Z_OK);
 
-        // first validate the config
-        let err = libz_ng_sys::deflateInit2_(
-            strm.as_mut_ptr(),
-            config.level,
-            config.method as i32,
-            config.window_bits,
-            config.mem_level,
-            config.strategy as i32,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
-
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
-    };
-
-    (rs_bound, ng_bound)
+        bound
+    });
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "slow")]
 fn deflate_bound_correct() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
     fn test(input: (DeflateConfig, c_ulong)) -> bool {
-        let (rs, ng) = deflate_bound_correct_help(input);
+        assert_deflate_bound_correct(input);
 
-        rs == ng
+        true
     }
+}
+
+#[test]
+fn deflate_bound_correct_basic() {
+    let config = DeflateConfig::default();
+
+    assert_deflate_bound_correct((config, 42));
+    assert_deflate_bound_correct((config, 123456));
+    assert_deflate_bound_correct((config, 1 << 24));
 }
 
 #[test]
@@ -604,9 +595,7 @@ fn deflate_bound_correct_windows() {
     //    u32::MAX = 4294967296
     let source_len = 4294967233;
 
-    let (rs, ng) = deflate_bound_correct_help((config, source_len));
-
-    assert_eq!(rs, ng);
+    assert_deflate_bound_correct((config, source_len));
 
     let config = DeflateConfig {
         level: 0,
@@ -619,102 +608,81 @@ fn deflate_bound_correct_windows() {
     //    u32::MAX = 4294967296
     let source_len = 4294967289;
 
-    let (rs, ng) = deflate_bound_correct_help((config, source_len));
-
-    assert_eq!(rs, ng);
+    assert_deflate_bound_correct((config, source_len));
 }
 
 fn deflate_bound_gzip_header_help(
     (config, source_len, extra, name, comment): (DeflateConfig, c_ulong, CString, CString, CString),
 ) -> bool {
-    let rs_bound = unsafe {
+    let extra_len = extra.as_bytes().len();
+
+    let extra = extra.into_raw().cast::<u8>();
+    let name = name.into_raw().cast::<u8>();
+    let comment = comment.into_raw().cast::<u8>();
+
+    assert_eq_rs_ng!({
         let mut strm = MaybeUninit::zeroed();
 
         // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
+        let err = deflateInit2_(
             strm.as_mut_ptr(),
             config.level,
             config.method as i32,
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as _,
         );
 
         if err != 0 {
             return true;
         }
 
-        let mut header = libz_rs_sys::gz_header {
+        let mut header = gz_header {
             text: 0,
             time: 0,
             xflags: 0,
             os: 0,
-            extra: extra.as_ptr() as *mut _,
-            extra_len: extra.as_bytes().len() as _,
+            extra_len: extra_len as _,
+            extra,
             extra_max: 0,
-            name: name.as_ptr() as *mut _,
+            name,
             name_max: 0,
-            comment: comment.as_ptr() as *mut _,
+            comment,
             comm_max: 0,
             hcrc: 1,
             done: 0,
         };
 
         // this may fail if the config is not set up for gzip
-        let _err = libz_rs_sys::deflateSetHeader(strm.as_mut_ptr(), &mut header);
+        let _ = deflateSetHeader(strm.as_mut_ptr(), &mut header);
 
-        libz_rs_sys::deflateBound(strm.as_mut_ptr(), source_len)
-    };
+        let bound = deflateBound(strm.as_mut_ptr(), source_len);
 
-    let ng_bound = unsafe {
-        let mut strm = MaybeUninit::zeroed();
+        deflateEnd(strm.as_mut_ptr());
 
-        // first validate the config
-        let err = libz_ng_sys::deflateInit2_(
-            strm.as_mut_ptr(),
-            config.level,
-            config.method as i32,
-            config.window_bits,
-            config.mem_level,
-            config.strategy as i32,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
+        bound
+    });
 
-        assert_eq!(err, 0);
-
-        let mut header = libz_ng_sys::gz_header {
-            text: 0,
-            time: 0,
-            xflags: 0,
-            os: 0,
-            extra: extra.as_ptr() as *mut _,
-            extra_len: extra.as_bytes().len() as _,
-            extra_max: 0,
-            name: name.as_ptr() as *mut _,
-            name_max: 0,
-            comment: comment.as_ptr() as *mut _,
-            comm_max: 0,
-            hcrc: 1,
-            done: 0,
-        };
-
-        // this may fail if the config is not set up for gzip
-        let _err = libz_ng_sys::deflateSetHeader(strm.as_mut_ptr(), &mut header);
-
-        libz_ng_sys::deflateBound(strm.as_mut_ptr(), source_len)
-    };
-
-    assert_eq!(rs_bound, ng_bound);
-
-    rs_bound == ng_bound
+    true
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "slow")]
 fn deflate_bound_gzip_header() {
     ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
+}
+
+#[test]
+fn deflate_bound_gzip_header_basic() {
+    deflate_bound_gzip_header_help((
+        DeflateConfig::default(),
+        1234,
+        CString::from_vec_with_nul("extra\0".as_bytes().to_vec()).unwrap(),
+        CString::from_vec_with_nul("name\0".as_bytes().to_vec()).unwrap(),
+        CString::from_vec_with_nul("comment\0".as_bytes().to_vec()).unwrap(),
+    ));
 }
 
 #[test]
@@ -725,10 +693,7 @@ fn deflate_bound_gzip_header() {
 fn test_compress_bound_windows() {
     let source_len = 4294967289 as core::ffi::c_ulong;
 
-    let rs_bound = libz_rs_sys::compressBound(source_len as _);
-    let ng_bound = unsafe { libz_ng_sys::compressBound(source_len as _) };
-
-    assert_eq!(rs_bound, ng_bound as _);
+    assert_eq_rs_ng!({ compressBound(source_len as _) });
 }
 
 #[test]
@@ -740,30 +705,26 @@ fn test_compress_bound() {
     ::quickcheck::quickcheck(test as fn(_) -> _);
 
     fn test(source_len: core::ffi::c_ulong) -> bool {
-        let rs_bound = libz_rs_sys::compressBound(source_len as _);
-        let ng_bound = unsafe { libz_ng_sys::compressBound(source_len as _) };
+        assert_eq_rs_ng!({ compressBound(source_len as _) });
 
-        assert_eq!(rs_bound, ng_bound as _);
-
-        rs_bound == ng_bound as _
+        true
     }
 }
 
 #[test]
 fn test_compress_param() {
-    let mut output_rs = [0; 1024];
-    let mut output_ng = [0; 1024];
-
     let config = DeflateConfig::new(2);
 
     let input =
         "Scheduling and executing async tasks is a job handled by an async runtime, such as\0";
 
-    let n_rs = unsafe {
+    assert_eq_rs_ng!({
+        let mut output = [0; 1024];
+
         let mut strm = MaybeUninit::zeroed();
 
         // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
+        let err = deflateInit2_(
             strm.as_mut_ptr(),
             config.level,
             config.method as i32,
@@ -777,88 +738,32 @@ fn test_compress_param() {
 
         let stream = strm.assume_init_mut();
 
-        stream.next_out = output_rs.as_mut_ptr();
-        stream.avail_out = output_rs.len() as _;
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
 
         let offset = input.len() / 2;
 
         stream.next_in = input.as_ptr() as *mut u8;
         stream.avail_in = offset as _;
 
-        let err = libz_rs_sys::deflate(stream, DeflateFlush::NoFlush as i32);
+        let err = deflate(stream, DeflateFlush::NoFlush as i32);
         assert_eq!(err, 0);
 
-        let err = libz_rs_sys::deflateParams(stream, 8, Strategy::Rle as i32);
-        assert_eq!(err, 0);
-
-        assert_eq!(stream.next_in as usize - input.as_ptr() as usize, offset);
-
-        stream.avail_in = (input.len() - offset) as _;
-
-        let err = libz_rs_sys::deflate(stream, DeflateFlush::Finish as i32);
-        assert_eq!(err, ReturnCode::StreamEnd as i32);
-
-        let err = libz_rs_sys::deflateEnd(stream);
-        assert_eq!(err, 0);
-
-        stream.total_out as usize
-    };
-
-    let n_ng = unsafe {
-        let mut strm = MaybeUninit::zeroed();
-
-        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), 8, Strategy::Rle as i32);
-        assert_eq!(err, ReturnCode::StreamError as i32);
-
-        // first validate the config
-        let err = libz_ng_sys::deflateInit2_(
-            strm.as_mut_ptr(),
-            config.level,
-            config.method as i32,
-            config.window_bits,
-            config.mem_level,
-            config.strategy as i32,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
-        assert_eq!(err, 0);
-
-        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), -1, 100);
-        assert_eq!(err, ReturnCode::StreamError as i32);
-
-        let err = libz_ng_sys::deflateParams(strm.as_mut_ptr(), 100, Strategy::Rle as i32);
-        assert_eq!(err, ReturnCode::StreamError as i32);
-
-        let stream = strm.assume_init_mut();
-
-        stream.next_out = output_ng.as_mut_ptr();
-        stream.avail_out = output_ng.len() as _;
-
-        let offset = input.len() / 2;
-
-        stream.next_in = input.as_ptr() as *mut u8;
-        stream.avail_in = offset as _;
-
-        let err = libz_ng_sys::deflate(stream, DeflateFlush::NoFlush as i32);
-        assert_eq!(err, 0);
-
-        let err = libz_ng_sys::deflateParams(stream, 8, Strategy::Rle as i32);
+        let err = deflateParams(stream, 8, Strategy::Rle as i32);
         assert_eq!(err, 0);
 
         assert_eq!(stream.next_in as usize - input.as_ptr() as usize, offset);
 
         stream.avail_in = (input.len() - offset) as _;
 
-        let err = libz_ng_sys::deflate(stream, DeflateFlush::Finish as i32);
+        let err = deflate(stream, DeflateFlush::Finish as i32);
         assert_eq!(err, ReturnCode::StreamEnd as i32);
 
-        let err = libz_ng_sys::deflateEnd(stream);
+        let err = deflateEnd(stream);
         assert_eq!(err, 0);
 
-        stream.total_out as usize
-    };
-
-    assert_eq!(&output_rs[..n_rs], &output_ng[..n_ng]);
+        output[..stream.total_out as usize].to_vec()
+    });
 }
 
 #[test]
@@ -871,27 +776,26 @@ fn test_dict_deflate() {
     const DICTIONARY: &str = "hello";
     const HELLO: &str = "hello, hello!\0";
 
-    let output_rs = unsafe {
+    assert_eq_rs_ng!({
         let mut strm = MaybeUninit::zeroed();
 
         // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
+        let err = deflateInit2_(
             strm.as_mut_ptr(),
             config.level,
             config.method as i32,
             config.window_bits,
             config.mem_level,
             config.strategy as i32,
-            VERSION,
-            STREAM_SIZE,
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as _,
         );
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         let strm = strm.assume_init_mut();
 
-        let err =
-            libz_rs_sys::deflateSetDictionary(strm, DICTIONARY.as_ptr(), DICTIONARY.len() as _);
+        let err = deflateSetDictionary(strm, DICTIONARY.as_ptr(), DICTIONARY.len() as _);
 
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
@@ -909,52 +813,8 @@ fn test_dict_deflate() {
         let err = deflateEnd(strm);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        (dict_id, compr)
-    };
-
-    let output_ng = unsafe {
-        let mut strm = MaybeUninit::zeroed();
-
-        // first validate the config
-        let err = libz_ng_sys::deflateInit2_(
-            strm.as_mut_ptr(),
-            config.level,
-            config.method as i32,
-            config.window_bits,
-            config.mem_level,
-            config.strategy as i32,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
-
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let strm = strm.assume_init_mut();
-
-        let err =
-            libz_ng_sys::deflateSetDictionary(strm, DICTIONARY.as_ptr(), DICTIONARY.len() as _);
-
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let dict_id = strm.adler;
-        let mut compr = [0; 32];
-        strm.next_out = compr.as_mut_ptr();
-        strm.avail_out = compr.len() as _;
-
-        strm.next_in = HELLO.as_ptr() as *mut u8;
-        strm.avail_in = HELLO.len() as _;
-
-        let err = libz_ng_sys::deflate(strm, DeflateFlush::Finish as i32);
-        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
-
-        let err = libz_ng_sys::deflateEnd(strm);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        (dict_id, compr)
-    };
-
-    assert_eq!(output_rs.0, output_ng.0 as c_ulong);
-    assert_eq!(output_rs.1, output_ng.1);
+        (dict_id as c_ulong, compr)
+    });
 }
 
 #[test]
@@ -1034,7 +894,6 @@ fn test_deflate_prime() {
 
         /* Gzip uncompressed data crc32 */
         let crc = libz_rs_sys::crc32(0, HELLO.as_ptr(), HELLO.len() as _);
-        dbg!(crc.to_le_bytes());
         err = deflate_prime_32(strm, crc as _);
         assert_eq!(err, 0);
         /* Gzip uncompressed data length */
@@ -1074,7 +933,9 @@ fn test_deflate_prime() {
         // out with a BufError because there is insufficient input.
         let err = libz_rs_sys::inflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::BufError);
-        assert_eq!(&uncompr[..strm.total_out as usize], HELLO.as_bytes())
+        assert_eq!(&uncompr[..strm.total_out as usize], HELLO.as_bytes());
+
+        inflateEnd(strm);
     }
 }
 
@@ -1095,11 +956,11 @@ fn small_window() {
     let plain: [u8; 128] = std::array::from_fn(|i| i as u8);
     let dictionary1 = vec![b'a'; (1 << 9) - plain.len() / 2];
 
-    let output_rs = unsafe {
+    assert_eq_rs_ng!({
         let mut strm = MaybeUninit::zeroed();
 
         // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
+        let err = deflateInit2_(
             strm.as_mut_ptr(),
             deflate_config.level,
             deflate_config.method as i32,
@@ -1113,11 +974,10 @@ fn small_window() {
 
         let strm = strm.assume_init_mut();
 
-        let err =
-            libz_rs_sys::deflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        let err = deflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let err = libz_rs_sys::deflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        let err = deflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         strm.next_in = plain.as_ptr() as *mut u8;
@@ -1136,7 +996,7 @@ fn small_window() {
         // now inflate it again
         let mut strm = MaybeUninit::zeroed();
 
-        let err = libz_rs_sys::inflateInit2_(
+        let err = inflateInit2_(
             strm.as_mut_ptr(),
             inflate_config.window_bits,
             VERSION,
@@ -1146,85 +1006,10 @@ fn small_window() {
 
         let strm = strm.assume_init_mut();
 
-        let err =
-            libz_rs_sys::inflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
+        let err = inflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-        let err = libz_rs_sys::inflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        strm.next_in = compr.as_mut_ptr();
-        strm.avail_in = compr.len() as _;
-
-        let mut plain_again = vec![0; plain.len()];
-        strm.next_out = plain_again.as_mut_ptr();
-        strm.avail_out = plain_again.len() as _;
-
-        let err = libz_rs_sys::inflate(strm, DeflateFlush::NoFlush as i32);
-        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
-
-        let err = libz_rs_sys::inflateEnd(strm);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        compr
-    };
-
-    let output_ng = unsafe {
-        let mut strm = MaybeUninit::zeroed();
-
-        // first validate the config
-        let err = libz_ng_sys::deflateInit2_(
-            strm.as_mut_ptr(),
-            deflate_config.level,
-            deflate_config.method as i32,
-            deflate_config.window_bits,
-            deflate_config.mem_level,
-            deflate_config.strategy as i32,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let strm = strm.assume_init_mut();
-
-        let err =
-            libz_ng_sys::deflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let err = libz_ng_sys::deflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        strm.next_in = plain.as_ptr() as *mut u8;
-        strm.avail_in = plain.len() as _;
-
-        let mut compr = [0; 32];
-        strm.next_out = compr.as_mut_ptr();
-        strm.avail_out = compr.len() as _;
-
-        let err = libz_ng_sys::deflate(strm, DeflateFlush::Finish as i32);
-        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
-
-        let err = libz_ng_sys::deflateEnd(strm);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        // now inflate it again
-        let mut strm = MaybeUninit::zeroed();
-
-        let err = libz_ng_sys::inflateInit2_(
-            strm.as_mut_ptr(),
-            inflate_config.window_bits,
-            libz_ng_sys::zlibVersion(),
-            core::mem::size_of::<libz_ng_sys::z_stream>() as _,
-        );
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let strm = strm.assume_init_mut();
-
-        let err =
-            libz_ng_sys::inflateSetDictionary(strm, dictionary1.as_ptr(), dictionary1.len() as _);
-        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
-
-        let err = libz_ng_sys::inflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
+        let err = inflateSetDictionary(strm, plain.as_ptr(), plain.len() as _);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         strm.next_in = compr.as_mut_ptr();
@@ -1234,16 +1019,14 @@ fn small_window() {
         strm.next_out = plain_again.as_mut_ptr();
         strm.avail_out = plain_again.len() as _;
 
-        let err = libz_ng_sys::inflate(strm, DeflateFlush::NoFlush as i32);
+        let err = inflate(strm, DeflateFlush::NoFlush as i32);
         assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
 
-        let err = libz_ng_sys::inflateEnd(strm);
+        let err = inflateEnd(strm);
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         compr
-    };
-
-    assert_eq!(output_rs, output_ng);
+    });
 }
 
 #[test]
@@ -1581,6 +1364,9 @@ fn version_error() {
     };
     assert_eq!(ret, Z_OK);
 
+    let ret = unsafe { deflateEnd(stream.as_mut_ptr()) };
+    assert_eq!(ret, Z_OK);
+
     // invalid stream size
     let ret = unsafe { deflateInit_(stream.as_mut_ptr(), 1, zlibVersion(), 1) };
     assert_eq!(ret, Z_VERSION_ERROR);
@@ -1634,11 +1420,7 @@ fn gzip_with_header() {
         ..Default::default()
     };
 
-    let output_rs = {
-        use libz_rs_sys::{
-            deflate, deflateEnd, deflateInit2_, deflateSetHeader, gz_header, z_stream, zlibVersion,
-        };
-
+    let output = assert_eq_rs_ng!({
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1692,79 +1474,14 @@ fn gzip_with_header() {
         let err = unsafe { deflateEnd(stream) };
         assert_eq!(err, 0);
 
-        let output_rs = output[..n].to_vec();
+        let output = output[..n].to_vec();
 
-        assert_eq!(output_rs.len(), 81);
+        assert_eq!(output.len(), 81);
 
-        output_rs
-    };
+        output
+    });
 
-    {
-        use libz_ng_sys::{
-            deflate, deflateEnd, deflateInit2_, deflateSetHeader, gz_header, z_stream, zlibVersion,
-        };
-
-        let mut stream = MaybeUninit::<z_stream>::zeroed();
-
-        let err = unsafe {
-            deflateInit2_(
-                stream.as_mut_ptr(),
-                config.level,
-                config.method as i32,
-                config.window_bits,
-                config.mem_level,
-                config.strategy as i32,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
-        assert_eq!(err, 0);
-
-        let stream = unsafe { stream.assume_init_mut() };
-
-        let mut header = gz_header {
-            text: 0,
-            time: 0,
-            xflags: 0,
-            os: 0,
-            extra: extra.as_ptr() as *mut _,
-            extra_len: extra.len() as _,
-            extra_max: 0,
-            name: name.as_ptr() as *mut _,
-            name_max: 0,
-            comment: comment.as_ptr() as *mut _,
-            comm_max: 0,
-            hcrc: 1,
-            done: 0,
-        };
-
-        let err = unsafe { deflateSetHeader(stream, &mut header) };
-        assert_eq!(err, 0);
-
-        let input = b"Hello World\n";
-        stream.next_in = input.as_ptr() as *mut _;
-        stream.avail_in = input.len() as _;
-
-        let mut output = [0u8; 256];
-        stream.next_out = output.as_mut_ptr();
-        stream.avail_out = output.len() as _;
-
-        let err = unsafe { deflate(stream, DeflateFlush::Finish as _) };
-        assert_eq!(err, ReturnCode::StreamEnd as i32);
-
-        let n = stream.total_out;
-
-        let err = unsafe { deflateEnd(stream) };
-        assert_eq!(err, 0);
-
-        assert_eq!(&output[..n as usize], output_rs);
-    }
-
-    {
-        use libz_ng_sys::{
-            gz_header, inflate, inflateGetHeader, inflateInit2_, z_stream, zlibVersion,
-        };
-
+    assert_eq_rs_ng!({
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let err = unsafe {
@@ -1779,7 +1496,7 @@ fn gzip_with_header() {
 
         let stream = unsafe { stream.assume_init_mut() };
 
-        let mut input = output_rs.clone();
+        let mut input = output.clone();
         stream.next_in = input.as_mut_ptr() as _;
         stream.avail_in = input.len() as _;
 
@@ -1822,92 +1539,8 @@ fn gzip_with_header() {
             }
         );
 
-        assert!(!header.comment.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.comment.cast()) }
-                .to_str()
-                .unwrap(),
-            comment.trim_end_matches('\0')
-        );
-
-        assert!(!header.name.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.name.cast()) }
-                .to_str()
-                .unwrap(),
-            name.trim_end_matches('\0')
-        );
-
-        assert!(!header.extra.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(header.extra.cast()) }
-                .to_str()
-                .unwrap(),
-            extra.trim_end_matches('\0')
-        );
-    }
-
-    {
-        use libz_rs_sys::{
-            gz_header, inflate, inflateGetHeader, inflateInit2_, z_stream, zlibVersion,
-        };
-
-        let mut stream = MaybeUninit::<z_stream>::zeroed();
-
-        let err = unsafe {
-            inflateInit2_(
-                stream.as_mut_ptr(),
-                config.window_bits,
-                zlibVersion(),
-                core::mem::size_of::<z_stream>() as c_int,
-            )
-        };
-        assert_eq!(err, 0);
-
-        let stream = unsafe { stream.assume_init_mut() };
-
-        let mut output_rs = output_rs;
-        stream.next_in = output_rs.as_mut_ptr() as _;
-        stream.avail_in = output_rs.len() as _;
-
-        let mut output = [0u8; 12];
-        stream.next_out = output.as_mut_ptr();
-        stream.avail_out = output.len() as _;
-
-        let mut extra_buf = [0u8; 64];
-        let mut name_buf = [0u8; 64];
-        let mut comment_buf = [0u8; 64];
-
-        let mut header = gz_header {
-            text: 0,
-            time: 0,
-            xflags: 0,
-            os: 0,
-            extra: extra_buf.as_mut_ptr(),
-            extra_len: 0,
-            extra_max: extra_buf.len() as _,
-            name: name_buf.as_mut_ptr(),
-            name_max: name_buf.len() as _,
-            comment: comment_buf.as_mut_ptr(),
-            comm_max: comment_buf.len() as _,
-            hcrc: 0,
-            done: 0,
-        };
-
-        let err = unsafe { inflateGetHeader(stream, &mut header) };
-        assert_eq!(err, 0);
-
-        let err = unsafe { inflate(stream, DeflateFlush::NoFlush as _) };
-        assert_eq!(
-            err,
-            ReturnCode::StreamEnd as i32,
-            "{:?}",
-            if stream.msg.is_null() {
-                None
-            } else {
-                Some(unsafe { CStr::from_ptr(stream.msg) })
-            }
-        );
+        let err = inflateEnd(stream);
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
         assert!(!header.comment.is_null());
         assert_eq!(
@@ -1932,7 +1565,7 @@ fn gzip_with_header() {
                 .unwrap(),
             extra.trim_end_matches('\0')
         );
-    }
+    });
 }
 
 mod fuzz_based_tests {
@@ -2356,6 +1989,8 @@ fn issue_169() {
 
         assert_eq!(ret, Z_STREAM_END);
         assert_eq!(strm.avail_in, 0);
+
+        deflateEnd(strm);
 
         out
     });

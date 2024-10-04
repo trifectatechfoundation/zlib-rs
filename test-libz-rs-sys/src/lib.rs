@@ -10,7 +10,7 @@ mod zlib_ng_cve;
 #[cfg(test)]
 #[macro_export]
 macro_rules! assert_eq_rs_ng {
-    ($tt:tt) => {
+    ($tt:tt) => {{
         #[cfg(not(miri))]
         #[allow(clippy::macro_metavars_in_unsafe)]
         #[allow(unused_braces)]
@@ -32,7 +32,9 @@ macro_rules! assert_eq_rs_ng {
 
         #[cfg(not(miri))]
         assert_eq!(_rs, _ng);
-    };
+
+        _rs
+    }};
 }
 
 #[cfg(test)]
@@ -342,10 +344,6 @@ mod null {
             0, 0,
         ];
 
-        let mut extra = *b"banana\0";
-        let mut name = *b"apple\0";
-        let mut comment = *b"pear\0";
-
         let input = b"Ferris";
         let mut buf = [0; 64];
 
@@ -356,6 +354,10 @@ mod null {
 
         #[cfg(not(miri))]
         assert_eq_rs_ng!({
+            let mut extra = *b"banana\0";
+            let mut name = *b"apple\0";
+            let mut comment = *b"pear\0";
+
             let mut strm = MaybeUninit::<z_stream>::zeroed();
 
             let err = deflateInit2_(
