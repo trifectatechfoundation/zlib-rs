@@ -1594,7 +1594,20 @@ fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     }
 
     'outer: loop {
-        let mut here = bit_reader.refill_and(|hold| lcode[(hold & lmask) as usize]);
+        let mut here = {
+            let bits = bit_reader.bits_in_buffer();
+            let hold = bit_reader.hold();
+
+            bit_reader.refill();
+
+            // in most cases, the read can be interleaved with the logic
+            // based on benchmarks this matters in practice. wild.
+            if bits as usize >= state.len_table.bits {
+                lcode[(hold & lmask) as usize]
+            } else {
+                lcode[(bit_reader.hold() & lmask) as usize]
+            }
+        };
 
         if here.op == 0 {
             writer.push(here.val as u8);
