@@ -312,21 +312,30 @@ jobs:
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
           toolchain: "stable"
-          targets: "wasm32-wasi"
+          targets: "wasm32-wasip1"
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
       - name: Install cargo-nextest
         uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
         with:
           tool: cargo-nextest
+      - name: Download wasi-sdk
+        run: |
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz | tar xz
       - name: cargo nextest (without SIMD)
-        run: cargo nextest run -p zlib-rs --target wasm32-wasi
+        run: |
+          export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
+          cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
         env:
+          CFLAGS: "-fno-pic" # workaround for linker bug (WebAssembly/wasi-sdk#492)
           RUST_BACKTRACE: 1
           RUSTFLAGS: ""
       - name: cargo nextest (with SIMD)
-        run: cargo nextest run -p zlib-rs --target wasm32-wasi
+        run: |
+          export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
+          cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
         env:
+          CFLAGS: "-fno-pic" # workaround for linker bug (WebAssembly/wasi-sdk#492)
           RUST_BACKTRACE: 1
           RUSTFLAGS: "-Ctarget-feature=+simd128"
 
