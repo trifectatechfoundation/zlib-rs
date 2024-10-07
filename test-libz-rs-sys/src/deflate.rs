@@ -1615,6 +1615,7 @@ mod fuzz_based_tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "too slow")]
+    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
 
@@ -1802,6 +1803,7 @@ mod fuzz_based_tests {
     }
 
     #[test]
+    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
     fn hash_calc_difference() {
         // exposed an issue in the crc32 acle hash calc where the incorrect instruction was used.
         // a different hash function changes which match is found first in the hash map, and
@@ -1854,6 +1856,7 @@ mod fuzz_based_tests {
     }
 
     #[test]
+    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
     fn longest_match_difference() {
         // the output on aarch64 and x86_64: fully featured modern targets
         let output_other = &[
