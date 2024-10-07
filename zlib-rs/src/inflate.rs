@@ -1099,7 +1099,15 @@ impl<'a> State<'a> {
         self.len()
     }
 
+    #[inline(always)]
     fn len_as_match(&mut self) -> ReturnCode {
+        let avail_in = self.bit_reader.bytes_remaining();
+        let avail_out = self.writer.remaining();
+
+        if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
+            return inflate_fast_help(self, 0);
+        }
+
         let mut mode;
         let mut writer;
         let mut bit_reader;
@@ -1141,11 +1149,11 @@ impl<'a> State<'a> {
             Codes::Dist => &self.dist_codes,
         };
 
-        loop {
-            match mode {
+        {
+            'top: match Mode::Len {
                 Mode::Len => {
-                    let avail_in = bit_reader.bytes_remaining();
-                    let avail_out = writer.remaining();
+                    let mut avail_in = bit_reader.bytes_remaining();
+                    let mut avail_out = writer.remaining();
 
                     // INFLATE_FAST_MIN_LEFT is important. It makes sure there is at least 32 bytes of free
                     // space available. This means for many SIMD operations we don't need to process a
@@ -1205,7 +1213,7 @@ impl<'a> State<'a> {
 
                     if here.op == 0 {
                         mode = Mode::Lit;
-                        continue;
+                        continue 'top Mode::Lit;
                     } else if here.op & 32 != 0 {
                         // end of block
 
@@ -1231,7 +1239,7 @@ impl<'a> State<'a> {
                         // length code
                         self.extra = (here.op & MAX_BITS) as usize;
                         mode = Mode::LenExt;
-                        continue;
+                        continue 'top Mode::LenExt;
                     }
                 }
                 Mode::Lit => {
@@ -1246,10 +1254,10 @@ impl<'a> State<'a> {
 
                     mode = Mode::Len;
 
-                    continue;
+                    continue 'top Mode::Len;
                 }
                 Mode::LenExt => {
-                    let extra = self.extra;
+                    let mut extra = self.extra;
 
                     // get extra bits, if any
                     if extra != 0 {
@@ -1270,7 +1278,7 @@ impl<'a> State<'a> {
                     self.was = self.length;
                     mode = Mode::Dist;
 
-                    continue;
+                    continue 'top Mode::Dist;
                 }
                 Mode::Dist => {
                     // get distance code
@@ -1328,10 +1336,10 @@ impl<'a> State<'a> {
                     self.extra = (here.op & MAX_BITS) as usize;
                     mode = Mode::DistExt;
 
-                    continue;
+                    continue 'top Mode::DistExt;
                 }
                 Mode::DistExt => {
-                    let extra = self.extra;
+                    let mut extra = self.extra;
 
                     if extra > 0 {
                         match bit_reader.need_bits(extra) {
@@ -1356,7 +1364,7 @@ impl<'a> State<'a> {
 
                     mode = Mode::Match;
 
-                    continue;
+                    continue 'top Mode::Match;
                 }
                 Mode::Match => {
                     if writer.is_full() {
@@ -1369,10 +1377,10 @@ impl<'a> State<'a> {
                         return self.inflate_leave(ReturnCode::Ok);
                     }
 
-                    let left = writer.remaining();
-                    let copy = writer.len();
+                    let mut left = writer.remaining();
+                    let mut copy = writer.len();
 
-                    let copy = if self.offset > copy {
+                    let mut copy = if self.offset > copy {
                         // copy from window to output
 
                         let mut copy = self.offset - copy;
@@ -1415,11 +1423,11 @@ impl<'a> State<'a> {
 
                     if self.length == 0 {
                         mode = Mode::Len;
-                        continue;
+                        continue 'top Mode::Len;
                     } else {
                         // otherwise it seems to recurse?
                         // self.match_()
-                        continue;
+                        continue 'top Mode::Match;
                     }
                 }
                 _ => unsafe { core::hint::unreachable_unchecked() },
@@ -1905,7 +1913,7 @@ impl<'a> State<'a> {
     }
 }
 
-#[inline(never)]
+#[inline(always)]
 fn inflate_fast_help(state: &mut State, _start: usize) -> ReturnCode {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
