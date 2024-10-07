@@ -575,9 +575,13 @@ impl<'a> State<'a> {
             return self.flags();
         }
 
+        if let Some(header) = &mut self.head {
+            header.done = -1;
+        }
+
         // check if zlib header is allowed
-        if (self.wrap & 1) != 0
-            && ((self.bit_reader.bits(8) << 8) + (self.bit_reader.hold() >> 8)) % 31 != 0
+        if (self.wrap & 1) == 0
+            || ((self.bit_reader.bits(8) << 8) + (self.bit_reader.hold() >> 8)) % 31 != 0
         {
             self.mode = Mode::Bad;
             return self.bad("incorrect header check\0");
