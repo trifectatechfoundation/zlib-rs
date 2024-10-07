@@ -5,6 +5,7 @@ use libz_sys as libz_ng_sys;
 
 use std::{ffi::c_ulong, path::PathBuf};
 
+#[cfg(not(target_family = "wasm"))]
 unsafe fn uncompress(
     dest: *mut u8,
     dest_len: *mut std::ffi::c_ulong,
@@ -81,6 +82,7 @@ fn main() {
 
             drop(dest_vec)
         }
+        #[cfg(not(target_family = "wasm"))]
         "xx" => {
             let path = it.next().unwrap();
             let input = std::fs::read(&path).unwrap();
@@ -106,6 +108,8 @@ fn main() {
 
             drop(dest_vec)
         }
+        #[cfg(target_family = "wasm")]
+        "xx" => panic!("wasm doesn't support dlopen"),
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
 }

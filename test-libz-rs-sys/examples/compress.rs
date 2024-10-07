@@ -66,6 +66,7 @@ fn main() {
 
             drop(dest_vec)
         }
+        #[cfg(not(target_family = "wasm"))]
         "xx" => {
             let path = it.next().unwrap();
             let Ok(input) = std::fs::read(&path) else {
@@ -90,6 +91,8 @@ fn main() {
 
             drop(dest_vec)
         }
+        #[cfg(target_family = "wasm")]
+        "xx" => panic!("wasm doesn't support dlopen"),
         "qq" => {
             let ng = std::fs::read(temp_dir().join("ng.txt")).unwrap();
             let rs = std::fs::read(temp_dir().join("rs.txt")).unwrap();
@@ -271,6 +274,7 @@ fn compress_ng(
     ReturnCode::Ok
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn compress_dynamic(
     dest: &mut [u8],
     dest_len: &mut usize,
