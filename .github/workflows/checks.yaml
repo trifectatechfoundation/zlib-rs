@@ -96,6 +96,8 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: codecov/codecov-demo
 
   build-qemu:
     name: QEMU build & test

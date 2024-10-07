@@ -2441,7 +2441,7 @@ fn flood_pending_buffer() {
                 config.mem_level,
                 config.strategy as i32,
                 libz_rs_sys::zlibVersion(),
-                size_of::<z_stream>() as c_int,
+                core::mem::size_of::<z_stream>() as c_int,
             )
         };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
@@ -2450,7 +2450,7 @@ fn flood_pending_buffer() {
 
         let mut header = gz_header {
             text: 0,
-            time: 10055284024492657547,
+            time: 0,
             xflags: 0,
             os: -1953789045,
             extra: extra.as_mut_ptr(),
@@ -2469,7 +2469,7 @@ fn flood_pending_buffer() {
 
         let mut source: [u8; 0] = [];
 
-        let bound = unsafe { deflateBound(stream, source.len() as u64) };
+        let bound = unsafe { deflateBound(stream, source.len() as _) };
         let mut dest = vec![0; bound as usize];
 
         stream.next_in = source.as_mut_ptr().cast();
