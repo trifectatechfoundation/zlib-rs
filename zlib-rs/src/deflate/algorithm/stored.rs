@@ -131,10 +131,14 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 /* Slide the window down. */
                 state.strstart -= state.w_size;
 
+                // make sure we don't copy uninitialized bytes. While we discard the first lower w_size
+                // bytes, it is not guaranteed that the upper w_size bytes are all initialized
+                let copy = Ord::min(state.strstart, state.window.filled().len() - state.w_size);
+
                 state
                     .window
                     .filled_mut()
-                    .copy_within(state.w_size..state.w_size + state.strstart, 0);
+                    .copy_within(state.w_size..state.w_size + copy, 0);
 
                 if state.matches < 2 {
                     state.matches += 1; /* add a pending slide_hash() */

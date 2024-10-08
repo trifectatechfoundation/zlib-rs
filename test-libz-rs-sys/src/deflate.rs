@@ -1615,7 +1615,10 @@ mod fuzz_based_tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "too slow")]
-    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
+    #[cfg_attr(
+        target_family = "wasm",
+        ignore = "zlib-ng compresses differently on wasm"
+    )]
     fn compress_paper_100k() {
         let mut config = DeflateConfig::default();
 
@@ -1855,7 +1858,10 @@ mod fuzz_based_tests {
     }
 
     #[test]
-    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
+    #[cfg_attr(
+        target_family = "wasm",
+        ignore = "zlib-ng compresses differently on wasm"
+    )]
     fn longest_match_difference() {
         // the output on aarch64 and x86_64: fully featured modern targets
         let output_other = &[
@@ -2119,5 +2125,203 @@ fn flood_pending_buffer() {
 
         let err = unsafe { deflateEnd(stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::DataError);
+    });
+}
+
+#[test]
+fn copy_uninitialized_window_section() {
+    // caused a panic because an attempt was made to copy uninitialized bytes within the window.
+    // see also https://github.com/trifectatechfoundation/zlib-rs/issues/218
+    const INPUT: [u8; 2067] = [
+        0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 0, 1, 1, 0, 0, 0, 9, 0, 0, 0, 39, 39, 39, 39, 39,
+        45, 45, 54, 0, 54, 38, 39, 39, 0, 0, 0, 0, 0, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 98, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 97, 97, 39,
+        97, 97, 97, 15, 0, 0, 0, 0, 0, 5, 0, 0, 113, 0, 0, 0, 0, 25, 26, 26, 0, 0, 0, 0, 5, 0, 0,
+        40, 0, 0, 0, 3, 0, 0, 0, 32, 59, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 2, 0, 0, 39, 39, 39, 39,
+        39, 39, 39, 61, 64, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 39, 39, 39, 97,
+        113, 24, 113, 113, 113, 113, 113, 121, 113, 97, 97, 97, 97, 39, 97, 97, 97, 113, 113, 113,
+        113, 113, 113, 113, 113, 121, 113, 44, 44, 44, 0, 0, 0, 10, 0, 0, 1, 4, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 25, 26, 65, 0, 0, 0, 0, 5, 0, 0, 40, 0, 0, 0, 3, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 58, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 39, 121, 31, 2, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 121, 0, 0, 0, 0, 123, 121, 0, 121, 121, 121, 0, 0, 0, 0, 0, 0, 110, 1, 8, 0,
+        0, 1, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 16, 122, 0, 0, 0, 0, 8, 8, 0, 31, 0, 2, 16, 9,
+        0, 0, 0, 0, 0, 8, 0, 31, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 0,
+        58, 0, 0, 0, 0, 31, 39, 97, 97, 97, 97, 39, 97, 97, 97, 15, 0, 0, 0, 0, 0, 5, 0, 0, 113, 0,
+        1, 39, 26, 26, 25, 48, 0, 0, 0, 0, 5, 0, 0, 40, 0, 0, 0, 3, 0, 0, 0, 32, 59, 0, 0, 0, 0, 0,
+        91, 31, 0, 0, 0, 2, 0, 0, 39, 39, 39, 39, 39, 39, 39, 61, 64, 61, 61, 61, 61, 61, 61, 61,
+        61, 61, 61, 61, 61, 41, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 97, 39, 97, 97, 97, 15, 0,
+        0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 37, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121,
+        31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61, 61,
+        61, 39, 39, 39, 97, 113, 24, 113, 113, 113, 113, 113, 121, 113, 97, 97, 97, 97, 39, 97, 97,
+        97, 113, 113, 113, 113, 113, 113, 113, 113, 121, 113, 44, 44, 44, 0, 0, 0, 10, 0, 0, 1, 4,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 26, 65, 0, 0, 0, 0, 5, 0, 0, 40, 0, 0, 0, 3, 0, 0, 0, 32,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 108, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 39, 121, 31, 2, 0, 0, 0, 0, 39, 49, 39, 49, 39, 39, 39, 0,
+        0, 0, 0, 0, 48, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        7, 0, 46, 6, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 0, 0, 64, 0, 0, 0, 4, 0, 0, 9, 0, 0, 0, 0, 3,
+        0, 2, 61, 0, 0, 0, 0, 0, 1, 0, 0, 52, 56, 53, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0,
+        40, 0, 10, 4, 0, 0, 0, 0, 0, 0, 46, 121, 121, 121, 121, 121, 121, 121, 121, 0, 40, 0, 0, 0,
+        0, 16, 0, 0, 0, 0,
+    ];
+
+    let config = DeflateConfig {
+        level: 0,
+        method: Method::Deflated,
+        window_bits: 25,
+        mem_level: 3,
+        strategy: Strategy::Default,
+    };
+
+    assert_eq_rs_ng!({
+        let mut header = gz_header {
+            text: 825307441,
+            time: 14641,
+            xflags: 0,
+            os: 0,
+            extra: core::ptr::null_mut(),
+            extra_len: 0,
+            extra_max: 0,
+            name: core::ptr::null_mut(),
+            name_max: 0,
+            comment: core::ptr::null_mut(),
+            comm_max: 0,
+            hcrc: 0,
+            done: 0,
+        };
+
+        let mut stream = MaybeUninit::zeroed();
+
+        let err = unsafe {
+            deflateInit2_(
+                stream.as_mut_ptr(),
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        let err = unsafe { deflateSetHeader(stream, &mut header as gz_headerp) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let mut source = INPUT;
+        let buf_size = unsafe { deflateBound(stream, source.len() as _) };
+
+        let mut dest = vec![0; buf_size as usize];
+        let chunk = 47u32;
+        let flush = DeflateFlush::PartialFlush;
+
+        stream.next_in = source.as_mut_ptr().cast();
+        stream.next_out = dest.as_mut_ptr().cast();
+
+        // Break input into chunks.
+        let mut left: u32 = source.len().try_into().unwrap();
+        stream.avail_out = dest.len().try_into().unwrap();
+        while left > 0 {
+            let avail = Ord::min(chunk, left);
+            stream.avail_in = avail;
+            let err = unsafe { deflate(stream, flush as i32) };
+            match ReturnCode::from(err) {
+                ReturnCode::Ok => {
+                    left -= avail;
+                }
+                ReturnCode::BufError => {
+                    // Ran out of space, reallocate the buffer. Worst case double the buffer size.
+                    let add_space = Ord::min(chunk, buf_size as u32);
+                    dest.resize(dest.len() + add_space as usize, 0);
+
+                    // If extend() reallocates, it may have moved in memory.
+                    stream.next_out = dest.as_mut_ptr();
+                    stream.avail_out += add_space;
+
+                    left -= avail - stream.avail_in;
+                }
+                err => panic!("fatal {:?}", err),
+            }
+        }
+
+        assert_eq!(left, 0);
+
+        // Finish the stream.
+        let err = unsafe { deflate(stream, DeflateFlush::Finish as _) };
+        match ReturnCode::from(err) {
+            ReturnCode::Ok | ReturnCode::BufError => {
+                // We might have run out of input, but still need more space to write the header.
+                loop {
+                    // Worst case double the buffer size.
+                    let add_space = Ord::min(chunk, buf_size as u32);
+                    dest.resize(dest.len() + add_space as usize, 0);
+
+                    // If extend() reallocates, it may have moved in memory.
+                    stream.next_out = dest.as_mut_ptr();
+                    stream.avail_out += add_space;
+
+                    let err = unsafe { deflate(stream, DeflateFlush::Finish as _) };
+                    match ReturnCode::from(err) {
+                        ReturnCode::Ok => continue,
+                        ReturnCode::BufError => continue,
+                        ReturnCode::StreamEnd => break,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            ReturnCode::StreamEnd => { /* do nothing, we're done */ }
+            err => panic!("fatal {:?}", err),
+        }
+
+        dest.truncate(stream.total_out as usize);
+
+        let err = unsafe { deflateEnd(stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
     });
 }
