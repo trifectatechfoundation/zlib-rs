@@ -1803,7 +1803,6 @@ mod fuzz_based_tests {
     }
 
     #[test]
-    #[cfg_attr(target_family = "wasm", ignore = "zlib-ng compresses differently on wasm")]
     fn hash_calc_difference() {
         // exposed an issue in the crc32 acle hash calc where the incorrect instruction was used.
         // a different hash function changes which match is found first in the hash map, and
@@ -1847,7 +1846,7 @@ mod fuzz_based_tests {
                 mem_level: 2,
                 strategy: Strategy::Default,
             },
-            if cfg!(target_arch = "s390x") {
+            if cfg!(any(target_arch = "s390x", target_family = "wasm")) {
                 output_s390x
             } else {
                 output_other
