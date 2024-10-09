@@ -62,8 +62,11 @@ impl StandardHashCalc {
     pub fn insert_string(state: &mut State, string: usize, count: usize) {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
 
+        // it can happen that insufficient bytes are initialized
         // .take(count) generates worse assembly
-        for (i, w) in slice[..count + 3].windows(4).enumerate() {
+        let slice = &slice[..Ord::min(slice.len(), count + 3)];
+
+        for (i, w) in slice.windows(4).enumerate() {
             let idx = string as u16 + i as u16;
 
             let val = u32::from_le_bytes(w.try_into().unwrap());
@@ -205,8 +208,11 @@ impl Crc32HashCalc {
     pub unsafe fn insert_string(state: &mut State, string: usize, count: usize) {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
 
+        // it can happen that insufficient bytes are initialized
         // .take(count) generates worse assembly
-        for (i, w) in slice[..count + 3].windows(4).enumerate() {
+        let slice = &slice[..Ord::min(slice.len(), count + 3)];
+
+        for (i, w) in slice.windows(4).enumerate() {
             let idx = string as u16 + i as u16;
 
             let val = u32::from_le_bytes(w.try_into().unwrap());
