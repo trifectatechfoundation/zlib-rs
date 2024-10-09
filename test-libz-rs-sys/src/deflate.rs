@@ -2323,5 +2323,124 @@ fn copy_uninitialized_window_section() {
 
         let err = unsafe { deflateEnd(stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        dest
+    });
+}
+
+#[test]
+fn crc32_hash_calc_uninitialized_memory() {
+    // by default the `Crc32HashCalc::insert_string` function tries to read some uninitialized
+    // bytes in this case. That panicked before, and we now handle it properly.
+    //
+    // see https://github.com/trifectatechfoundation/zlib-rs/issues/219
+
+    let mut source = [
+        96, 48, 113, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 71, 0, 0, 0, 0, 0, 0, 7,
+        0, 0, 0, 64, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 86, 86, 86, 86, 86, 86, 86, 86,
+        86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86,
+        86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86,
+        86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86,
+        86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86,
+        86, 86, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 1, 0, 0, 0, 121, 31, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    let config = DeflateConfig {
+        level: 0,
+        method: Method::Deflated,
+        window_bits: 31,
+        mem_level: 3,
+        strategy: Strategy::Default,
+    };
+
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::zeroed();
+
+        let err = unsafe {
+            deflateInit2_(
+                stream.as_mut_ptr(),
+                config.level,
+                config.method as i32,
+                config.window_bits,
+                config.mem_level,
+                config.strategy as i32,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        let buf_size = unsafe { deflateBound(stream, source.len() as _) };
+
+        let mut dest = vec![0; buf_size as usize];
+        let chunk = 2u32;
+        let flush = DeflateFlush::NoFlush;
+
+        stream.next_in = source.as_mut_ptr().cast();
+        stream.avail_in = chunk; // First chunk.
+        stream.next_out = dest.as_mut_ptr().cast();
+        stream.avail_out = dest.len().try_into().unwrap();
+
+        // Deflate first chunk.
+        let err = unsafe { deflate(stream, flush as i32) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        // Change the parameters.
+        let new_level = 4;
+        let err = unsafe { deflateParams(stream, new_level, config.strategy as _) };
+        match ReturnCode::from(err) {
+            ReturnCode::Ok => {}
+            ReturnCode::BufError => {
+                // Flushing the current pending data may run us out of buffer space.
+                // Worst case double the buffer size.
+                let add_space = Ord::min(chunk, buf_size as u32);
+                dest.resize(dest.len() + add_space as usize, 0);
+
+                // If extend() reallocates, it may have moved in memory.
+                stream.next_out = dest.as_mut_ptr();
+                stream.avail_out += add_space;
+
+                let err = unsafe { deflateParams(stream, new_level, config.strategy as _) };
+                assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+            }
+            err => panic!("fatal {:?}", err),
+        }
+
+        // Deflate the rest in chunks.
+        let mut left: u32 = source.len() as u32 - chunk;
+        while left > 0 {
+            // Write the chunk.
+            let avail = Ord::min(chunk, left);
+            stream.avail_in = avail;
+            let err = unsafe { deflate(stream, flush as i32) };
+            match ReturnCode::from(err) {
+                ReturnCode::Ok => {
+                    left -= avail;
+                }
+                ReturnCode::BufError => {
+                    // Worst case double the buffer size.
+                    let add_space = Ord::min(chunk, buf_size as u32);
+                    dest.resize(dest.len() + add_space as usize, 0);
+
+                    // If extend() reallocates, it may have moved in memory.
+                    stream.next_out = dest.as_mut_ptr();
+                    stream.avail_out += add_space;
+
+                    left -= avail - stream.avail_in;
+                }
+                err => panic!("fatal {:?}", err),
+            }
+        }
+
+        assert_eq!(left, 0);
+
+        dest
     });
 }
