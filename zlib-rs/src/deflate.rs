@@ -1335,6 +1335,7 @@ impl<'a> State<'a> {
         self.lit_bufsize * 4
     }
 
+    #[inline(always)]
     pub(crate) fn update_hash(&self, h: u32, val: u32) -> u32 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::update_hash(h, val),
@@ -1343,6 +1344,7 @@ impl<'a> State<'a> {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
@@ -1351,6 +1353,7 @@ impl<'a> State<'a> {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn insert_string(&mut self, string: usize, count: usize) {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::insert_string(self, string, count),
@@ -1359,6 +1362,7 @@ impl<'a> State<'a> {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn tally_lit(&mut self, unmatched: u8) -> bool {
         self.sym_buf.push(0);
         self.sym_buf.push(0);
@@ -1380,6 +1384,7 @@ impl<'a> State<'a> {
         self::trees_tbl::DIST_CODE[index]
     }
 
+    #[inline(always)]
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
         let symbols = [dist as u8, (dist >> 8) as u8, len as u8];
         self.sym_buf.extend(&symbols);
