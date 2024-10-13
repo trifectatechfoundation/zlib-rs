@@ -1364,11 +1364,20 @@ impl<'a> State<'a> {
 
     #[inline(always)]
     pub(crate) fn tally_lit(&mut self, unmatched: u8) -> bool {
-        self.sym_buf.push(0);
-        self.sym_buf.push(0);
-        self.sym_buf.push(unmatched);
+        Self::tally_lit_help(&mut self.sym_buf, &mut self.l_desc, unmatched)
+    }
 
-        *self.l_desc.dyn_tree[unmatched as usize].freq_mut() += 1;
+    #[inline(always)]
+    pub(crate) fn tally_lit_help(
+        sym_buf: &mut ReadBuf<'a>,
+        l_desc: &mut TreeDesc<HEAP_SIZE>,
+        unmatched: u8,
+    ) -> bool {
+        sym_buf.push(0);
+        sym_buf.push(0);
+        sym_buf.push(unmatched);
+
+        *l_desc.dyn_tree[unmatched as usize].freq_mut() += 1;
 
         assert!(
             unmatched as usize <= STD_MAX_MATCH - STD_MIN_MATCH,
@@ -1376,7 +1385,7 @@ impl<'a> State<'a> {
         );
 
         // signal that the current block should be flushed
-        self.sym_buf.len() == self.sym_buf.capacity() - 3
+        sym_buf.len() == sym_buf.capacity() - 3
     }
 
     const fn d_code(dist: usize) -> u8 {
@@ -1814,7 +1823,7 @@ impl StaticTreeDesc {
 }
 
 #[derive(Clone)]
-struct TreeDesc<const N: usize> {
+pub(crate) struct TreeDesc<const N: usize> {
     dyn_tree: [Value; N],
     max_code: usize,
     stat_desc: &'static StaticTreeDesc,
