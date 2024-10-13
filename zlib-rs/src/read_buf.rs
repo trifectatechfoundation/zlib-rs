@@ -109,72 +109,28 @@ impl<'a> ReadBuf<'a> {
         self.filled = 0;
     }
 
-    /// Sets the size of the filled region of the buffer.
-    ///
-    /// The number of initialized bytes is not changed.
-    ///
-    /// Note that this can be used to *shrink* the filled region of the buffer in addition to growing it (for
-    /// example, by a `AsyncRead` implementation that compresses data in-place).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the filled region of the buffer would become larger than the initialized region.
-    #[inline]
-    #[track_caller]
-    pub fn set_filled(&mut self, n: usize) {
+    fn push_symbol(&mut self, a: u8, b: u8, c: u8) {
         assert!(
-            n <= self.initialized,
-            "filled must not become larger than initialized"
-        );
-        self.filled = n;
-    }
-
-    /// Asserts that the first `n` unfilled bytes of the buffer are initialized.
-    ///
-    /// `ReadBuf` assumes that bytes are never de-initialized, so this method does nothing when called with fewer
-    /// bytes than are already known to be initialized.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `n` unfilled bytes of the buffer have already been initialized.
-    #[inline]
-    pub unsafe fn assume_init(&mut self, n: usize) {
-        self.initialized = Ord::max(self.initialized, self.filled + n);
-    }
-
-    #[track_caller]
-    pub fn push(&mut self, byte: u8) {
-        assert!(
-            self.remaining() >= 1,
+            self.remaining() >= 3,
             "read_buf is full ({} bytes)",
             self.capacity()
         );
 
-        self.buf[self.filled] = MaybeUninit::new(byte);
+        self.buf[self.filled] = MaybeUninit::new(a);
+        self.buf[self.filled + 1] = MaybeUninit::new(b);
+        self.buf[self.filled + 2] = MaybeUninit::new(c);
 
-        self.initialized = Ord::max(self.initialized, self.filled + 1);
-        self.filled += 1;
+        self.initialized = Ord::max(self.initialized, self.filled + 3);
+        self.filled += 3;
     }
 
-    /// Appends data to the buffer, advancing the written position and possibly also the initialized position.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.remaining()` is less than `buf.len()`.
-    #[inline(always)]
-    #[track_caller]
-    pub fn extend(&mut self, buf: &[u8]) {
-        assert!(
-            self.remaining() >= buf.len(),
-            "buf.len() must fit in remaining()"
-        );
+    pub fn push_lit(&mut self, byte: u8) {
+        self.push_symbol(0, 0, byte)
+    }
 
-        // using simd here (on x86_64) was not fruitful
-        self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
-
-        let end = self.filled + buf.len();
-        self.initialized = Ord::max(self.initialized, end);
-        self.filled = end;
+    pub fn push_dist(&mut self, dist: u16, len: u8) {
+        let [dist1, dist2] = dist.to_le_bytes();
+        self.push_symbol(dist1, dist2, len)
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
@@ -213,10 +169,6 @@ impl fmt::Debug for ReadBuf<'_> {
             .field("capacity", &self.capacity())
             .finish()
     }
-}
-
-fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
-    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
 }
 
 unsafe fn slice_to_uninit_mut(slice: &mut [u8]) -> &mut [MaybeUninit<u8>] {
