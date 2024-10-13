@@ -1168,14 +1168,18 @@ impl<'a> BitWriter<'a> {
 pub(crate) struct State<'a> {
     status: Status,
 
-    last_flush: i32, /* value of flush param for previous deflate call */
-
-    bit_writer: BitWriter<'a>,
+    last_flush: i8, /* value of flush param for previous deflate call */
 
     pub(crate) wrap: i8, /* bit 0 true for zlib, bit 1 true for gzip */
 
     pub(crate) strategy: Strategy,
     pub(crate) level: i8,
+
+    /// Whether or not a block is currently open for the QUICK deflation scheme.
+    /// true if there is an active block, or false if the block was just closed
+    pub(crate) block_open: u8,
+
+    bit_writer: BitWriter<'a>,
 
     /// Use a faster search when the previous match is longer than this
     pub(crate) good_match: usize,
@@ -1221,10 +1225,6 @@ pub(crate) struct State<'a> {
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
-
-    /// Whether or not a block is currently open for the QUICK deflation scheme.
-    /// true if there is an active block, or false if the block was just closed
-    pub(crate) block_open: u8,
 
     pub(crate) window: Window<'a>,
 
@@ -1553,7 +1553,7 @@ enum Status {
     Finish = 3,
 }
 
-const fn rank_flush(f: i32) -> i32 {
+const fn rank_flush(f: i8) -> i8 {
     // rank Z_BLOCK between Z_NO_FLUSH and Z_PARTIAL_FLUSH
     ((f) * 2) - (if (f) > 4 { 9 } else { 0 })
 }
@@ -2394,7 +2394,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     }
 
     let old_flush = stream.state.last_flush;
-    stream.state.last_flush = flush as i32;
+    stream.state.last_flush = flush as i8;
 
     /* Flush as much pending output as possible */
     if !stream.state.bit_writer.pending.pending().is_empty() {
@@ -2415,7 +2415,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
          * returning Z_STREAM_END instead of Z_BUF_ERROR.
          */
     } else if stream.avail_in == 0
-        && rank_flush(flush as i32) <= rank_flush(old_flush)
+        && rank_flush(flush as i8) <= rank_flush(old_flush)
         && flush != DeflateFlush::Finish
     {
         let err = ReturnCode::BufError;
