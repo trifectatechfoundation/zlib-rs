@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 
-use crate::{read_buf::ReadBuf, CRC32_INITIAL_VALUE};
+use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod acle;
@@ -25,24 +25,6 @@ pub fn crc32(start: u32, buf: &[u8]) -> u32 {
 
 pub fn crc32_braid(start: u32, buf: &[u8]) -> u32 {
     braid::crc32_braid::<5>(start, buf)
-}
-
-#[allow(unused)]
-pub fn crc32_copy(dst: &mut ReadBuf, buf: &[u8]) -> u32 {
-    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
-     * these short lengths might also prove to be effective */
-    if buf.len() < 64 {
-        dst.extend(buf);
-        return braid::crc32_braid::<5>(CRC32_INITIAL_VALUE, buf);
-    }
-
-    let mut crc_state = Crc32Fold::new();
-
-    crc_state.fold_copy(unsafe { dst.inner_mut() }, buf);
-    unsafe { dst.assume_init(buf.len()) };
-    dst.set_filled(buf.len());
-
-    crc_state.finish()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -164,19 +146,6 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_crc32_fold_copy() {
-        // input large enough to trigger the SIMD
-        let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-        h.update(&INPUT);
-        let mut dst = [0; INPUT.len()];
-        let mut dst = ReadBuf::new(&mut dst);
-
-        assert_eq!(crc32_copy(&mut dst, &INPUT), h.finalize());
-
-        assert_eq!(INPUT, dst.filled());
-    }
-
     quickcheck::quickcheck! {
         fn crc_fold_is_crc32fast(v: Vec<u8>, start: u32) -> bool {
             let mut h = crc32fast::Hasher::new_with_initial(start);
@@ -186,21 +155,6 @@ mod test {
             let b = h.finalize();
 
             a == b
-        }
-
-        fn crc_fold_copy_is_crc32fast(v: Vec<u8>) -> bool {
-            let mut h = crc32fast::Hasher::new_with_initial(CRC32_INITIAL_VALUE);
-            h.update(&v);
-
-            let mut dst = vec![0; v.len()];
-            let mut dst = ReadBuf::new(&mut dst);
-
-            let a = crc32_copy(&mut dst, &v) ;
-            let b = h.finalize();
-
-            assert_eq!(a,b);
-
-            v == dst.filled()
         }
     }
 
