@@ -43,12 +43,6 @@ impl<'a> ReadBuf<'a> {
         }
     }
 
-    /// Pointer to where the next byte will be written
-    #[inline]
-    pub fn next_out(&mut self) -> *mut MaybeUninit<u8> {
-        self.buf[self.filled..].as_mut_ptr()
-    }
-
     /// Pointer to the start of the `ReadBuf`
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<u8> {
@@ -103,7 +97,7 @@ impl<'a> ReadBuf<'a> {
 
     /// Returns the number of bytes at the end of the slice that have not yet been filled.
     #[inline]
-    pub fn remaining(&self) -> usize {
+    fn remaining(&self) -> usize {
         self.capacity() - self.filled
     }
 
@@ -113,20 +107,6 @@ impl<'a> ReadBuf<'a> {
     #[inline]
     pub fn clear(&mut self) {
         self.filled = 0;
-    }
-
-    /// Advances the size of the filled region of the buffer.
-    ///
-    /// The number of initialized bytes is not changed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the filled region of the buffer would become larger than the initialized region.
-    #[inline]
-    #[track_caller]
-    pub fn advance(&mut self, n: usize) {
-        let new = self.filled.checked_add(n).expect("filled overflow");
-        self.set_filled(new);
     }
 
     /// Sets the size of the filled region of the buffer.
