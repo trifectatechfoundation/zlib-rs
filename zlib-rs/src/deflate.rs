@@ -1373,9 +1373,7 @@ impl<'a> State<'a> {
         l_desc: &mut TreeDesc<HEAP_SIZE>,
         unmatched: u8,
     ) -> bool {
-        sym_buf.push(0);
-        sym_buf.push(0);
-        sym_buf.push(unmatched);
+        sym_buf.push_lit(unmatched);
 
         *l_desc.dyn_tree[unmatched as usize].freq_mut() += 1;
 
@@ -1395,8 +1393,7 @@ impl<'a> State<'a> {
 
     #[inline(always)]
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
-        let symbols = [dist as u8, (dist >> 8) as u8, len as u8];
-        self.sym_buf.extend(&symbols);
+        self.sym_buf.push_dist(dist as u16, len as u8);
 
         self.matches += 1;
         dist -= 1;
