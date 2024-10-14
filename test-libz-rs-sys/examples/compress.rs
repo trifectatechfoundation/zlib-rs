@@ -5,7 +5,9 @@ use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use zlib_rs::{deflate::DeflateConfig, DeflateFlush, ReturnCode};
+#[cfg(not(target_family = "wasm"))]
+use zlib_rs::deflate::DeflateConfig;
+use zlib_rs::{DeflateFlush, ReturnCode};
 
 use std::ffi::{c_int, c_uint};
 

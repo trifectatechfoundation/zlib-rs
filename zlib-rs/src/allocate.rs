@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use core::ffi::c_int;
 use core::{
     alloc::Layout,
