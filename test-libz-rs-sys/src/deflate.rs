@@ -616,9 +616,9 @@ fn deflate_bound_gzip_header_help(
 ) -> bool {
     let extra_len = extra.as_bytes().len();
 
-    let extra = extra.into_raw().cast::<u8>();
-    let name = name.into_raw().cast::<u8>();
-    let comment = comment.into_raw().cast::<u8>();
+    let extra = extra.as_ptr().cast_mut().cast::<u8>();
+    let name = name.as_ptr().cast_mut().cast::<u8>();
+    let comment = comment.as_ptr().cast_mut().cast::<u8>();
 
     assert_eq_rs_ng!({
         let mut strm = MaybeUninit::zeroed();
@@ -2440,6 +2440,8 @@ fn crc32_hash_calc_uninitialized_memory() {
         }
 
         assert_eq!(left, 0);
+
+        deflateEnd(stream);
 
         dest
     });
