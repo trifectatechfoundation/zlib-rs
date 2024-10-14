@@ -327,7 +327,6 @@ jobs:
           export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
           cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
         env:
-          CFLAGS: "-fno-pic" # workaround for linker bug (WebAssembly/wasi-sdk#492)
           RUST_BACKTRACE: 1
           RUSTFLAGS: ""
       - name: cargo nextest (with SIMD)
@@ -335,7 +334,6 @@ jobs:
           export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
           cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
         env:
-          CFLAGS: "-fno-pic" # workaround for linker bug (WebAssembly/wasi-sdk#492)
           RUST_BACKTRACE: 1
           RUSTFLAGS: "-Ctarget-feature=+simd128"
 
