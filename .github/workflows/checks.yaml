@@ -262,7 +262,7 @@ jobs:
       - name: "cdylib: default settings"
         working-directory: libz-rs-sys-cdylib
         env:
-          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         run: |
           cargo build --release --target ${{matrix.target}}
           cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
@@ -270,7 +270,7 @@ jobs:
           cmp -s Cargo.toml out.txt
       - name: "cdylib: rust-allocator"
         env:
-          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features --features="rust-allocator"
@@ -279,7 +279,7 @@ jobs:
           cmp -s Cargo.toml out.txt
       - name: "cdylib: no_std"
         env:
-          LD_PRELOAD: "target/${{matrix.target}}/release/deps/libz_rs.so"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features
