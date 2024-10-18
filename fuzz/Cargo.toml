@@ -3,7 +3,7 @@ name = "zlib-rs-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true
@@ -15,6 +15,7 @@ debug = true
 default = ["rust-allocator", "libz-rs-sys/testing-prefix"]
 c-allocator = ["libz-rs-sys/c-allocator", "test-libz-rs-sys/c-allocator", "libz-rs-sys/std"]
 rust-allocator = ["libz-rs-sys/rust-allocator",  "test-libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
+disable-checksum = ["zlib-rs/__internal-fuzz-disable-checksum"]
 
 [dependencies.libfuzzer-sys]
 version = "0.4"
@@ -25,6 +26,7 @@ libc = "0.2.151"
 libz-ng-sys = "1.1.12"
 libloading = "0.8.1"
 crc32fast = "1.3.2"
+rstest = "0.23.0"
 
 [dependencies.zlib-rs]
 path = "../zlib-rs"
@@ -47,6 +49,13 @@ name = "uncompress"
 path = "fuzz_targets/uncompress.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "uncompress2"
+path = "fuzz_targets/uncompress2.rs"
+test = true
+doc = false
+required-features = ["disable-checksum"]
 
 [[bin]]
 name = "uncompress_random_input"
