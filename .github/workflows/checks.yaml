@@ -185,9 +185,9 @@ jobs:
     strategy:
       matrix:
         features:
-          - ""
-          - '--no-default-features --features="c-allocator"'
-          - '--no-default-features --features="rust-allocator"'
+          - 'default'
+          - 'c-allocator'
+          - 'rust-allocator'
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -203,9 +203,14 @@ jobs:
           tool: cargo-fuzz
       - name: Smoke-test fuzz targets
         run: |
-          cargo fuzz build ${{ matrix.features }}
-          for target in $(cargo fuzz list ${{ matrix.features }}) ; do
-            RUST_BACKTRACE=1 cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
+          cargo fuzz build --no-default-features --features="${{ matrix.features }}"
+          for target in $(cargo fuzz list); do
+            if [ "$target" = "uncompress2" ]; then
+              features="${{ matrix.features }} disable-checksum"
+            else
+              features="${{ matrix.features }}"
+            fi
+            RUST_BACKTRACE=1 cargo fuzz run --no-default-features --features="$features" $target -- -max_total_time=10
           done
 
   fuzz-aarch64:
@@ -233,9 +238,14 @@ jobs:
           tool: cargo-fuzz
       - name: Smoke-test fuzz targets
         run: |
-          cargo fuzz build ${{ matrix.features }}
-          for target in $(cargo fuzz list ${{ matrix.features }}) ; do
-            RUST_BACKTRACE=1 cargo fuzz run ${{ matrix.features }} $target -- -max_total_time=10
+          cargo fuzz build --no-default-features --features="${{ matrix.features }}"
+          for target in $(cargo fuzz list); do
+            if [ "$target" = "uncompress2" ]; then
+              features="${{ matrix.features }} disable-checksum"
+            else
+              features="${{ matrix.features }}"
+            fi
+            RUST_BACKTRACE=1 cargo fuzz run --no-default-features --features="$features" $target -- -max_total_time=10
           done
 
   link-c-dynamic-library:
