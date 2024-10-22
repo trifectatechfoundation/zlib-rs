@@ -19,6 +19,10 @@ This repository contains two public crates:
 This project is heavily based on the [zlib](https://github.com/madler/zlib) and
 [zlib-ng](https://github.com/zlib-ng/zlib-ng) projects.
 
-## Sponsors
+## About
+
+zlib-rs is part of Trifecta Tech Foundation's [Data compression initiative](https://trifectatech.org/initiatives/data-compression/).
+
+## History
 
 The initial development of zlib-rs was started and funded by the [Internet Security Research Group](https://www.abetterinternet.org/) as part of the [Prossimo project](https://www.memorysafety.org/).
