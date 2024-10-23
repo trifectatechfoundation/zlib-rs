@@ -2279,7 +2279,15 @@ pub fn end<'a>(stream: &'a mut InflateStream<'a>) -> &'a mut z_stream {
     stream
 }
 
-pub fn get_header<'a>(
+/// # Safety
+///
+/// The caller must guarantee:
+///
+/// * If `head` is `Some`:
+//      - If `head.extra` is not NULL, it must be writable for at least `head.extra_max` bytes
+///     - if `head.name` is not NULL, it must be writable for at least `head.name_max` bytes
+///     - if `head.comment` is not NULL, it must be writable for at least `head.comm_max` bytes
+pub unsafe fn get_header<'a>(
     stream: &mut InflateStream<'a>,
     head: Option<&'a mut gz_header>,
 ) -> ReturnCode {
