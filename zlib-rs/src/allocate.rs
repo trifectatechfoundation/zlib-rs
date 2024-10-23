@@ -99,6 +99,14 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     std::alloc::System.dealloc(ptr.cast(), layout);
 }
 
+unsafe extern "C" fn zalloc_fail(_: *mut c_void, _: c_uint, _: c_uint) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+unsafe extern "C" fn zfree_fail(_: *mut c_void, _: *mut c_void) {
+    // do nothing
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Allocator<'a> {
@@ -121,6 +129,13 @@ impl Allocator<'static> {
     pub const C: Self = Self {
         zalloc: zalloc_c,
         zfree: zfree_c,
+        opaque: core::ptr::null_mut(),
+        _marker: PhantomData,
+    };
+
+    pub const FAIL: Self = Self {
+        zalloc: zalloc_fail,
+        zfree: zfree_fail,
         opaque: core::ptr::null_mut(),
         _marker: PhantomData,
     };
@@ -240,8 +255,17 @@ impl<'a> Allocator<'a> {
             return unsafe { std::alloc::System.alloc_zeroed(layout) };
         }
 
-        self.allocate_layout(Layout::array::<u8>(len).ok().unwrap())
-            .cast()
+        // create the allocation (contents are uninitialized)
+        let ptr = self.allocate_layout(Layout::array::<u8>(len).ok().unwrap());
+
+        if ptr.is_null() {
+            return core::ptr::null_mut();
+        }
+
+        // zero all contents (thus initializing the buffer)
+        unsafe { core::ptr::write_bytes(ptr, 0, len) };
+
+        ptr.cast()
     }
 
     /// # Panics
@@ -363,5 +387,42 @@ mod tests {
         struct Align64(u8);
 
         unaligned_allocator_help::<Align64>()
+    }
+
+    fn test_allocate_zeroed_help(allocator: Allocator) {
+        let len = 42;
+        let buf = allocator.allocate_zeroed(len);
+
+        if !buf.is_null() {
+            let slice = unsafe { core::slice::from_raw_parts_mut(buf, len) };
+
+            assert_eq!(slice.iter().sum::<u8>(), 0);
+        }
+
+        unsafe { allocator.deallocate(buf, len) };
+    }
+
+    #[test]
+    fn test_allocate_zeroed() {
+        #[cfg(feature = "rust-allocator")]
+        test_allocate_zeroed_help(Allocator::RUST);
+
+        #[cfg(feature = "c-allocator")]
+        test_allocate_zeroed_help(Allocator::C);
+
+        test_allocate_zeroed_help(Allocator::FAIL);
+    }
+
+    #[test]
+    fn test_deallocate_null() {
+        unsafe {
+            #[cfg(feature = "rust-allocator")]
+            (Allocator::RUST.zfree)(core::ptr::null_mut(), core::ptr::null_mut());
+
+            #[cfg(feature = "c-allocator")]
+            (Allocator::C.zfree)(core::ptr::null_mut(), core::ptr::null_mut());
+
+            (Allocator::FAIL.zfree)(core::ptr::null_mut(), core::ptr::null_mut());
+        }
     }
 }
