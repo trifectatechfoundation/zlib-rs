@@ -77,9 +77,9 @@ fn run(input: &[u8]) -> Corpus {
             }
             ReturnCode::BufError | ReturnCode::Ok => {
                 let add_space: u32 = Ord::max(1024, output.len().try_into().unwrap());
-                output.extend(core::iter::repeat_n(0, add_space.try_into().unwrap()));
+                output.resize(output.len() + add_space as usize, 0);
 
-                // If extend() reallocates, it may have moved in memory.
+                // If resize() reallocates, it may have moved in memory.
                 stream.next_out = output.as_mut_ptr();
                 stream.avail_out += add_space;
             }
