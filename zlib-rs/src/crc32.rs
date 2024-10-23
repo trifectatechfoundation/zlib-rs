@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(target_arch = "aarch64")]
@@ -79,14 +77,14 @@ impl Crc32Fold {
         self.value = braid::crc32_braid::<5>(self.value, src);
     }
 
-    pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
+    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
             return self.fold.fold_copy(dst, src);
         }
 
         self.fold(src, 0);
-        dst[..src.len()].copy_from_slice(slice_to_uninit(src));
+        dst[..src.len()].copy_from_slice(src);
     }
 
     pub fn finish(self) -> u32 {
@@ -97,12 +95,6 @@ impl Crc32Fold {
 
         self.value
     }
-}
-
-// when stable, use MaybeUninit::write_slice
-fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
-    // safety: &[T] and &[MaybeUninit<T>] have the same layout
-    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
 }
 
 #[cfg(test)]

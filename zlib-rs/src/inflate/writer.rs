@@ -114,7 +114,11 @@ impl<'a> Writer<'a> {
             // the window slice.
             unsafe {
                 let src = window.as_ptr();
-                Self::copy_chunk_unchecked::<C>(src.wrapping_add(range.start), self.next_out(), len)
+                Self::copy_chunk_unchecked::<C>(
+                    src.wrapping_add(range.start).cast(),
+                    self.next_out(),
+                    len,
+                )
             }
         } else {
             let buf = &window.as_slice()[range];
