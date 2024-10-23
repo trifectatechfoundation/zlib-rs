@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 #[cfg(target_arch = "x86_64")]
 mod avx2;
 mod generic;
@@ -27,12 +25,12 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     generic::adler32_rust(start_checksum, data)
 }
 
-pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [MaybeUninit<u8>], src: &[u8]) -> u32 {
+pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [u8], src: &[u8]) -> u32 {
     debug_assert!(dst.len() >= src.len(), "{} < {}", dst.len(), src.len());
 
     // integrating the memcpy into the adler32 function did not have any benefits, and in fact was
     // a bit slower for very small chunk sizes.
-    dst[..src.len()].copy_from_slice(slice_to_uninit(src));
+    dst[..src.len()].copy_from_slice(src);
     adler32(start_checksum, src)
 }
 
@@ -65,12 +63,6 @@ pub fn adler32_combine(adler1: u32, adler2: u32, len2: u64) -> u32 {
     }
 
     (sum1 | (sum2 << 16)) as u32
-}
-
-// when stable, use MaybeUninit::write_slice
-fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
-    // safety: &[T] and &[MaybeUninit<T>] have the same layout
-    unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
 }
 
 // inefficient but correct, useful for testing

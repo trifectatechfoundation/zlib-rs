@@ -1,14 +1,11 @@
 use core::arch::x86_64::__m128i;
-use core::{
-    arch::x86_64::{
-        _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128,
-        _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128, _mm_storeu_si128,
-        _mm_xor_si128,
-    },
-    mem::MaybeUninit,
+use core::arch::x86_64::{
+    _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128,
+    _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128, _mm_storeu_si128,
+    _mm_xor_si128,
 };
 
-use crate::{crc32::slice_to_uninit, CRC32_INITIAL_VALUE};
+use crate::CRC32_INITIAL_VALUE;
 
 #[derive(Debug)]
 #[repr(C, align(16))]
@@ -43,7 +40,7 @@ impl Accumulator {
         unsafe { self.fold_help::<false>(&mut [], src, start) }
     }
 
-    pub fn fold_copy(&mut self, dst: &mut [MaybeUninit<u8>], src: &[u8]) {
+    pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
         unsafe { self.fold_help::<true>(dst, src, 0) }
     }
 
@@ -192,7 +189,7 @@ impl Accumulator {
     #[allow(clippy::needless_range_loop)]
     fn progress<const N: usize, const COPY: bool>(
         &mut self,
-        dst: &mut [MaybeUninit<u8>],
+        dst: &mut [u8],
         src: &mut &[u8],
         init_crc: &mut u32,
     ) -> usize {
@@ -229,7 +226,7 @@ impl Accumulator {
     #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
     unsafe fn fold_help<const COPY: bool>(
         &mut self,
-        mut dst: &mut [MaybeUninit<u8>],
+        mut dst: &mut [u8],
         mut src: &[u8],
         mut init_crc: u32,
     ) {
@@ -255,7 +252,7 @@ impl Accumulator {
 
                 partial_buf.0[..src.len()].copy_from_slice(src);
                 xmm_crc_part = _mm_load_si128(partial_buf.0.as_mut_ptr() as *mut __m128i);
-                dst[..src.len()].copy_from_slice(slice_to_uninit(&partial_buf.0[..src.len()]));
+                dst[..src.len()].copy_from_slice(&partial_buf.0[..src.len()]);
             }
         } else {
             let (before, _, _) = unsafe { src.align_to::<__m128i>() };
@@ -329,11 +326,7 @@ impl Accumulator {
             );
             if COPY {
                 _mm_storeu_si128(partial_buf.0.as_mut_ptr() as *mut __m128i, xmm_crc_part);
-                core::ptr::copy_nonoverlapping(
-                    partial_buf.0.as_ptr() as *const MaybeUninit<u8>,
-                    dst.as_mut_ptr(),
-                    src.len(),
-                );
+                core::ptr::copy_nonoverlapping(partial_buf.0.as_ptr(), dst.as_mut_ptr(), src.len());
             }
 
             self.partial_fold(xmm_crc_part, src.len());

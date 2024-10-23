@@ -231,6 +231,19 @@ impl<'a> Allocator<'a> {
         }
     }
 
+    pub fn allocate_zeroed(&self, len: usize) -> *mut u8 {
+        #[cfg(feature = "rust-allocator")]
+        if self.zalloc == Allocator::RUST.zalloc {
+            // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
+            let layout = Layout::from_size_align(len, 64).unwrap();
+
+            return unsafe { std::alloc::System.alloc_zeroed(layout) };
+        }
+
+        self.allocate_layout(Layout::array::<u8>(len).ok().unwrap())
+            .cast()
+    }
+
     /// # Panics
     ///
     /// - when `len` is 0

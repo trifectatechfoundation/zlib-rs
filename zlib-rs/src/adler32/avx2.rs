@@ -135,8 +135,6 @@ unsafe fn helper_32_bytes(mut adler0: u32, mut adler1: u32, src: &[__m256i]) -> 
 #[cfg(test)]
 #[cfg(target_feature = "avx2")]
 mod test {
-    use core::mem::MaybeUninit;
-
     use super::*;
 
     #[test]
@@ -189,10 +187,5 @@ mod test {
         let rust = crate::adler32::generic::adler32_rust(42, DEFAULT);
 
         assert_eq!(avx2, rust);
-    }
-
-    // TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
-    unsafe fn slice_assume_init(slice: &[MaybeUninit<u8>]) -> &[u8] {
-        &*(slice as *const [MaybeUninit<u8>] as *const [u8])
     }
 }
