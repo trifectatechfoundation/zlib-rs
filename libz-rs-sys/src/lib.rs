@@ -920,7 +920,10 @@ pub unsafe extern "C-unwind" fn deflate(strm: *mut z_stream, flush: i32) -> c_in
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 /// * Either
 ///     - `head` is `NULL`
-///     - `head` satisfies the requirements of `&mut *head`
+///     - `head` satisfies the requirements of `&mut *head` and satisfies the following:
+///         - `head.extra` is `NULL` or is readable for at least `head.extra_len` bytes
+///         - `head.name` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
+///         - `head.comment` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 #[export_name = prefix!(deflateSetHeader)]
 pub unsafe extern "C-unwind" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> c_int {
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {

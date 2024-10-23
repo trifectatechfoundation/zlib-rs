@@ -2979,7 +2979,15 @@ impl Heap {
     }
 }
 
-pub fn set_header<'a>(
+/// # Safety
+///
+/// The caller must guarantee:
+///
+/// * If `head` is `Some`
+///     - `head.extra` is `NULL` or is readable for at least `head.extra_len` bytes
+///     - `head.name` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
+///     - `head.comment` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
+pub unsafe fn set_header<'a>(
     stream: &mut DeflateStream<'a>,
     head: Option<&'a mut gz_header>,
 ) -> ReturnCode {
@@ -3686,7 +3694,7 @@ mod test {
             unreachable!()
         };
 
-        set_header(stream, Some(&mut header));
+        unsafe { set_header(stream, Some(&mut header)) };
 
         let input = b"Hello World\n";
         stream.next_in = input.as_ptr() as *mut _;
@@ -3754,7 +3762,7 @@ mod test {
             unreachable!()
         };
 
-        set_header(stream, Some(&mut header));
+        unsafe { set_header(stream, Some(&mut header)) };
 
         let input = b"Hello World\n";
         stream.next_in = input.as_ptr() as *mut _;
@@ -3815,7 +3823,7 @@ mod test {
             };
 
             assert_eq!(
-                crate::inflate::get_header(stream, Some(&mut header)),
+                unsafe { crate::inflate::get_header(stream, Some(&mut header)) },
                 ReturnCode::Ok
             );
 
