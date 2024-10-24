@@ -3,13 +3,23 @@
 //! coverage by disabling checksum validation and disregarding correctness of the results.
 //!
 //! This test must be run with `--features disable-checksum`. It's also suggested to initialize
-//! fuzzing with a corpus of real zlib/gzip files.
+//! fuzzing with a corpus of real zlib/gzip files. Place the corpus in directory
+//! `corpus/uncompress2` (the default corpus location).
+//!
+//! Then, the fuzzer can be run like:
+//!
+//! ```
+//! cargo fuzz run uncompress2 --features disable-checksum -j$(nproc)
+//! ```
+//!
+//! If not starting with an initial corpus, consider using the `-- -max_len=1048576` argument to
+//! test larger inputs.
 //!
 //! libfuzzer uses LLVM sanitizers to detect some classes of bugs and UB. For detecting
 //! Rust-specific UB, use Miri. Once a corpus with suitable coverage has been built, you can run
 //! Miri against the corpus by executing:
 //! ```
-//! MIRIFLAGS=-Zmiri-disable-isolation cargo miri nextest run --bin uncompress2
+//! MIRIFLAGS=-Zmiri-disable-isolation cargo miri nextest run --bin uncompress2 --features disable-checksum
 //! ```
 //! This assumes the corpus is located in the default directory of `corpus/uncompress2`. If it
 //! isn't, specify the corpus directory with the `ZLIB_RS_CORPUS_DIR` environment variable.
