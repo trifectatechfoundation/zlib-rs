@@ -1,3 +1,4 @@
+#![warn(unsafe_op_in_unsafe_fn)]
 use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(target_arch = "aarch64")]
@@ -64,12 +65,12 @@ impl Crc32Fold {
     pub fn fold(&mut self, src: &[u8], _start: u32) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
-            return self.fold.fold(src, _start);
+            return unsafe { self.fold.fold(src, _start) };
         }
 
         #[cfg(target_arch = "aarch64")]
         if Self::is_crc_enabled() {
-            self.value = self::acle::crc32_acle_aarch64(self.value, src);
+            self.value = unsafe { self::acle::crc32_acle_aarch64(self.value, src) };
             return;
         }
 
@@ -80,7 +81,7 @@ impl Crc32Fold {
     pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
         #[cfg(target_arch = "x86_64")]
         if Self::is_pclmulqdq_enabled() {
-            return self.fold.fold_copy(dst, src);
+            return unsafe { self.fold.fold_copy(dst, src) };
         }
 
         self.fold(src, 0);
