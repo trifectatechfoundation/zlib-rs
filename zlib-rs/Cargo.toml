@@ -18,6 +18,7 @@ std = ["rust-allocator"]
 c-allocator = [] # expose a malloc-based C allocator
 rust-allocator = [] # expose a rust global alloctor
 __internal-fuzz = ["arbitrary"]
+__internal-fuzz-disable-checksum = [] # disable checksum validation on inflate
 __internal-test = ["quickcheck"]
 ZLIB_DEBUG = []
 
