@@ -1969,3 +1969,40 @@ fn issue_232() {
 
     unsafe { inflateEnd(&mut stream) };
 }
+
+#[test]
+fn blow_up_the_stack_1() {
+    // requires a sequence of states that would blow up the stack if inflate is not stack safe.
+
+    const INPUT: &[u8] = include_bytes!("test-data/blow_up_the_stack_1.gz");
+
+    let mut output_ng = vec![0; INPUT.len() * 128];
+    let mut output_rs = vec![0; INPUT.len() * 128];
+
+    let config = InflateConfig::default();
+
+    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, &INPUT, config);
+    assert_eq!(err, ReturnCode::DataError);
+
+    let (_, err) = uncompress_slice(&mut output_rs, &INPUT, config);
+    assert_eq!(err, ReturnCode::DataError);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "slow")]
+fn blow_up_the_stack_2() {
+    // requires a sequence of states that would blow up the stack if inflate is not stack safe.
+
+    const INPUT: &[u8] = include_bytes!("test-data/blow_up_the_stack_2.gz");
+
+    let mut output_ng = vec![0; INPUT.len() * 128];
+    let mut output_rs = vec![0; INPUT.len() * 128];
+
+    let config = InflateConfig::default();
+
+    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, &INPUT, config);
+    assert_eq!(err, ReturnCode::DataError);
+
+    let (_, err) = uncompress_slice(&mut output_rs, &INPUT, config);
+    assert_eq!(err, ReturnCode::DataError);
+}
