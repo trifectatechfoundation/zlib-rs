@@ -189,11 +189,12 @@ pub mod quick {
 
         stream.next_in = &BLOCK_OPEN_INPUT as *const u8 as *mut u8;
         let mut next_out = [0u8; 1116];
+        let next_out_start = next_out.as_ptr() as usize;
         stream.next_out = next_out.as_mut_ptr();
 
         stream.avail_in = BLOCK_OPEN_INPUT.len() as _;
         loop {
-            let written = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+            let written = stream.next_out as usize - next_out_start;
             stream.avail_out = (next_out.len() - written) as _;
 
             if stream.avail_out > 38 {
@@ -287,11 +288,12 @@ pub mod quick {
 
         stream.next_in = &BLOCK_OPEN_INPUT as *const u8 as *mut u8;
         let mut next_out = [0u8; 1116];
+        let next_out_start = next_out.as_ptr() as usize;
         stream.next_out = next_out.as_mut_ptr();
 
         stream.avail_in = BLOCK_OPEN_INPUT.len() as _;
         loop {
-            let written = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+            let written = stream.next_out as usize - next_out_start;
             stream.avail_out = (next_out.len() - written) as _;
 
             if stream.avail_out > 38 {
@@ -306,7 +308,7 @@ pub mod quick {
             assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
         }
 
-        let compressed_size = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+        let compressed_size = stream.next_out as usize - next_out_start;
 
         let err = unsafe { deflateEnd(&mut stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
@@ -385,11 +387,12 @@ pub mod quick {
 
         stream.next_in = &BLOCK_OPEN_INPUT as *const u8 as *mut u8;
         let mut next_out = [0u8; 1116];
+        let next_out_start = next_out.as_ptr() as usize;
         stream.next_out = next_out.as_mut_ptr();
 
         stream.avail_in = BLOCK_OPEN_INPUT.len() as _;
         loop {
-            let written = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+            let written = stream.next_out as usize - next_out_start;
             stream.avail_out = (next_out.len() - written) as _;
 
             if stream.avail_out > 38 {
@@ -404,7 +407,7 @@ pub mod quick {
             assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
         }
 
-        let compressed_size = stream.next_out as usize - next_out.as_mut_ptr() as usize;
+        let compressed_size = stream.next_out as usize - next_out_start;
 
         let err = unsafe { deflateEnd(&mut stream) };
         assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
