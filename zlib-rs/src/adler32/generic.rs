@@ -5,6 +5,8 @@ const UNROLL_MORE: bool = true;
 // macros for loop unrolling
 macro_rules! do1 {
     ($sum1:expr, $sum2:expr, $chunk:expr, $i:expr) => {
+        // SAFETY: $i is bounded by either [0, 8] or [0, 16], and the caller ensures the chunk is
+        // long enough, so we can omit bound checking.
         $sum1 += unsafe { *$chunk.get_unchecked($i) } as u32;
         $sum2 += $sum1;
     };

@@ -90,6 +90,10 @@ fn reduce_add_blocks<'a>(a: &mut u32, b: &mut u32, chunk: &'a [u8]) -> &'a [u8] 
 
     for block in blocks {
         let block_ptr = block.as_ptr() as *const v128;
+
+        // SAFETY: the chunks_exact() call earlier guarantees the block is 32-bytes, thus we can
+        // dereference 16-byte pointers to high and low bytes. The underlying data is Copy and is
+        // properly initialized.
         let v_lo = unsafe { block_ptr.read_unaligned() };
         let v_hi = unsafe { block_ptr.add(1).read_unaligned() };
 
