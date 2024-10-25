@@ -1836,11 +1836,12 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     };
 
     // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate::<State>() else {
+    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
         return ReturnCode::MemError;
     };
 
-    stream.state = state_allocation.write(state) as *mut _ as *mut internal_state;
+    unsafe { state_allocation.write(state) };
+    stream.state = state_allocation as *mut internal_state;
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
     let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
@@ -1948,10 +1949,6 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
         return ReturnCode::StreamError as _;
     }
 
-    let source_slice = core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize);
-    let dest_slice =
-        core::slice::from_raw_parts_mut(stream.next_out.cast(), stream.avail_out as usize);
-
     let state = &mut stream.state;
 
     // skip check
@@ -1961,8 +1958,12 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
 
     state.flush = flush;
 
-    state.bit_reader.update_slice(source_slice);
-    state.writer = Writer::new_uninit(dest_slice);
+    unsafe {
+        state
+            .bit_reader
+            .update_slice(stream.next_in, stream.avail_in as usize)
+    };
+    state.writer = Writer::new_uninit(stream.next_out.cast(), stream.avail_out as usize);
 
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
@@ -2134,7 +2135,7 @@ pub unsafe fn copy<'a>(
     }
 
     // allocated here to have the same order as zlib
-    let Some(state_allocation) = source.alloc.allocate::<State>() else {
+    let Some(state_allocation) = source.alloc.allocate_raw::<State>() else {
         return ReturnCode::MemError;
     };
 
@@ -2183,7 +2184,7 @@ pub unsafe fn copy<'a>(
 
     if !state.window.is_empty() {
         let Some(window) = state.window.clone_in(&source.alloc) else {
-            source.alloc.deallocate(state_allocation.as_mut_ptr(), 1);
+            source.alloc.deallocate(state_allocation, 1);
             return ReturnCode::MemError;
         };
 
@@ -2191,11 +2192,11 @@ pub unsafe fn copy<'a>(
     }
 
     // write the cloned state into state_ptr
-    let state_ptr = state_allocation.write(copy);
+    unsafe { state_allocation.write(copy) };
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_ptr) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation) };
 
     // update the writer; it cannot be cloned so we need to use some shennanigans
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };

@@ -25,12 +25,12 @@ impl<'a> BitReader<'a> {
     }
 
     #[inline(always)]
-    pub fn update_slice(&mut self, slice: &[u8]) {
-        let range = slice.as_ptr_range();
+    pub unsafe fn update_slice(&mut self, ptr: *const u8, len: usize) {
+        let end = ptr.wrapping_add(len);
 
         *self = Self {
-            ptr: range.start,
-            end: range.end,
+            ptr,
+            end,
             bit_buffer: self.bit_buffer,
             bits_used: self.bits_used,
             _marker: PhantomData,
