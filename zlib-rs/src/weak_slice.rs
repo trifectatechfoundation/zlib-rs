@@ -50,6 +50,10 @@ impl<'a, T> WeakSliceMut<'a, T> {
         self.len
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub(crate) fn empty() -> Self {
         let buf = &mut [];
         Self {
