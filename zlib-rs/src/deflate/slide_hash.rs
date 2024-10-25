@@ -1,8 +1,8 @@
 pub fn slide_hash(state: &mut crate::deflate::State) {
     let wsize = state.w_size as u16;
 
-    slide_hash_chain(state.head, wsize);
-    slide_hash_chain(state.prev, wsize);
+    slide_hash_chain(state.head.as_mut_slice(), wsize);
+    slide_hash_chain(state.prev.as_mut_slice(), wsize);
 }
 
 fn slide_hash_chain(table: &mut [u16], wsize: u16) {

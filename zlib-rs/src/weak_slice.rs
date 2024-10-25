@@ -63,3 +63,30 @@ impl<'a, T> WeakSliceMut<'a, T> {
         }
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct WeakArrayMut<'a, T, const N: usize> {
+    ptr: *mut [T; N],
+    _marker: PhantomData<&'a mut [T; N]>,
+}
+
+impl<'a, T, const N: usize> WeakArrayMut<'a, T, N> {
+    pub(crate) unsafe fn from_ptr(ptr: *mut [T; N]) -> Self {
+        Self {
+            ptr,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn as_slice(&self) -> &'a [T] {
+        unsafe { core::slice::from_raw_parts(self.ptr.cast(), N) }
+    }
+
+    pub(crate) fn as_mut_slice(&mut self) -> &'a mut [T] {
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.cast(), N) }
+    }
+
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut [T; N] {
+        self.ptr
+    }
+}

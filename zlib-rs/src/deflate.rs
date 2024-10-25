@@ -6,8 +6,9 @@ use crate::{
     c_api::{gz_header, internal_state, z_checksum, z_stream},
     crc32::{crc32, Crc32Fold},
     read_buf::ReadBuf,
-    trace, DeflateFlush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS,
-    MIN_WBITS,
+    trace,
+    weak_slice::{WeakArrayMut, WeakSliceMut},
+    DeflateFlush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
 };
 
 use self::{
@@ -175,17 +176,6 @@ impl Default for DeflateConfig {
     }
 }
 
-// TODO: This could use `MaybeUninit::slice_assume_init` when it is stable.
-unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
-    &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
-}
-
-// when stable, use MaybeUninit::write_slice
-fn slice_to_uninit<T>(slice: &[T]) -> &[MaybeUninit<T>] {
-    // safety: &[T] and &[MaybeUninit<T>] have the same layout
-    unsafe { &*(slice as *const [T] as *const [MaybeUninit<T>]) }
-}
-
 pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let DeflateConfig {
         mut level,
@@ -263,8 +253,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let w_size = 1 << window_bits;
     let window = Window::new_in(&alloc, window_bits);
 
-    let prev = alloc.allocate_slice::<u16>(w_size);
-    let head = alloc.allocate::<[u16; HASH_SIZE]>();
+    let prev = alloc.allocate_slice_raw::<u16>(w_size);
+    let head = alloc.allocate_raw::<[u16; HASH_SIZE]>();
 
     let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
     let pending = Pending::new_in(&alloc, 4 * lit_bufsize);
@@ -286,10 +276,10 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
                     pending.drop_in(&alloc);
                 }
                 if let Some(head) = head {
-                    alloc.deallocate(head.as_mut_ptr(), 1)
+                    alloc.deallocate(head, 1)
                 }
                 if let Some(prev) = prev {
-                    alloc.deallocate(prev.as_mut_ptr(), prev.len())
+                    alloc.deallocate(prev, w_size)
                 }
                 if let Some(mut window) = window {
                     window.drop_in(&alloc);
@@ -302,11 +292,13 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         }
     };
 
-    prev.fill(MaybeUninit::zeroed());
-    let prev = unsafe { slice_assume_init_mut(prev) };
+    // zero initialize the memory
+    unsafe { prev.write_bytes(0, w_size) };
+    let prev = unsafe { WeakSliceMut::from_raw_parts_mut(prev, w_size) };
 
-    *head = MaybeUninit::zeroed();
-    let head = unsafe { head.assume_init_mut() };
+    // zero out head's first element
+    unsafe { head.write_bytes(0, 1) };
+    let head = unsafe { WeakArrayMut::<u16, HASH_SIZE>::from_ptr(head) };
 
     let state = State {
         status: Status::Init,
@@ -431,7 +423,7 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
             if state.matches == 1 {
                 self::slide_hash::slide_hash(state);
             } else {
-                state.head.fill(0);
+                state.head.as_mut_slice().fill(0);
             }
             state.matches = 0;
         }
@@ -465,7 +457,7 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     if dictionary.len() >= state.window.capacity() {
         if wrap == 0 {
             // clear the hash table
-            state.head.fill(0);
+            state.head.as_mut_slice().fill(0);
 
             state.strstart = 0;
             state.block_start = 0;
@@ -573,8 +565,8 @@ pub fn copy<'a>(
 
     let window = source_state.window.clone_in(alloc);
 
-    let prev = alloc.allocate_slice::<u16>(source_state.w_size);
-    let head = alloc.allocate::<[u16; HASH_SIZE]>();
+    let prev = alloc.allocate_slice_raw::<u16>(source_state.w_size);
+    let head = alloc.allocate_raw::<[u16; HASH_SIZE]>();
 
     let pending = source_state.bit_writer.pending.clone_in(alloc);
     let sym_buf = source_state.sym_buf.clone_in(alloc);
@@ -598,10 +590,10 @@ pub fn copy<'a>(
                     pending.drop_in(alloc);
                 }
                 if let Some(head) = head {
-                    alloc.deallocate(head.as_mut_ptr(), HASH_SIZE)
+                    alloc.deallocate(head, HASH_SIZE)
                 }
                 if let Some(prev) = prev {
-                    alloc.deallocate(prev.as_mut_ptr(), prev.len())
+                    alloc.deallocate(prev, source_state.w_size)
                 }
                 if let Some(mut window) = window {
                     window.drop_in(alloc);
@@ -614,9 +606,16 @@ pub fn copy<'a>(
         }
     };
 
-    prev.copy_from_slice(slice_to_uninit(source_state.prev));
-    let prev = unsafe { core::slice::from_raw_parts_mut(prev.as_mut_ptr().cast(), prev.len()) };
-    let head = head.write(*source_state.head);
+    let prev = unsafe {
+        prev.copy_from_nonoverlapping(source_state.prev.as_ptr(), source_state.prev.len());
+        WeakSliceMut::from_raw_parts_mut(prev, source_state.prev.len())
+    };
+
+    let head = unsafe {
+        head.write_bytes(0, 1);
+        head.cast::<u16>().write(source_state.head.as_slice()[0]);
+        WeakArrayMut::from_ptr(head)
+    };
 
     let mut bit_writer = BitWriter::from_pending(pending);
     bit_writer.bits_used = source_state.bit_writer.bits_used;
@@ -695,7 +694,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
         // safety: we make sure that these fields are not used (by invalidating the state pointer)
         stream.state.sym_buf.drop_in(&alloc);
         stream.state.bit_writer.pending.drop_in(&alloc);
-        alloc.deallocate(stream.state.head, 1);
+        alloc.deallocate(stream.state.head.as_mut_ptr(), 1);
         if !stream.state.prev.is_empty() {
             alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
         }
@@ -764,7 +763,7 @@ fn lm_init(state: &mut State) {
     state.window_size = 2 * state.w_size;
 
     // zlib uses CLEAR_HASH here
-    state.head.fill(0);
+    state.head.as_mut_slice().fill(0);
 
     // Set the default configuration parameters:
     lm_set_level(state, state.level);
@@ -1268,8 +1267,8 @@ pub(crate) struct State<'a> {
     pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
-    pub(crate) prev: &'a mut [u16],
-    pub(crate) head: &'a mut [u16; HASH_SIZE],
+    pub(crate) prev: WeakSliceMut<'a, u16>,
+    pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
@@ -2626,7 +2625,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                         // marked as "last block".
                         zng_tr_stored_block(state, 0..0, false);
 
-                        state.head.fill(0); // forget history
+                        state.head.as_mut_slice().fill(0); // forget history
 
                         if state.lookahead == 0 {
                             state.strstart = 0;
