@@ -1849,7 +1849,7 @@ mod fuzz_based_tests {
                 mem_level: 2,
                 strategy: Strategy::Default,
             },
-            if cfg!(any(target_arch = "s390x", target_family = "wasm")) {
+            if cfg!(any(miri, target_arch = "s390x", target_family = "wasm")) {
                 output_s390x
             } else {
                 output_other
