@@ -1889,9 +1889,9 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
         let mut window = Window::empty();
         core::mem::swap(&mut window, &mut stream.state.window);
 
-        let window = window.into_inner();
-        assert!(!window.is_empty());
-        unsafe { stream.alloc.deallocate(window.as_mut_ptr(), window.len()) };
+        let (ptr, len) = window.into_raw_parts();
+        assert_ne!(len, 0);
+        unsafe { stream.alloc.deallocate(ptr, len) };
     }
 
     stream.state.wrap = wrap as u8;
@@ -2282,8 +2282,8 @@ pub fn end<'a>(stream: &'a mut InflateStream<'a>) -> &'a mut z_stream {
 
     // safety: window is not used again
     if !window.is_empty() {
-        let window = window.into_inner();
-        unsafe { alloc.deallocate(window.as_mut_ptr(), window.len()) };
+        let (ptr, len) = window.into_raw_parts();
+        unsafe { alloc.deallocate(ptr, len) };
     }
 
     let stream = stream.as_z_stream_mut();
