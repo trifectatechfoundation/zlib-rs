@@ -2,8 +2,10 @@ use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::Range;
 
+use crate::weak_slice::WeakSliceMut;
+
 pub struct Writer<'a> {
-    buf: &'a mut [MaybeUninit<u8>],
+    buf: WeakSliceMut<'a, MaybeUninit<u8>>,
     filled: usize,
 }
 
@@ -11,19 +13,20 @@ impl<'a> Writer<'a> {
     /// Creates a new `Writer` from a fully initialized buffer.
     #[inline]
     pub fn new(buf: &'a mut [u8]) -> Writer<'a> {
-        Self::new_uninit(unsafe { slice_to_uninit_mut(buf) })
+        unsafe { Self::new_uninit(buf.as_mut_ptr(), buf.len()) }
     }
 
     /// Creates a new `Writer` from an uninitialized buffer.
     #[inline]
-    pub fn new_uninit(buf: &'a mut [MaybeUninit<u8>]) -> Writer<'a> {
+    pub unsafe fn new_uninit(ptr: *mut u8, len: usize) -> Writer<'a> {
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len) };
         Writer { buf, filled: 0 }
     }
 
     /// Pointer to where the next byte will be written
     #[inline]
     pub fn next_out(&mut self) -> *mut MaybeUninit<u8> {
-        self.buf.as_mut_ptr().wrapping_add(self.filled)
+        self.buf.as_mut_ptr().wrapping_add(self.filled).cast()
     }
 
     /// Returns the total capacity of the buffer.
@@ -56,7 +59,7 @@ impl<'a> Writer<'a> {
     }
 
     pub fn push(&mut self, byte: u8) {
-        self.buf[self.filled] = MaybeUninit::new(byte);
+        self.buf.as_mut_slice()[self.filled] = MaybeUninit::new(byte);
 
         self.filled += 1;
     }
@@ -65,7 +68,7 @@ impl<'a> Writer<'a> {
     #[inline(always)]
     pub fn extend(&mut self, buf: &[u8]) {
         // using simd here (on x86_64) was not fruitful
-        self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
+        self.buf.as_mut_slice()[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
 
         self.filled += buf.len();
     }
@@ -122,7 +125,8 @@ impl<'a> Writer<'a> {
             }
         } else {
             let buf = &window.as_slice()[range];
-            self.buf[self.filled..][..buf.len()].copy_from_slice(slice_to_uninit(buf));
+            self.buf.as_mut_slice()[self.filled..][..buf.len()]
+                .copy_from_slice(slice_to_uninit(buf));
         }
 
         self.filled += len;
@@ -162,7 +166,8 @@ impl<'a> Writer<'a> {
     #[inline(always)]
     fn copy_match_help<C: Chunk>(&mut self, offset_from_end: usize, length: usize) {
         let capacity = self.buf.len();
-        let buf = &mut self.buf[..self.filled + length];
+        let len = Ord::min(self.filled + length + core::mem::size_of::<C>(), capacity);
+        let buf = &mut self.buf.as_mut_slice()[..len];
 
         let current = self.filled;
         self.filled += length;
@@ -251,10 +256,6 @@ impl fmt::Debug for Writer<'_> {
 
 fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
     unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
-}
-
-unsafe fn slice_to_uninit_mut(slice: &mut [u8]) -> &mut [MaybeUninit<u8>] {
-    &mut *(slice as *mut [u8] as *mut [MaybeUninit<u8>])
 }
 
 trait Chunk {
@@ -366,7 +367,7 @@ mod test {
     fn test_copy_match(offset_from_end: usize, length: usize) {
         let mut buf = test_array();
         let mut writer = Writer {
-            buf: &mut buf,
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(buf.as_mut_ptr(), buf.len()) },
             filled: M,
         };
         writer.copy_match(offset_from_end, length);
@@ -406,7 +407,7 @@ mod test {
             ($func:expr) => {
                 let mut buf = test_array();
                 let mut writer = Writer {
-                    buf: &mut buf,
+                    buf: unsafe { WeakSliceMut::from_raw_parts_mut(buf.as_mut_ptr(), buf.len()) },
                     filled: M,
                 };
 
@@ -455,7 +456,7 @@ mod test {
     fn copy_match_insufficient_space_for_simd() {
         let mut buf = [1, 2, 3, 0xAA, 0xAA].map(MaybeUninit::new);
         let mut writer = Writer {
-            buf: &mut buf,
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(buf.as_mut_ptr(), buf.len()) },
             filled: 3,
         };
 
