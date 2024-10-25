@@ -50,10 +50,10 @@ impl StandardHashCalc {
 
         let hm = Self::update_hash(0, val) as usize;
 
-        let head = state.head[hm];
+        let head = state.head.as_slice()[hm];
         if head != string as u16 {
-            state.prev[string & state.w_mask] = head;
-            state.head[hm] = string as u16;
+            state.prev.as_mut_slice()[string & state.w_mask] = head;
+            state.head.as_mut_slice()[hm] = string as u16;
         }
 
         head
@@ -73,10 +73,10 @@ impl StandardHashCalc {
 
             let hm = Self::update_hash(0, val) as usize;
 
-            let head = state.head[hm];
+            let head = state.head.as_slice()[hm];
             if head != idx {
-                state.prev[idx as usize & state.w_mask] = head;
-                state.head[hm] = idx;
+                state.prev.as_mut_slice()[idx as usize & state.w_mask] = head;
+                state.head.as_mut_slice()[hm] = idx;
             }
         }
     }
@@ -106,10 +106,10 @@ impl RollHashCalc {
 
         let hm = state.ins_h;
 
-        let head = state.head[hm];
+        let head = state.head.as_slice()[hm];
         if head != string as u16 {
-            state.prev[string & state.w_mask] = head;
-            state.head[hm] = string as u16;
+            state.prev.as_mut_slice()[string & state.w_mask] = head;
+            state.head.as_mut_slice()[hm] = string as u16;
         }
 
         head
@@ -125,10 +125,10 @@ impl RollHashCalc {
             state.ins_h &= Self::HASH_CALC_MASK as usize;
             let hm = state.ins_h;
 
-            let head = state.head[hm];
+            let head = state.head.as_slice()[hm];
             if head != idx {
-                state.prev[idx as usize & state.w_mask] = head;
-                state.head[hm] = idx;
+                state.prev.as_mut_slice()[idx as usize & state.w_mask] = head;
+                state.head.as_mut_slice()[hm] = idx;
             }
         }
     }
@@ -193,10 +193,10 @@ impl Crc32HashCalc {
 
         let hm = unsafe { Self::update_hash(0, val) } as usize;
 
-        let head = state.head[hm];
+        let head = state.head.as_slice()[hm];
         if head != string as u16 {
-            state.prev[string & state.w_mask] = head;
-            state.head[hm] = string as u16;
+            state.prev.as_mut_slice()[string & state.w_mask] = head;
+            state.head.as_mut_slice()[hm] = string as u16;
         }
 
         head
@@ -219,10 +219,10 @@ impl Crc32HashCalc {
 
             let hm = unsafe { Self::update_hash(0, val) } as usize;
 
-            let head = state.head[hm];
+            let head = state.head.as_slice()[hm];
             if head != idx {
-                state.prev[idx as usize & state.w_mask] = head;
-                state.head[hm] = idx;
+                state.prev.as_mut_slice()[idx as usize & state.w_mask] = head;
+                state.head.as_mut_slice()[hm] = idx;
             }
         }
     }

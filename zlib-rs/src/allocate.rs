@@ -236,6 +236,16 @@ impl<'a> Allocator<'a> {
         }
     }
 
+    pub fn allocate_slice_raw<T>(&self, len: usize) -> Option<*mut T> {
+        let ptr = self.allocate_layout(Layout::array::<T>(len).ok()?);
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some(ptr.cast())
+        }
+    }
+
     pub fn allocate<T>(&self) -> Option<&'a mut MaybeUninit<T>> {
         let ptr = self.allocate_layout(Layout::new::<T>());
 

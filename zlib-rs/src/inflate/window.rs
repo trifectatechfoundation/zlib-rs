@@ -30,7 +30,7 @@ impl<'a> Window<'a> {
 
     pub fn size(&self) -> usize {
         // `self.len == 0` is used for uninitialized buffers
-        assert!(self.buf.len() == 0 || self.buf.len() >= Self::padding());
+        assert!(self.buf.is_empty() || self.buf.len() >= Self::padding());
         self.buf.len().saturating_sub(Self::padding())
     }
 
