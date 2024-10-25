@@ -1,10 +1,10 @@
 use core::{marker::PhantomData, mem::MaybeUninit};
 
-use crate::allocate::Allocator;
+use crate::{allocate::Allocator, weak_slice::WeakSliceMut};
 
 pub struct Pending<'a> {
     /// start of the allocation
-    buf: &'a mut [MaybeUninit<u8>],
+    buf: WeakSliceMut<'a, MaybeUninit<u8>>,
     /// next pending byte to output to the stream
     out: usize,
     /// number of bytes in the pending buffer
@@ -20,7 +20,7 @@ impl<'a> Pending<'a> {
     }
 
     pub fn pending(&self) -> &[u8] {
-        let slice = &self.buf[self.out..][..self.pending];
+        let slice = &self.buf.as_slice()[self.out..][..self.pending];
         unsafe { core::mem::transmute(slice) }
     }
 
@@ -70,16 +70,17 @@ impl<'a> Pending<'a> {
 
         let buf: &[MaybeUninit<u8>] = unsafe { core::mem::transmute(buf) };
 
-        self.buf[self.out + self.pending..][..buf.len()].copy_from_slice(buf);
+        self.buf.as_mut_slice()[self.out + self.pending..][..buf.len()].copy_from_slice(buf);
 
         self.pending += buf.len();
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
-        let slice = alloc.allocate_slice::<u8>(len)?;
+        let ptr = alloc.allocate_slice_raw::<MaybeUninit<u8>>(len)?;
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
         Some(Self {
-            buf: slice,
+            buf,
             out: 0,
             pending: 0,
             _marker: PhantomData,
@@ -89,7 +90,10 @@ impl<'a> Pending<'a> {
     pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
         let mut clone = Self::new_in(alloc, self.buf.len())?;
 
-        clone.buf.copy_from_slice(self.buf);
+        clone
+            .buf
+            .as_mut_slice()
+            .copy_from_slice(self.buf.as_slice());
         clone.out = self.out;
         clone.pending = self.pending;
 
