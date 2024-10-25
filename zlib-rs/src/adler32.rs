@@ -1,3 +1,5 @@
+#![warn(unsafe_op_in_unsafe_fn)]
+
 #[cfg(target_arch = "x86_64")]
 mod avx2;
 mod generic;
