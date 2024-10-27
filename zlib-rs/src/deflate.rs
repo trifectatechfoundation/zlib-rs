@@ -246,7 +246,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     };
 
     // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate::<State>() else {
+    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
         return ReturnCode::MemError;
     };
 
@@ -285,7 +285,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
                     window.drop_in(&alloc);
                 }
 
-                alloc.deallocate(state_allocation.as_mut_ptr(), 1);
+                alloc.deallocate(state_allocation, 1);
             }
 
             return ReturnCode::MemError;
@@ -368,8 +368,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         hash_calc_variant: HashCalcVariant::Standard,
     };
 
-    let state = state_allocation.write(state);
-    stream.state = state as *mut _ as *mut internal_state;
+    unsafe { state_allocation.write(state) };
+    stream.state = state_allocation as *mut internal_state;
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
         if cfg!(debug_assertions) {
@@ -557,7 +557,7 @@ pub fn copy<'a>(
     let alloc = &source.alloc;
 
     // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate::<State>() else {
+    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
         return ReturnCode::MemError;
     };
 
@@ -599,7 +599,7 @@ pub fn copy<'a>(
                     window.drop_in(alloc);
                 }
 
-                alloc.deallocate(state_allocation.as_mut_ptr(), 1);
+                alloc.deallocate(state_allocation, 1);
             }
 
             return ReturnCode::MemError;
@@ -667,11 +667,11 @@ pub fn copy<'a>(
     };
 
     // write the cloned state into state_ptr
-    let state_ptr = state_allocation.write(dest_state);
+    unsafe { state_allocation.write(dest_state) };
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_ptr) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation) };
 
     // update the gzhead field (it contains a mutable reference so we need to be careful
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
@@ -701,13 +701,12 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
         stream.state.window.drop_in(&alloc);
     }
 
-    let state = stream.state as *mut State;
     let stream = stream.as_z_stream_mut();
-    stream.state = core::ptr::null_mut();
+    let state = core::mem::replace(&mut stream.state, core::ptr::null_mut());
 
     // safety: `state` is not used later
     unsafe {
-        alloc.deallocate(state, 1);
+        alloc.deallocate(state as *mut State, 1);
     }
 
     match status {
