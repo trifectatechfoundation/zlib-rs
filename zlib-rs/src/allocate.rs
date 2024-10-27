@@ -46,6 +46,23 @@ unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) 
 
 /// # Safety
 ///
+/// This function is safe, but must have this type signature to be used elsewhere in the library
+unsafe extern "C" fn zalloc_c_calloc(
+    opaque: *mut c_void,
+    items: c_uint,
+    size: c_uint,
+) -> *mut c_void {
+    let _ = opaque;
+
+    extern "C" {
+        fn calloc(nitems: size_t, size: size_t) -> *mut c_void;
+    }
+
+    calloc(items as size_t, size as size_t)
+}
+
+/// # Safety
+///
 /// The `ptr` must be allocated with the allocator that is used internally by `zcfree`
 unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
     let _ = opaque;
@@ -98,10 +115,12 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     std::alloc::System.dealloc(ptr.cast(), layout);
 }
 
+#[cfg(test)]
 unsafe extern "C" fn zalloc_fail(_: *mut c_void, _: c_uint, _: c_uint) -> *mut c_void {
     core::ptr::null_mut()
 }
 
+#[cfg(test)]
 unsafe extern "C" fn zfree_fail(_: *mut c_void, _: *mut c_void) {
     // do nothing
 }
@@ -132,7 +151,8 @@ impl Allocator<'static> {
         _marker: PhantomData,
     };
 
-    pub const FAIL: Self = Self {
+    #[cfg(test)]
+    const FAIL: Self = Self {
         zalloc: zalloc_fail,
         zfree: zfree_fail,
         opaque: core::ptr::null_mut(),
@@ -252,6 +272,24 @@ impl<'a> Allocator<'a> {
             let layout = Layout::from_size_align(len, 64).unwrap();
 
             return unsafe { std::alloc::System.alloc_zeroed(layout) };
+        }
+
+        #[cfg(feature = "c-allocator")]
+        if self.zalloc == Allocator::C.zalloc {
+            let alloc = Allocator {
+                zalloc: zalloc_c_calloc,
+                zfree: zfree_c,
+                opaque: core::ptr::null_mut(),
+                _marker: PhantomData,
+            };
+
+            let ptr = alloc.allocate_layout(Layout::array::<u8>(len).ok().unwrap());
+
+            if ptr.is_null() {
+                return core::ptr::null_mut();
+            }
+
+            return ptr.cast();
         }
 
         // create the allocation (contents are uninitialized)
