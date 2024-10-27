@@ -354,8 +354,5 @@ jobs:
         run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys null::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2"
-          MIRIFLAGS: "-Zmiri-tree-borrows"
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs allocate::"
-        env:
-          MIRIFLAGS: "-Zmiri-tree-borrows"
