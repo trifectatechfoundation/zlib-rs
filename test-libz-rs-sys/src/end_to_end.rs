@@ -3,6 +3,7 @@ use zlib_rs::{deflate::DeflateConfig, inflate::InflateConfig, ReturnCode};
 use crate::helpers::{compress_slice_ng, uncompress_slice_ng};
 
 #[test]
+#[cfg_attr(miri, ignore = "calls into C code")]
 fn end_to_end() {
     ::quickcheck::quickcheck(test as fn(_, _) -> _);
 }
