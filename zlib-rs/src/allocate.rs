@@ -356,13 +356,13 @@ mod tests {
                 _marker: PhantomData,
             };
 
-            let ptr = allocator.allocate::<T>().unwrap();
-            assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<T>(), 0);
+            let ptr = allocator.allocate_raw::<T>().unwrap();
+            assert_eq!(ptr as usize % core::mem::align_of::<T>(), 0);
             unsafe { allocator.deallocate(ptr, 1) }
 
-            let ptr = allocator.allocate_slice::<T>(10).unwrap();
-            assert_eq!(ptr.as_ptr() as usize % core::mem::align_of::<T>(), 0);
-            unsafe { allocator.deallocate(ptr.as_mut_ptr(), 10) }
+            let ptr = allocator.allocate_slice_raw::<T>(10).unwrap();
+            assert_eq!(ptr as usize % core::mem::align_of::<T>(), 0);
+            unsafe { allocator.deallocate(ptr, 10) }
         }
     }
 
