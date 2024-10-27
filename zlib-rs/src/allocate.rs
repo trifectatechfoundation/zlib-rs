@@ -4,7 +4,6 @@ use core::{
     alloc::Layout,
     ffi::{c_uint, c_void},
     marker::PhantomData,
-    mem::MaybeUninit,
 };
 
 #[cfg(feature = "rust-allocator")]
@@ -243,26 +242,6 @@ impl<'a> Allocator<'a> {
             None
         } else {
             Some(ptr.cast())
-        }
-    }
-
-    pub fn allocate<T>(&self) -> Option<&'a mut MaybeUninit<T>> {
-        let ptr = self.allocate_layout(Layout::new::<T>());
-
-        if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { &mut *(ptr as *mut MaybeUninit<T>) })
-        }
-    }
-
-    pub fn allocate_slice<T>(&self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
-        let ptr = self.allocate_layout(Layout::array::<T>(len).ok()?);
-
-        if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { core::slice::from_raw_parts_mut(ptr.cast(), len) })
         }
     }
 
