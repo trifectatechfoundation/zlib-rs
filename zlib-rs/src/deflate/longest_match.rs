@@ -157,7 +157,7 @@ fn longest_match_help<const SLOW: bool>(
     }
 
     assert!(
-        strstart <= state.window_size - MIN_LOOKAHEAD,
+        strstart <= state.window_size.saturating_sub(MIN_LOOKAHEAD),
         "need lookahead"
     );
 
