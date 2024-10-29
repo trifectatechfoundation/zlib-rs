@@ -84,9 +84,11 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         stream.state.bit_writer.sent_bits_add(len << 3);
 
         if left > 0 {
+            // SAFETY: `len` is effectively `min(stream.avail_in, stream.avail_out)`, so any reads
+            // of `len` won't go out of bounds on `next_out`. `left` is calculated from indices of
+            // the window, so `left` reads of the window won't go out of bounds.
             let left = Ord::min(left, len);
             let src = &stream.state.window.filled()[stream.state.block_start as usize..];
-
             unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), stream.next_out, left) };
 
             stream.next_out = stream.next_out.wrapping_add(left);
@@ -120,8 +122,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
             /* supplant the previous history */
             state.matches = 2; /* clear hash */
 
+            // SAFETY: we've advanced the next_in pointer at minimum w_size bytes
+            // read_buf_direct_copy(), so we are able to backtrack that number of bytes.
             let src = stream.next_in.wrapping_sub(state.w_size);
-
             unsafe { state.window.copy_and_initialize(0..state.w_size, src) };
 
             state.strstart = state.w_size;
@@ -146,6 +149,8 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 state.insert = Ord::min(state.insert, state.strstart);
             }
 
+            // SAFETY: we've advanced the next_in pointer at least `used` bytes
+            // read_buf_direct_copy(), so we are able to backtrack that number of bytes.
             let src = stream.next_in.wrapping_sub(used as usize);
             let dst = state.strstart..state.strstart + used as usize;
             unsafe { state.window.copy_and_initialize(dst, src) };
@@ -247,6 +252,8 @@ fn read_buf_direct_copy(stream: &mut DeflateStream, size: usize) -> usize {
 
     stream.avail_in -= len as u32;
 
+    // SAFETY: len is effectively bounded by next_in and next_out (via size derived in the calling
+    // function), so copies are in-bounds.
     if stream.state.wrap == 2 {
         // we likely cannot fuse the crc32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!

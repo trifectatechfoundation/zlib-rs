@@ -1,3 +1,4 @@
+#![warn(unsafe_op_in_unsafe_fn)]
 use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
@@ -28,6 +29,8 @@ mod slide_hash;
 mod trees_tbl;
 mod window;
 
+// SAFETY: This struct must have the same layout as [`z_stream`], so that casts and transmutations
+// between the two can work without UB.
 #[repr(C)]
 pub struct DeflateStream<'a> {
     pub(crate) next_in: *mut crate::c_api::Bytef,
@@ -45,6 +48,8 @@ pub struct DeflateStream<'a> {
 }
 
 impl<'a> DeflateStream<'a> {
+    // z_stream and DeflateStream must have the same layout. Do our best to check if this is true.
+    // (imperfect check, but should catch most mistakes.)
     const _S: () = assert!(core::mem::size_of::<z_stream>() == core::mem::size_of::<Self>());
     const _A: () = assert!(core::mem::align_of::<z_stream>() == core::mem::align_of::<Self>());
 
@@ -71,12 +76,12 @@ impl<'a> DeflateStream<'a> {
             }
         }
 
-        // Safety: DeflateStream has an equivalent layout as z_stream
+        // SAFETY: DeflateStream has an equivalent layout as z_stream
         unsafe { strm.cast::<DeflateStream>().as_mut() }
     }
 
     fn as_z_stream_mut(&mut self) -> &mut z_stream {
-        // safety: a valid &mut DeflateStream is also a valid &mut z_stream
+        // SAFETY: a valid &mut DeflateStream is also a valid &mut z_stream
         unsafe { &mut *(self as *mut DeflateStream as *mut z_stream) }
     }
 
@@ -268,6 +273,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
             (window, prev, head, pending, sym_buf)
         }
         (window, prev, head, pending, sym_buf) => {
+            // SAFETY: these pointers/structures are discarded after deallocation.
             unsafe {
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
@@ -548,7 +554,7 @@ pub fn copy<'a>(
     dest: &mut MaybeUninit<DeflateStream<'a>>,
     source: &mut DeflateStream<'a>,
 ) -> ReturnCode {
-    // Safety: source and dest are both mutable references, so guaranteed not to overlap.
+    // SAFETY: source and dest are both mutable references, so guaranteed not to overlap.
     // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
     unsafe {
         core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
@@ -577,11 +583,11 @@ pub fn copy<'a>(
             (window, prev, head, pending, sym_buf)
         }
         (window, prev, head, pending, sym_buf) => {
-            // Safety: this access is in-bounds
+            // SAFETY: this access is in-bounds
             let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
             unsafe { core::ptr::write(field_ptr as *mut *mut State, core::ptr::null_mut()) };
 
-            // Safety: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
+            // SAFETY: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
             unsafe {
                 if let Some(mut sym_buf) = sym_buf {
                     alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
@@ -691,7 +697,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
 
     // deallocate in reverse order of allocations
     unsafe {
-        // safety: we make sure that these fields are not used (by invalidating the state pointer)
+        // SAFETY: we make sure that these fields are not used (by invalidating the state pointer)
         stream.state.sym_buf.drop_in(&alloc);
         stream.state.bit_writer.pending.drop_in(&alloc);
         alloc.deallocate(stream.state.head.as_mut_ptr(), 1);
@@ -704,7 +710,7 @@ pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mu
     let stream = stream.as_z_stream_mut();
     let state = core::mem::replace(&mut stream.state, core::ptr::null_mut());
 
-    // safety: `state` is not used later
+    // SAFETY: `state` is not used later
     unsafe {
         alloc.deallocate(state as *mut State, 1);
     }
@@ -1337,6 +1343,8 @@ impl<'a> State<'a> {
     pub(crate) fn update_hash(&self, h: u32, val: u32) -> u32 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::update_hash(h, val),
+            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
+            // which avoids choosing Crc32 if the system doesn't have support.
             HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::update_hash(h, val) },
             HashCalcVariant::Roll => RollHashCalc::update_hash(h, val),
         }
@@ -1346,6 +1354,8 @@ impl<'a> State<'a> {
     pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
+            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
+            // which avoids choosing Crc32 if the system doesn't have support.
             HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::quick_insert_string(self, string) },
             HashCalcVariant::Roll => RollHashCalc::quick_insert_string(self, string),
         }
@@ -1355,6 +1365,8 @@ impl<'a> State<'a> {
     pub(crate) fn insert_string(&mut self, string: usize, count: usize) {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::insert_string(self, string, count),
+            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
+            // which avoids choosing Crc32 if the system doesn't have support.
             HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::insert_string(self, string, count) },
             HashCalcVariant::Roll => RollHashCalc::insert_string(self, string, count),
         }
@@ -1582,6 +1594,7 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
         window.initialize_at_least(offset + len);
+        // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
         let data = &stream.state.window.filled()[offset..][..len];
@@ -1591,6 +1604,7 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
         window.initialize_at_least(offset + len);
+        // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
         let data = &stream.state.window.filled()[offset..][..len];
@@ -1598,6 +1612,7 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
     } else {
         let window = &mut stream.state.window;
         window.initialize_at_least(offset + len);
+        // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
 
@@ -2519,6 +2534,8 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
 
                 let extra = unsafe {
                     core::slice::from_raw_parts(
+                        // SAFETY: gzindex is always less than extra_len, and the user
+                        // guarantees the pointer is valid for extra_len.
                         gzhead_extra.add(stream.state.gzindex),
                         (gzhead.extra_len & 0xffff) as usize - stream.state.gzindex,
                     )
@@ -2535,6 +2552,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     if stream.state.status == Status::Name {
         if let Some(gzhead) = stream.state.gzhead.as_ref() {
             if !gzhead.name.is_null() {
+                // SAFETY: user satisfies precondition that gzhead.name is a C string.
                 let gzhead_name = unsafe { CStr::from_ptr(gzhead.name.cast()) };
                 let bytes = gzhead_name.to_bytes_with_nul();
                 if let ControlFlow::Break(err) = flush_bytes(stream, bytes) {
@@ -2548,6 +2566,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     if stream.state.status == Status::Comment {
         if let Some(gzhead) = stream.state.gzhead.as_ref() {
             if !gzhead.comment.is_null() {
+                // SAFETY: user satisfies precondition that gzhead.name is a C string.
                 let gzhead_comment = unsafe { CStr::from_ptr(gzhead.comment.cast()) };
                 let bytes = gzhead_comment.to_bytes_with_nul();
                 if let ControlFlow::Break(err) = flush_bytes(stream, bytes) {
@@ -2697,6 +2716,7 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     }
 
     trace!("\n[FLUSH {len} bytes]");
+    // SAFETY: len is min(pending, stream.avail_out), so we won't overrun next_out.
     unsafe { core::ptr::copy_nonoverlapping(pending.as_ptr(), stream.next_out, len) };
 
     stream.next_out = stream.next_out.wrapping_add(len);
@@ -2711,6 +2731,7 @@ pub fn compress_slice<'a>(
     input: &[u8],
     config: DeflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
+    // SAFETY: a [u8] is a valid [MaybeUninit<u8>].
     let output_uninit = unsafe {
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
@@ -2732,6 +2753,7 @@ pub fn compress_slice_with_flush<'a>(
     config: DeflateConfig,
     flush: DeflateFlush,
 ) -> (&'a mut [u8], ReturnCode) {
+    // SAFETY: a [u8] is a valid [MaybeUninit<u8>].
     let output_uninit = unsafe {
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
@@ -3075,6 +3097,7 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
                 if !c_string.is_null() {
                     loop {
                         gz_wrap_len += 1;
+                        // SAFETY: user guarantees header.name is a valid C string.
                         unsafe {
                             if *c_string == 0 {
                                 break;
@@ -3088,6 +3111,7 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
                 if !c_string.is_null() {
                     loop {
                         gz_wrap_len += 1;
+                        // SAFETY: user guarantees header.comment is a valid C string.
                         unsafe {
                             if *c_string == 0 {
                                 break;
@@ -3191,7 +3215,7 @@ mod test {
             // must use the C allocator internally because (de)allocation is based on function
             // pointer values and because we don't use the rust allocator directly, the allocation
             // logic will store the pointer to the start at the start of the allocation.
-            (crate::allocate::Allocator::C.zalloc)(opaque, items, size)
+            unsafe { (crate::allocate::Allocator::C.zalloc)(opaque, items, size) }
         } else {
             core::ptr::null_mut()
         }

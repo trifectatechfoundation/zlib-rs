@@ -21,6 +21,7 @@ impl<'a> Pending<'a> {
 
     pub fn pending(&self) -> &[u8] {
         let slice = &self.buf.as_slice()[self.out..][..self.pending];
+        // SAFETY: the slice contains initialized bytes.
         unsafe { core::mem::transmute(slice) }
     }
 
@@ -68,6 +69,7 @@ impl<'a> Pending<'a> {
             "buf.len() must fit in remaining()"
         );
 
+        // SAFETY: [u8] is valid [MaybeUninit<u8>]
         let buf: &[MaybeUninit<u8>] = unsafe { core::mem::transmute(buf) };
 
         self.buf.as_mut_slice()[self.out + self.pending..][..buf.len()].copy_from_slice(buf);
@@ -77,6 +79,7 @@ impl<'a> Pending<'a> {
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
         let ptr = alloc.allocate_slice_raw::<MaybeUninit<u8>>(len)?;
+        // SAFETY: freshly allocated buffer
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
         Some(Self {
@@ -100,7 +103,10 @@ impl<'a> Pending<'a> {
         Some(clone)
     }
 
+    /// # Safety
+    ///
+    /// [`Self`] must not be used after calling this function.
     pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator) {
-        alloc.deallocate(self.buf.as_mut_ptr(), self.buf.len());
+        unsafe { alloc.deallocate(self.buf.as_mut_ptr(), self.buf.len()) };
     }
 }

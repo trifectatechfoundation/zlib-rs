@@ -19,6 +19,7 @@ impl<'a> Window<'a> {
     pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
         let len = 2 * ((1 << window_bits) + Self::padding());
         let ptr = alloc.allocate_slice_raw::<MaybeUninit<u8>>(len)?;
+        // SAFETY: freshly allocated buffer
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
         Some(Self {
@@ -42,10 +43,13 @@ impl<'a> Window<'a> {
         Some(clone)
     }
 
+    /// # Safety
+    ///
+    /// [`Self`] must not be used after calling this function.
     pub unsafe fn drop_in(&mut self, alloc: &Allocator) {
         if !self.buf.is_empty() {
             let mut buf = core::mem::replace(&mut self.buf, WeakSliceMut::empty());
-            alloc.deallocate(buf.as_mut_ptr(), buf.len());
+            unsafe { alloc.deallocate(buf.as_mut_ptr(), buf.len()) };
         }
     }
 
@@ -56,14 +60,14 @@ impl<'a> Window<'a> {
     /// Returns a shared reference to the filled portion of the buffer.
     #[inline]
     pub fn filled(&self) -> &[u8] {
-        // safety: `self.buf` has been initialized for at least `filled` elements
+        // SAFETY: `self.buf` has been initialized for at least `filled` elements
         unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast(), self.filled) }
     }
 
     /// Returns a mutable reference to the filled portion of the buffer.
     #[inline]
     pub fn filled_mut(&mut self) -> &mut [u8] {
-        // safety: `self.buf` has been initialized for at least `filled` elements
+        // SAFETY: `self.buf` has been initialized for at least `filled` elements
         unsafe { core::slice::from_raw_parts_mut(self.buf.as_mut_ptr().cast(), self.filled) }
     }
 
@@ -74,7 +78,7 @@ impl<'a> Window<'a> {
         let (start, end) = (range.start, range.end);
 
         let dst = self.buf.as_mut_slice()[range].as_mut_ptr() as *mut u8;
-        core::ptr::copy_nonoverlapping(src, dst, end - start);
+        unsafe { core::ptr::copy_nonoverlapping(src, dst, end - start) };
 
         if start >= self.filled {
             self.filled = Ord::max(self.filled, end);
