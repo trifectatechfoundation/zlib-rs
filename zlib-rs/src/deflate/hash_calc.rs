@@ -1,9 +1,12 @@
-#![warn(unsafe_op_in_unsafe_fn)]
 use crate::deflate::{State, HASH_SIZE, STD_MIN_MATCH};
 
 #[derive(Debug, Clone, Copy)]
 pub enum HashCalcVariant {
     Standard,
+    /// # Safety
+    ///
+    /// This variant should only be used on supported systems, checked at runtime. See
+    /// [`Crc32HashCalc`].
     Crc32,
     Roll,
 }
@@ -134,6 +137,11 @@ impl RollHashCalc {
     }
 }
 
+/// # Safety
+///
+/// The methods of this struct can only be executed if the system has platform support, otherwise
+/// the result is UB. Use [`Self::is_supported()`] to check at runtime whether the system has
+/// support before executing any methods.
 pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {

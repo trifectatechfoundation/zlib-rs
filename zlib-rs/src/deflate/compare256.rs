@@ -1,4 +1,3 @@
-#[warn(unsafe_op_in_unsafe_fn)]
 #[cfg(test)]
 const MAX_COMPARE_SIZE: usize = 256;
 
@@ -22,7 +21,7 @@ fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
 
     #[cfg(target_arch = "wasm32")]
     if crate::cpu_features::is_enabled_simd128() {
-        return unsafe { wasm32::compare256(src0, src1) };
+        return wasm32::compare256(src0, src1);
     }
 
     rust::compare256(src0, src1)
@@ -229,31 +228,27 @@ mod avx2 {
 mod wasm32 {
     use core::arch::wasm32::{u8x16_bitmask, u8x16_eq, v128, v128_load};
 
-    /// # Safety
-    ///
-    /// Behavior is undefined if the `simd128` target feature is not enabled
     #[target_feature(enable = "simd128")]
-    pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+    pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
         let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
 
         let mut len = 0;
 
-        unsafe {
-            for (chunk0, chunk1) in src0.iter().zip(src1) {
-                let v128_src0 = v128_load(chunk0.as_ptr() as *const v128);
-                let v128_src1 = v128_load(chunk1.as_ptr() as *const v128);
+        for (chunk0, chunk1) in src0.iter().zip(src1) {
+            // SAFETY: these are valid pointers to slice data.
+            let v128_src0 = unsafe { v128_load(chunk0.as_ptr() as *const v128) };
+            let v128_src1 = unsafe { v128_load(chunk1.as_ptr() as *const v128) };
 
-                let v128_cmp = u8x16_eq(v128_src0, v128_src1);
-                let mask = u8x16_bitmask(v128_cmp);
+            let v128_cmp = u8x16_eq(v128_src0, v128_src1);
+            let mask = u8x16_bitmask(v128_cmp);
 
-                if mask != 0xFFFF {
-                    let match_byte = (!mask).trailing_zeros(); /* Invert bits so identical = 0 */
-                    return len + match_byte as usize;
-                }
-
-                len += 16;
+            if mask != 0xFFFF {
+                let match_byte = (!mask).trailing_zeros(); /* Invert bits so identical = 0 */
+                return len + match_byte as usize;
             }
+
+            len += 16;
         }
 
         256
