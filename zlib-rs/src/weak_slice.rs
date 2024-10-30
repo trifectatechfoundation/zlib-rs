@@ -71,6 +71,9 @@ pub(crate) struct WeakArrayMut<'a, T, const N: usize> {
 }
 
 impl<'a, T, const N: usize> WeakArrayMut<'a, T, N> {
+    /// # Safety
+    ///
+    /// The pointer must be [convertable to a reference](https://doc.rust-lang.org/std/ptr/index.html#pointer-to-reference-conversion).
     pub(crate) unsafe fn from_ptr(ptr: *mut [T; N]) -> Self {
         Self {
             ptr,
