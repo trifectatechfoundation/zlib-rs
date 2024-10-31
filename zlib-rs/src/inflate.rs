@@ -30,6 +30,8 @@ use self::{
 
 const INFLATE_STRICT: bool = false;
 
+// SAFETY: This struct must have the same layout as [`z_stream`], so that casts and transmutations
+// between the two can work without UB.
 #[repr(C)]
 pub struct InflateStream<'a> {
     pub(crate) next_in: *mut crate::c_api::Bytef,
@@ -59,6 +61,8 @@ pub unsafe fn set_mode_dict(strm: &mut z_stream) {
 }
 
 impl<'a> InflateStream<'a> {
+    // z_stream and DeflateStream must have the same layout. Do our best to check if this is true.
+    // (imperfect check, but should catch most mistakes.)
     const _S: () = assert!(core::mem::size_of::<z_stream>() == core::mem::size_of::<Self>());
     const _A: () = assert!(core::mem::align_of::<z_stream>() == core::mem::align_of::<Self>());
 
@@ -130,6 +134,7 @@ pub fn uncompress_slice<'a>(
     input: &[u8],
     config: InflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
+    // SAFETY: [u8] is also a valid [MaybeUninit<u8>]
     let output_uninit = unsafe {
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
@@ -1875,6 +1880,7 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
 
         let (ptr, len) = window.into_raw_parts();
         assert_ne!(len, 0);
+        // SAFETY: window is discarded after this deallocation.
         unsafe { stream.alloc.deallocate(ptr, len) };
     }
 
@@ -2057,10 +2063,12 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     }
 
     // search available input
+    // SAFETY: user guarantees that pointer and length are valid.
     let slice = unsafe { core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize) };
 
     let len;
     (state.have, len) = syncsearch(state.have, slice);
+    // SAFETY: syncsearch() returns an index that is in-bounds of the slice.
     stream.next_in = unsafe { stream.next_in.add(len) };
     stream.avail_in -= len as u32;
     stream.total_in += len as z_size;
@@ -2124,6 +2132,7 @@ pub unsafe fn copy<'a>(
 
     let state = &source.state;
 
+    // SAFETY: an initialized Writer is a valid MaybeUninit<Writer>.
     let writer: MaybeUninit<Writer> =
         unsafe { core::ptr::read(&state.writer as *const _ as *const MaybeUninit<Writer>) };
 
@@ -2167,6 +2176,7 @@ pub unsafe fn copy<'a>(
 
     if !state.window.is_empty() {
         let Some(window) = state.window.clone_in(&source.alloc) else {
+            // SAFETY: state_allocation is not used again.
             source.alloc.deallocate(state_allocation, 1);
             return ReturnCode::MemError;
         };
