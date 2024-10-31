@@ -915,7 +915,7 @@ impl<'a> State<'a> {
                     self.bit_reader.drop_bits(1);
 
                     match self.bit_reader.bits(2) {
-                        0 => {
+                        0b00 => {
                             // eprintln!("inflate:     stored block (last = {last})");
 
                             self.bit_reader.drop_bits(2);
@@ -924,7 +924,7 @@ impl<'a> State<'a> {
 
                             continue 'label;
                         }
-                        1 => {
+                        0b01 => {
                             // eprintln!("inflate:     fixed codes block (last = {last})");
 
                             self.len_table = Table {
@@ -947,7 +947,7 @@ impl<'a> State<'a> {
                                 continue 'label;
                             }
                         }
-                        2 => {
+                        0b10 => {
                             // eprintln!("inflate:     dynamic codes block (last = {last})");
 
                             self.bit_reader.drop_bits(2);
@@ -956,7 +956,7 @@ impl<'a> State<'a> {
 
                             continue 'label;
                         }
-                        3 => {
+                        0b11 => {
                             // eprintln!("inflate:     invalid block type");
 
                             self.bit_reader.drop_bits(2);
@@ -964,7 +964,11 @@ impl<'a> State<'a> {
                             self.mode = Mode::Bad;
                             return self.bad("invalid block type\0");
                         }
-                        _ => unsafe { core::hint::unreachable_unchecked() },
+                        _ => {
+                            // SAFETY: bits(2) only yields a value of two bits, so this match is
+                            // already exhaustive.
+                            unsafe { core::hint::unreachable_unchecked() }
+                        }
                     }
                 }
                 Mode::Stored => {
