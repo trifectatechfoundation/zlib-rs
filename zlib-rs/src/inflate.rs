@@ -698,16 +698,21 @@ impl<'a> State<'a> {
 
                                     // min of number of bytes available at dst and at src
                                     let count = Ord::min(
-                                        (head.extra_max as usize).saturating_sub(written_so_far),
+                                        (head.extra_max as usize)
+                                            .checked_sub(written_so_far)
+                                            .expect("extra out of bounds"),
                                         extra_available,
                                     );
 
-                                    // location where we'll write: this saturates at the
+                                    // SAFETY: location where we'll write: this saturates at the
                                     // `head.extra.add(head.extra.max)` to prevent UB
                                     let next_write_offset =
                                         Ord::min(written_so_far, head.extra_max as usize);
 
                                     unsafe {
+                                        // SAFETY: count is effectively bounded by head.extra_max
+                                        // and bit_reader.bytes_remaining(), so the count won't
+                                        // go out of bounds.
                                         core::ptr::copy_nonoverlapping(
                                             self.bit_reader.as_mut_ptr(),
                                             head.extra.add(next_write_offset),
@@ -759,11 +764,14 @@ impl<'a> State<'a> {
                         // if the header has space, store as much as possible in there
                         if let Some(head) = self.head.as_mut() {
                             if !head.name.is_null() {
-                                let remaining_name_bytes =
-                                    (head.name_max as usize).saturating_sub(self.length);
+                                let remaining_name_bytes = (head.name_max as usize)
+                                    .checked_sub(self.length)
+                                    .expect("name out of bounds");
                                 let copy = Ord::min(name_slice.len(), remaining_name_bytes);
 
                                 unsafe {
+                                    // SAFETY: copy is effectively bound by the name length and
+                                    // head.name_max, so this won't go out of bounds.
                                     core::ptr::copy_nonoverlapping(
                                         name_slice.as_ptr(),
                                         head.name.add(self.length),
@@ -814,10 +822,14 @@ impl<'a> State<'a> {
                         // if the header has space, store as much as possible in there
                         if let Some(head) = self.head.as_mut() {
                             if !head.comment.is_null() {
-                                let remaining_comm_bytes =
-                                    (head.comm_max as usize).saturating_sub(self.length);
+                                let remaining_comm_bytes = (head.comm_max as usize)
+                                    .checked_sub(self.length)
+                                    .expect("comm out of bounds");
                                 let copy = Ord::min(comment_slice.len(), remaining_comm_bytes);
+
                                 unsafe {
+                                    // SAFETY: copy is effectively bound by the comment length and
+                                    // head.comm_max, so this won't go out of bounds.
                                     core::ptr::copy_nonoverlapping(
                                         comment_slice.as_ptr(),
                                         head.comment.add(self.length),
