@@ -39,7 +39,7 @@ impl<'a> BitReader<'a> {
 
     #[inline(always)]
     pub fn advance(&mut self, bytes: usize) {
-        self.ptr = Ord::min(unsafe { self.ptr.add(bytes) }, self.end);
+        self.ptr = Ord::min(self.ptr.wrapping_add(bytes), self.end);
     }
 
     #[inline(always)]
