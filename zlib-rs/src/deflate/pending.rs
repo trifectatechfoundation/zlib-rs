@@ -22,7 +22,7 @@ impl<'a> Pending<'a> {
     pub fn pending(&self) -> &[u8] {
         let slice = &self.buf.as_slice()[self.out..][..self.pending];
         // SAFETY: the slice contains initialized bytes.
-        unsafe { core::mem::transmute(slice) }
+        unsafe { &*(slice as *const [MaybeUninit<u8>] as *const [u8]) }
     }
 
     /// Number of bytes that can be added to the pending buffer until it is full
@@ -70,7 +70,7 @@ impl<'a> Pending<'a> {
         );
 
         // SAFETY: [u8] is valid [MaybeUninit<u8>]
-        let buf: &[MaybeUninit<u8>] = unsafe { core::mem::transmute(buf) };
+        let buf = unsafe { &*(buf as *const [u8] as *const [MaybeUninit<u8>]) };
 
         self.buf.as_mut_slice()[self.out + self.pending..][..buf.len()].copy_from_slice(buf);
 
