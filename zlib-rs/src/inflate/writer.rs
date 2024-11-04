@@ -44,6 +44,8 @@ impl<'a> Writer<'a> {
     /// Returns a shared reference to the filled portion of the buffer.
     #[inline]
     pub fn filled(&self) -> &[u8] {
+        // SAFETY: the filled area of the buffer is always initialized, and self.filled is always
+        // in-bounds.
         unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast(), self.filled) }
     }
 
@@ -112,9 +114,11 @@ impl<'a> Writer<'a> {
         let len = range.end - range.start;
 
         if self.remaining() >= len + core::mem::size_of::<C>() {
-            // Safety: we know that our window has at least a core::mem::size_of::<C>() extra bytes
+            // SAFETY: we know that our window has at least a core::mem::size_of::<C>() extra bytes
             // at the end, making it always safe to perform an (unaligned) Chunk read anywhere in
             // the window slice.
+            //
+            // The calling function checks for CPU features requirements for C.
             unsafe {
                 let src = window.as_ptr();
                 Self::copy_chunk_unchecked::<C>(
@@ -210,6 +214,7 @@ impl<'a> Writer<'a> {
 
         if current + length + core::mem::size_of::<C>() < capacity {
             let ptr = buf.as_mut_ptr();
+            // SAFETY: if statement and checked_sub ensures we stay in bounds.
             unsafe { Self::copy_chunk_unchecked::<C>(ptr.add(start), ptr.add(current), length) }
         } else {
             // a full simd copy does not fit in the output buffer
@@ -259,10 +264,18 @@ fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
 }
 
 trait Chunk {
-    /// Safety: must be valid to read a `Self::Chunk` value from `from` with an unaligned read.
+    /// # Safety
+    ///
+    /// Must be valid to read a `Self::Chunk` value from `from` with an unaligned read.
+    ///
+    /// Implementations may have CPU feature specific requirements depending on the type.
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self;
 
-    /// Safety: must be valid to write a `Self::Chunk` value to `out` with an unaligned write.
+    /// # Safety
+    ///
+    /// Must be valid to write a `Self::Chunk` value to `out` with an unaligned write.
+    ///
+    /// Implementations may have CPU feature specific requirements depending on the type.
     unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self);
 }
 

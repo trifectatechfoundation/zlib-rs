@@ -24,6 +24,9 @@ impl<'a> BitReader<'a> {
         }
     }
 
+    /// # Safety
+    ///
+    /// ptr and len must satisfy the requirements of [`core::slice::from_raw_parts`].
     #[inline(always)]
     pub unsafe fn update_slice(&mut self, ptr: *const u8, len: usize) {
         let end = ptr.wrapping_add(len);
@@ -55,6 +58,7 @@ impl<'a> BitReader<'a> {
     #[inline(always)]
     pub fn as_slice(&self) -> &[u8] {
         let len = self.bytes_remaining();
+        // SAFETY: condition of constructing this struct.
         unsafe { core::slice::from_raw_parts(self.ptr, len) }
     }
 
@@ -91,10 +95,10 @@ impl<'a> BitReader<'a> {
 
     #[inline(always)]
     pub fn pull_byte(&mut self) -> Result<u8, ReturnCode> {
+        // SAFETY: bounds checking.
         if self.ptr == self.end {
             return Err(ReturnCode::Ok);
         }
-
         let byte = unsafe { *self.ptr };
         self.ptr = unsafe { self.ptr.add(1) };
 
@@ -108,6 +112,7 @@ impl<'a> BitReader<'a> {
     pub fn refill(&mut self) {
         debug_assert!(self.bytes_remaining() >= 8);
 
+        // SAFETY: assertion above ensures we have 8 bytes to read for a u64.
         let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) }.to_le();
         self.bit_buffer |= read << self.bits_used;
         let increment = (63 - self.bits_used) >> 3;
@@ -163,6 +168,8 @@ impl<'a> BitReader<'a> {
     #[inline(always)]
     pub fn return_unused_bytes(&mut self) {
         let len = self.bits_used >> 3;
+        // SAFETY: ptr is advanced whenever bits_used is incremented by 8, so this sub is always
+        // in bounds.
         self.ptr = unsafe { self.ptr.sub(len as usize) };
         self.bits_used -= len << 3;
         self.bit_buffer &= (1u64 << self.bits_used) - 1u64;
@@ -178,7 +185,7 @@ impl std::io::Read for BitReader<'_> {
 
         let number_of_bytes = Ord::min(buf.len(), self.bytes_remaining());
 
-        // safety: `buf` is a mutable (exclusive) reference, so it cannot overlap the memory that
+        // SAFETY: `buf` is a mutable (exclusive) reference, so it cannot overlap the memory that
         // the reader contains
         unsafe { core::ptr::copy_nonoverlapping(self.ptr, buf.as_mut_ptr(), number_of_bytes) }
 
