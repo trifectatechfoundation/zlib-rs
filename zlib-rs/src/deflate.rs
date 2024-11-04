@@ -2753,7 +2753,7 @@ pub fn compress_slice_with_flush<'a>(
     config: DeflateConfig,
     flush: DeflateFlush,
 ) -> (&'a mut [u8], ReturnCode) {
-    // SAFETY: a [u8] is a valid [MaybeUninit<u8>].
+    // SAFETY: a [u8] is a valid [MaybeUninit<u8>], and `compress_with_flush` never uninitializes previously initialized memory.
     let output_uninit = unsafe {
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut MaybeUninit<u8>, output.len())
     };
