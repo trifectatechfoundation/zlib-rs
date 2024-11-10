@@ -1204,14 +1204,14 @@ fn uncompress_edge_cases() {
 
 #[test]
 fn gzip_header_fields_insufficient_space() {
-    let chunk_size = 512;
+    let chunk_size = 16;
 
     let input = b"Hello World\n";
 
     let extra =
         "Scheduling and executing async tasks is a job handled by an async runtime, such as\0";
     let name =
-        "tokio, async-std, and smol. You’ve probably used them at some point, either directly or\0";
+        "tokio, async-std, and smol. You've probably used them at some point, either directly or\0";
     let comment =
         "indirectly. They, along with many frameworks that require async, do their best to hide\0";
 
@@ -1305,7 +1305,7 @@ fn gzip_header_fields_insufficient_space() {
 
         let mut extra_buf = [0u8; 64];
         assert!(extra_buf.len() < extra.len());
-        let mut name_buf = [0u8; 64];
+        let mut name_buf = [0u8; 1];
         assert!(name_buf.len() < name.len());
         let mut comment_buf = [0u8; 64];
         assert!(comment_buf.len() < comment.len());
@@ -1347,22 +1347,34 @@ fn gzip_header_fields_insufficient_space() {
 
         assert!(!header.extra.is_null());
         assert_eq!(
-            std::str::from_utf8(&extra_buf).unwrap(),
+            if extra_buf.last() != Some(&0) {
+                std::str::from_utf8(&extra_buf).unwrap()
+            } else {
+                CStr::from_bytes_until_nul(&extra_buf)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            },
             &extra[..extra_buf.len()]
         );
 
         assert!(!header.name.is_null());
         assert_eq!(
-            std::str::from_utf8(&name_buf).unwrap(),
+            if name_buf.last() != Some(&0) {
+                std::str::from_utf8(&name_buf).unwrap()
+            } else {
+                CStr::from_bytes_until_nul(&name_buf)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            },
             &name[..name_buf.len()]
         );
 
         assert!(!header.comment.is_null());
         assert_eq!(
-            unsafe { CStr::from_ptr(comment_buf.as_ptr().cast()) }
-                .to_str()
-                .unwrap(),
-            &comment.trim_end_matches('\0')[..64]
+            std::str::from_utf8(&comment_buf).unwrap(),
+            &comment.trim_end_matches('\0')[..comment_buf.len()]
         );
 
         (extra_buf, name_buf, comment_buf)
