@@ -698,9 +698,7 @@ impl<'a> State<'a> {
 
                                     // min of number of bytes available at dst and at src
                                     let count = Ord::min(
-                                        (head.extra_max as usize)
-                                            .checked_sub(written_so_far)
-                                            .expect("extra out of bounds"),
+                                        (head.extra_max as usize).saturating_sub(written_so_far),
                                         extra_available,
                                     );
 
