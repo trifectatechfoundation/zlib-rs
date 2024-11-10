@@ -555,12 +555,12 @@ impl<'a> State<'a> {
                             != 0
                     {
                         self.mode = Mode::Bad;
-                        return self.bad("incorrect header check\0");
+                        break 'label self.bad("incorrect header check\0");
                     }
 
                     if self.bit_reader.bits(4) != Z_DEFLATED as u64 {
                         self.mode = Mode::Bad;
-                        return self.bad("unknown compression method\0");
+                        break 'label self.bad("unknown compression method\0");
                     }
 
                     self.bit_reader.drop_bits(4);
@@ -572,7 +572,7 @@ impl<'a> State<'a> {
 
                     if len as i32 > MAX_WBITS || len > self.wbits {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid window size\0");
+                        break 'label self.bad("invalid window size\0");
                     }
 
                     self.dmax = 1 << len;
@@ -600,12 +600,12 @@ impl<'a> State<'a> {
                     // Z_DEFLATED = 8 is the only supported method
                     if self.gzip_flags & 0xff != Z_DEFLATED {
                         self.mode = Mode::Bad;
-                        return self.bad("unknown compression method\0");
+                        break 'label self.bad("unknown compression method\0");
                     }
 
                     if self.gzip_flags & 0xe000 != 0 {
                         self.mode = Mode::Bad;
-                        return self.bad("unknown header flags set\0");
+                        break 'label self.bad("unknown header flags set\0");
                     }
 
                     if let Some(head) = self.head.as_mut() {
@@ -733,7 +733,7 @@ impl<'a> State<'a> {
 
                         // Checks for errors occur after returning
                         if self.length != 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
                     }
 
@@ -745,7 +745,7 @@ impl<'a> State<'a> {
                 Mode::Name => {
                     if (self.gzip_flags & 0x0800) != 0 {
                         if self.in_available == 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
                         // the name string will always be null-terminated, but might be longer than we have
@@ -789,7 +789,7 @@ impl<'a> State<'a> {
                         self.bit_reader.advance(name_slice.len());
 
                         if !reached_end && self.bit_reader.bytes_remaining() == 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
                     } else if let Some(head) = self.head.as_mut() {
                         head.name = core::ptr::null_mut();
@@ -803,7 +803,7 @@ impl<'a> State<'a> {
                 Mode::Comment => {
                     if (self.gzip_flags & 0x01000) != 0 {
                         if self.in_available == 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
                         // the comment string will always be null-terminated, but might be longer than we have
@@ -847,7 +847,7 @@ impl<'a> State<'a> {
                         self.bit_reader.advance(comment_slice.len());
 
                         if !reached_end && self.bit_reader.bytes_remaining() == 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
                     } else if let Some(head) = self.head.as_mut() {
                         head.comment = core::ptr::null_mut();
@@ -865,7 +865,7 @@ impl<'a> State<'a> {
                             && self.bit_reader.hold() as u32 != (self.checksum & 0xffff)
                         {
                             self.mode = Mode::Bad;
-                            return self.bad("header crc mismatch\0");
+                            break 'label self.bad("header crc mismatch\0");
                         }
 
                         self.bit_reader.init_bits();
@@ -890,7 +890,7 @@ impl<'a> State<'a> {
                     use InflateFlush::*;
 
                     match self.flush {
-                        Block | Trees => return ReturnCode::Ok,
+                        Block | Trees => break 'label ReturnCode::Ok,
                         NoFlush | SyncFlush | Finish => {
                             // NOTE: this is slightly different to what zlib-rs does!
                             self.mode = Mode::TypeDo;
@@ -940,7 +940,7 @@ impl<'a> State<'a> {
                             self.bit_reader.drop_bits(2);
 
                             if let InflateFlush::Trees = self.flush {
-                                return self.inflate_leave(ReturnCode::Ok);
+                                break 'label self.inflate_leave(ReturnCode::Ok);
                             } else {
                                 continue 'label;
                             }
@@ -960,7 +960,7 @@ impl<'a> State<'a> {
                             self.bit_reader.drop_bits(2);
 
                             self.mode = Mode::Bad;
-                            return self.bad("invalid block type\0");
+                            break 'label self.bad("invalid block type\0");
                         }
                         _ => {
                             // LLVM will optimize this branch away
@@ -979,7 +979,7 @@ impl<'a> State<'a> {
 
                     if hold as u16 != !((hold >> 16) as u16) {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid stored block lengths\0");
+                        break 'label self.bad("invalid stored block lengths\0");
                     }
 
                     self.length = hold as usize & 0xFFFF;
@@ -988,7 +988,7 @@ impl<'a> State<'a> {
                     self.bit_reader.init_bits();
 
                     if let InflateFlush::Trees = self.flush {
-                        return self.inflate_leave(ReturnCode::Ok);
+                        break 'label self.inflate_leave(ReturnCode::Ok);
                     } else {
                         self.mode = Mode::CopyBlock;
 
@@ -1007,7 +1007,7 @@ impl<'a> State<'a> {
                         copy = Ord::min(copy, self.bit_reader.bytes_remaining());
 
                         if copy == 0 {
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
                         self.writer.extend(&self.bit_reader.as_slice()[..copy]);
@@ -1045,7 +1045,7 @@ impl<'a> State<'a> {
 
                         if self.wrap & 4 != 0 && given_checksum != self.checksum {
                             self.mode = Mode::Bad;
-                            return self.bad("incorrect data check\0");
+                            break 'label self.bad("incorrect data check\0");
                         }
 
                         self.bit_reader.init_bits();
@@ -1118,7 +1118,7 @@ impl<'a> State<'a> {
                     } else if here.op & 64 != 0 {
                         self.mode = Mode::Bad;
 
-                        return self.bad("invalid literal/length code\0");
+                        break 'label self.bad("invalid literal/length code\0");
                     } else {
                         // length code
                         self.extra = (here.op & MAX_BITS) as usize;
@@ -1154,7 +1154,7 @@ impl<'a> State<'a> {
                     if self.writer.is_full() {
                         #[cfg(all(test, feature = "std"))]
                         eprintln!("Ok: writer is full ({} bytes)", self.writer.capacity());
-                        return self.inflate_leave(ReturnCode::Ok);
+                        break 'label self.inflate_leave(ReturnCode::Ok);
                     }
 
                     self.writer.push(self.length as u8);
@@ -1199,7 +1199,7 @@ impl<'a> State<'a> {
 
                     if here.op & 64 != 0 {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid distance code\0");
+                        break 'label self.bad("invalid distance code\0");
                     }
 
                     self.offset = here.val as usize;
@@ -1221,7 +1221,7 @@ impl<'a> State<'a> {
 
                     if INFLATE_STRICT && self.offset > self.dmax {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid distance code too far back\0");
+                        break 'label self.bad("invalid distance code too far back\0");
                     }
 
                     // eprintln!("inflate: distance {}", state.offset);
@@ -1238,7 +1238,7 @@ impl<'a> State<'a> {
                                 "BufError: writer is full ({} bytes)",
                                 self.writer.capacity()
                             );
-                            return self.inflate_leave(ReturnCode::Ok);
+                            break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
                         let left = self.writer.remaining();
@@ -1252,7 +1252,7 @@ impl<'a> State<'a> {
                             if copy > self.window.have() {
                                 if self.flags.contains(Flags::SANE) {
                                     self.mode = Mode::Bad;
-                                    return self.bad("invalid distance too far back\0");
+                                    break 'label self.bad("invalid distance too far back\0");
                                 }
 
                                 // TODO INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
@@ -1308,7 +1308,7 @@ impl<'a> State<'a> {
                     // TODO pkzit_bug_workaround
                     if self.nlen > 286 || self.ndist > 30 {
                         self.mode = Mode::Bad;
-                        return self.bad("too many length or distance symbols\0");
+                        break 'label self.bad("too many length or distance symbols\0");
                     }
 
                     self.have = 0;
@@ -1345,7 +1345,7 @@ impl<'a> State<'a> {
                         &mut self.work,
                     ) else {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid code lengths set\0");
+                        break 'label self.bad("invalid code lengths set\0");
                     };
 
                     self.len_table.codes = Codes::Codes;
@@ -1381,7 +1381,7 @@ impl<'a> State<'a> {
                                 self.bit_reader.drop_bits(here_bits);
                                 if self.have == 0 {
                                     self.mode = Mode::Bad;
-                                    return self.bad("invalid bit length repeat\0");
+                                    break 'label self.bad("invalid bit length repeat\0");
                                 }
 
                                 let len = self.lens[self.have - 1];
@@ -1390,7 +1390,7 @@ impl<'a> State<'a> {
 
                                 if self.have + copy > self.nlen + self.ndist {
                                     self.mode = Mode::Bad;
-                                    return self.bad("invalid bit length repeat\0");
+                                    break 'label self.bad("invalid bit length repeat\0");
                                 }
 
                                 for _ in 0..copy {
@@ -1407,7 +1407,7 @@ impl<'a> State<'a> {
 
                                 if self.have + copy > self.nlen + self.ndist {
                                     self.mode = Mode::Bad;
-                                    return self.bad("invalid bit length repeat\0");
+                                    break 'label self.bad("invalid bit length repeat\0");
                                 }
 
                                 for _ in 0..copy {
@@ -1424,7 +1424,7 @@ impl<'a> State<'a> {
 
                                 if self.have + copy > self.nlen + self.ndist {
                                     self.mode = Mode::Bad;
-                                    return self.bad("invalid bit length repeat\0");
+                                    break 'label self.bad("invalid bit length repeat\0");
                                 }
 
                                 for _ in 0..copy {
@@ -1438,7 +1438,7 @@ impl<'a> State<'a> {
                     // check for end-of-block code (better have one)
                     if self.lens[256] == 0 {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid code -- missing end-of-block\0");
+                        break 'label self.bad("invalid code -- missing end-of-block\0");
                     }
 
                     // build code tables
@@ -1454,7 +1454,7 @@ impl<'a> State<'a> {
                         &mut self.work,
                     ) else {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid literal/lengths set\0");
+                        break 'label self.bad("invalid literal/lengths set\0");
                     };
 
                     self.len_table.codes = Codes::Len;
@@ -1471,7 +1471,7 @@ impl<'a> State<'a> {
                         &mut self.work,
                     ) else {
                         self.mode = Mode::Bad;
-                        return self.bad("invalid distances set\0");
+                        break 'label self.bad("invalid distances set\0");
                     };
 
                     self.dist_table.bits = root;
@@ -1480,14 +1480,14 @@ impl<'a> State<'a> {
                     self.mode = Mode::Len_;
 
                     if matches!(self.flush, InflateFlush::Trees) {
-                        return self.inflate_leave(ReturnCode::Ok);
+                        break 'label self.inflate_leave(ReturnCode::Ok);
                     }
 
                     continue 'label;
                 }
                 Mode::Dict => {
                     if !self.flags.contains(Flags::HAVE_DICT) {
-                        return self.inflate_leave(ReturnCode::NeedDict);
+                        break 'label self.inflate_leave(ReturnCode::NeedDict);
                     }
 
                     self.checksum = crate::ADLER32_INITIAL_VALUE as _;
@@ -1513,13 +1513,13 @@ impl<'a> State<'a> {
                     dbg!(msg);
                     self.error_message = Some(msg);
 
-                    return ReturnCode::DataError;
+                    break 'label ReturnCode::DataError;
                 }
                 Mode::Mem => {
-                    return ReturnCode::MemError;
+                    break 'label ReturnCode::MemError;
                 }
                 Mode::Sync => {
-                    return ReturnCode::StreamError;
+                    break 'label ReturnCode::StreamError;
                 }
                 Mode::Length => {
                     // for gzip, last bytes contain LENGTH
@@ -1527,14 +1527,14 @@ impl<'a> State<'a> {
                         need_bits!(self, 32);
                         if (self.wrap & 4) != 0 && self.bit_reader.hold() != self.total as u64 {
                             self.mode = Mode::Bad;
-                            return self.bad("incorrect length check\0");
+                            break 'label self.bad("incorrect length check\0");
                         }
 
                         self.bit_reader.init_bits();
                     }
 
                     // inflate stream terminated properly
-                    return ReturnCode::StreamEnd;
+                    break 'label ReturnCode::StreamEnd;
                 }
             };
         }
