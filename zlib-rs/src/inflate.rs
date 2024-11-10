@@ -963,9 +963,8 @@ impl<'a> State<'a> {
                             return self.bad("invalid block type\0");
                         }
                         _ => {
-                            // SAFETY: bits(2) only yields a value of two bits, so this match is
-                            // already exhaustive.
-                            unsafe { core::hint::unreachable_unchecked() }
+                            // LLVM will optimize this branch away
+                            unreachable!("BitReader::bits(2) only yields a value of two bits, so this match is already exhaustive")
                         }
                     }
                 }
