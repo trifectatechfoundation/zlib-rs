@@ -2160,10 +2160,10 @@ fn blow_up_the_stack_1() {
 
     let config = InflateConfig::default();
 
-    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, &INPUT, config);
+    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 
-    let (_, err) = uncompress_slice(&mut output_rs, &INPUT, config);
+    let (_, err) = uncompress_slice(&mut output_rs, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 }
 
@@ -2179,9 +2179,9 @@ fn blow_up_the_stack_2() {
 
     let config = InflateConfig::default();
 
-    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, &INPUT, config);
+    let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 
-    let (_, err) = uncompress_slice(&mut output_rs, &INPUT, config);
+    let (_, err) = uncompress_slice(&mut output_rs, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 }
