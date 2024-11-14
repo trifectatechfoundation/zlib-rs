@@ -366,3 +366,26 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+avx2"
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs allocate::"
+
+  run-flate2-test-suite:
+    name: run flate2 test suite
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+        features:
+          - ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: run
+        run: |
+          cd ..
+          git clone https://github.com/rust-lang/flate2-rs.git
+          cd flate2-rs
+          sed -i '/^libz-rs-sys =/c\libz-rs-sys = { path = "../zlib-rs/libz-rs-sys", optional = true, default-features = false, features = ["std", "rust-allocator"] }' Cargo.toml
+          cargo test --no-default-features --features="zlib-rs"
+
