@@ -1575,6 +1575,7 @@ impl<'a> State<'a> {
     }
 }
 
+#[inline(always)]
 fn inflate_fast_help(state: &mut State, _start: usize) {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
