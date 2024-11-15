@@ -568,8 +568,8 @@ impl<'a> State<'a> {
             Codes::Dist => &self.dist_codes,
         };
 
-        'top: loop {
-            match mode {
+        {
+            'top: match Mode::Len {
                 Mode::Len => {
                     let mut avail_in = bit_reader.bytes_remaining();
                     let mut avail_out = writer.remaining();
@@ -633,7 +633,7 @@ impl<'a> State<'a> {
 
                     if here.op == 0 {
                         mode = Mode::Lit;
-                        continue 'top;
+                        continue 'top Mode::Lit;
                     } else if here.op & 32 != 0 {
                         // end of block
 
@@ -659,7 +659,7 @@ impl<'a> State<'a> {
                         // length code
                         self.extra = (here.op & MAX_BITS) as usize;
                         mode = Mode::LenExt;
-                        continue 'top;
+                        continue 'top Mode::LenExt;
                     }
                 }
                 Mode::Lit => {
@@ -674,7 +674,7 @@ impl<'a> State<'a> {
 
                     mode = Mode::Len;
 
-                    continue 'top;
+                    continue 'top Mode::Len;
                 }
                 Mode::LenExt => {
                     let mut extra = self.extra;
@@ -698,7 +698,7 @@ impl<'a> State<'a> {
                     self.was = self.length;
                     mode = Mode::Dist;
 
-                    continue 'top;
+                    continue 'top Mode::Dist;
                 }
                 Mode::Dist => {
                     // get distance code
@@ -756,7 +756,7 @@ impl<'a> State<'a> {
                     self.extra = (here.op & MAX_BITS) as usize;
                     mode = Mode::DistExt;
 
-                    continue 'top;
+                    continue 'top Mode::DistExt;
                 }
                 Mode::DistExt => {
                     let mut extra = self.extra;
@@ -784,7 +784,7 @@ impl<'a> State<'a> {
 
                     mode = Mode::Match;
 
-                    continue 'top;
+                    continue 'top Mode::Match;
                 }
                 Mode::Match => {
                     if writer.is_full() {
@@ -843,11 +843,11 @@ impl<'a> State<'a> {
 
                     if self.length == 0 {
                         mode = Mode::Len;
-                        continue 'top;
+                        continue 'top Mode::Len;
                     } else {
                         // otherwise it seems to recurse?
                         // self.match_()
-                        continue 'top;
+                        continue 'top Mode::Match;
                     }
                 }
                 _ => unsafe { core::hint::unreachable_unchecked() },
