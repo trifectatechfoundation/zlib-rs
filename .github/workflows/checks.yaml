@@ -251,7 +251,7 @@ jobs:
           done
 
   link-c-dynamic-library:
-    name: dynamic library
+    name: vanilla dynamic library
     strategy:
       matrix:
         include:
@@ -303,6 +303,45 @@ jobs:
         run: |
           cargo build --release --target ${{matrix.target}} --features=custom-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q "MY_CUSTOM_PREFIX_uncompress" || (echo "symbol not found!" && exit 1)
+
+  cargo-c-dynamic-library:
+    name: cargo-c dynamic library
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+        features:
+          - ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: stable
+          targets: ${{matrix.target}}
+      - name: Install cargo-c
+        env:
+          LINK: https://github.com/lu-zero/cargo-c/releases/latest/download
+        run: |
+          curl -L "$LINK/cargo-c-x86_64-unknown-linux-musl.tar.gz" |
+          tar xz -C $HOME/.cargo/bin
+      - name: build with and test the result of cargo-c
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          # build using cargo-c this time
+          cargo cinstall --offline --release --destdir=/tmp/cargo-cbuild-libz-rs
+          tree /tmp/cargo-cbuild-libz-rs
+          # verify that the SONAME  is set and includes a version
+          objdump -p target/x86_64-unknown-linux-gnu/release/libz_rs.so | awk '/SONAME/{print $2}' | grep -E 'libz_rs\.so\.[0-9]+\.[0-9]+'
+          # build zpipe with our library
+          cc -o zpipe zpipe.c -L/tmp/cargo-cbuild-libz-rs/usr/local/lib/x86_64-linux-gnu -lz_rs
+          export LD_LIBRARY_PATH=/tmp/cargo-cbuild-libz-rs/usr/local/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+          ./zpipe < Cargo.toml | ./zpipe -d > out.txt
+          cmp -s Cargo.toml out.txt
 
   wasm32:
     name: "wasm32"
