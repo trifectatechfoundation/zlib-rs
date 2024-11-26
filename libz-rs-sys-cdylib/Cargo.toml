@@ -25,6 +25,7 @@ capi = []
 libz-rs-sys = { version = "0.4.0", path = "../libz-rs-sys", default-features = false }
 
 [package.metadata.capi.library]
+version = "1.3.0" # the zlib api version we match
 name = "z_rs"
 
 [package.metadata.capi.header]

@@ -336,7 +336,7 @@ jobs:
           cargo cinstall --offline --release --destdir=/tmp/cargo-cbuild-libz-rs
           tree /tmp/cargo-cbuild-libz-rs
           # verify that the SONAME  is set and includes a version
-          objdump -p target/x86_64-unknown-linux-gnu/release/libz_rs.so | awk '/SONAME/{print $2}' | grep -E 'libz_rs\.so\.[0-9]+\.[0-9]+'
+          objdump -p target/x86_64-unknown-linux-gnu/release/libz_rs.so | awk '/SONAME/{print $2}' | grep -E 'libz_rs\.so\.1'
           # build zpipe with our library
           cc -o zpipe zpipe.c -L/tmp/cargo-cbuild-libz-rs/usr/local/lib/x86_64-linux-gnu -lz_rs
           export LD_LIBRARY_PATH=/tmp/cargo-cbuild-libz-rs/usr/local/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
