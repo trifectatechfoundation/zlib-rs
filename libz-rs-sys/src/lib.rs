@@ -1351,9 +1351,8 @@ pub unsafe extern "C-unwind" fn deflateCopy(dest: z_streamp, source: z_streamp) 
 /// - level `1` gives best speed
 /// - level `9` gives best compression
 /// - [`Z_DEFAULT_COMPRESSION`] requests a default compromise between speed and compression (currently equivalent to level `6`).
-
 ///
-/// A call to [`inflateInit_`] is equivalent to [`inflateInit2_`] where
+/// A call to [`deflateInit_`] is equivalent to [`deflateInit2_`] where:
 ///
 /// - `method` is `8` (deflate)
 /// - `windowBits` is `15`
@@ -1441,10 +1440,6 @@ pub unsafe extern "C-unwind" fn deflateInit_(
 /// - level `1` gives best speed
 /// - level `9` gives best compression
 /// - [`Z_DEFAULT_COMPRESSION`] requests a default compromise between speed and compression (currently equivalent to level `6`).
-
-///
-/// A call to [`inflateInit_`] is equivalent to [`inflateInit2_`] where
-///
 ///
 /// # Returns
 ///

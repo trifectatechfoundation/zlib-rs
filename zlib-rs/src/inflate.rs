@@ -516,7 +516,7 @@ const fn zswap32(q: u32) -> u32 {
 const INFLATE_FAST_MIN_HAVE: usize = 15;
 const INFLATE_FAST_MIN_LEFT: usize = 260;
 
-impl<'a> State<'a> {
+impl State<'_> {
     fn dispatch(&mut self) -> ReturnCode {
         'label: loop {
             match self.mode {

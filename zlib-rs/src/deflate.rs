@@ -2859,7 +2859,7 @@ const fn compress_bound_help(source_len: usize, wrap_len: usize) -> usize {
 }
 
 ///  heap used to build the Huffman trees
-
+///
 /// The sons of heap[n] are heap[2*n] and heap[2*n+1]. heap[0] is not used.
 /// The same heap array is used to build all trees.
 #[derive(Clone)]
