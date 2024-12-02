@@ -160,7 +160,7 @@ impl Allocator<'static> {
     };
 }
 
-impl<'a> Allocator<'a> {
+impl Allocator<'_> {
     pub fn allocate_layout(&self, layout: Layout) -> *mut c_void {
         // Special case for the Rust `alloc` backed allocator
         #[cfg(feature = "rust-allocator")]

@@ -77,7 +77,7 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     /* do remaining bytes (less than NMAX, still just one modulo) */
-    return adler32_len_64(adler, it.remainder(), sum2);
+    adler32_len_64(adler, it.remainder(), sum2)
 }
 
 pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
