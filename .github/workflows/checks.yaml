@@ -293,8 +293,8 @@ jobs:
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features
-          cc -o zpipe_no_std zpipe_no_std.c target/${{matrix.target}}/release/deps/libz_rs.so
-          ./zpipe_no_std < Cargo.toml | ./zpipe_no_std -d > out.txt
+          cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
+          ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: custom-prefix"
         working-directory: libz-rs-sys-cdylib

@@ -17,6 +17,16 @@
 #include <assert.h>
 #include "zlib.h"
 
+#ifdef NO_STD
+voidpf custom_zalloc(voidpf opaque, uInt items, uInt size) {
+    return malloc(items * size);
+}
+
+void custom_zfree(voidpf opaque, voidpf address) {
+    free(address);
+}
+#endif
+
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
 #  include <io.h>
@@ -25,7 +35,7 @@
 #  define SET_BINARY_MODE(file)
 #endif
 
-#define CHUNK 16384
+#define CHUNK 256
 
 /* Compress from file source to file dest until EOF on source.
    def() returns Z_OK on success, Z_MEM_ERROR if memory could not be
@@ -42,8 +52,13 @@ int def(FILE *source, FILE *dest, int level)
     unsigned char out[CHUNK];
 
     /* allocate deflate state */
-    strm.zalloc = Z_NULL;
-    strm.zfree = Z_NULL;
+#ifdef NO_STD
+    strm.zalloc = custom_zalloc;
+    strm.zfree = custom_zfree;
+#else
+    strm.zalloc = NULL;
+    strm.zfree = NULL;
+#endif
     strm.opaque = Z_NULL;
     ret = deflateInit(&strm, level);
     if (ret != Z_OK)
@@ -98,8 +113,13 @@ int inf(FILE *source, FILE *dest)
     unsigned char out[CHUNK];
 
     /* allocate inflate state */
-    strm.zalloc = Z_NULL;
-    strm.zfree = Z_NULL;
+#ifdef NO_STD
+    strm.zalloc = custom_zalloc;
+    strm.zfree = custom_zfree;
+#else
+    strm.zalloc = NULL;
+    strm.zfree = NULL;
+#endif
     strm.opaque = Z_NULL;
     strm.avail_in = 0;
     strm.next_in = Z_NULL;
