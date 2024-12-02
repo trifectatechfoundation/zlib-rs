@@ -8,7 +8,7 @@ Build `zlib-rs` as a drop-in replacement for the zlib dynamic library
 cargo build --release
 
 # the extension of a cdylib varies per platform
-cc zpipe.c target/release/libz_rs.so
+cc -o zpipe zpipe.c target/release/libz_rs.so -I .
 
 # verify the implementation can compress and decompress our Cargo.toml
 ./zpipe < Cargo.toml | ./zpipe -d
@@ -69,7 +69,7 @@ flag. When enabled, the value of the `LIBZ_RS_SYS_PREFIX` is used as a prefix fo
 000000000001d700 g    DF .text	0000000000000051  Base        MY_CUSTOM_PREFIX_uncompress
 ```
 
-### `![no_std]`
+### `#![no_std]`
 
 The dynamic library can be built without the rust `std` crate, e.g. for embedded devices that don't support it. Disabling
 the standard library has the following limitations:
@@ -77,7 +77,7 @@ the standard library has the following limitations:
 - CPU feature detection is currently disabled. This is true for both compile-time and run-time feature detection.
     This means `zlib-rs` will not make use of SIMD or other custom instructions.
 - The `rust-allocator` should not be used. It internally enables the standard library, causing issues. Using `c-allocator`
-    or not providing an allocator at build time is still supported.On embedded it is most common to provide a custom allocator
+    or not providing an allocator at build time is still supported. On embedded it is most common to provide a custom allocator
     that "allocates" into a custom array.
 
 ## Build for Distribution
