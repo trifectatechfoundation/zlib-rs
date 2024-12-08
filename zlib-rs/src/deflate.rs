@@ -974,16 +974,10 @@ impl<'a> BitWriter<'a> {
         self.send_bits_trace(val, len);
         self.sent_bits_add(len as usize);
 
+        self.bit_buffer |= val << self.bits_used;
         if total_bits < Self::BIT_BUF_SIZE {
-            self.bit_buffer |= val << self.bits_used;
             self.bits_used = total_bits;
-        } else if self.bits_used == Self::BIT_BUF_SIZE {
-            // with how send_bits is called, this is unreachable in practice
-            self.pending.extend(&self.bit_buffer.to_le_bytes());
-            self.bit_buffer = val;
-            self.bits_used = len;
         } else {
-            self.bit_buffer |= val << self.bits_used;
             self.pending.extend(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
