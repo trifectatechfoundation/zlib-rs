@@ -532,7 +532,10 @@ impl State<'_> {
 
         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
             inflate_fast_help(self, 0);
-            return None;
+            match self.mode {
+                Mode::Len => {}
+                _ => return None,
+            }
         }
 
         let mut mode;
@@ -2027,7 +2030,8 @@ fn inflate_fast_help(state: &mut State, _start: usize) {
             break 'dolen;
         }
 
-        let remaining = bit_reader.bytes_remaining();
+        // include the bits in the bit_reader buffer in the count of available bytes
+        let remaining = bit_reader.bytes_remaining_including_buffer();
         if remaining >= INFLATE_FAST_MIN_HAVE && writer.remaining() >= INFLATE_FAST_MIN_LEFT {
             continue;
         }
