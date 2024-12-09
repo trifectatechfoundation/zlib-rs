@@ -78,6 +78,11 @@ impl<'a> BitReader<'a> {
     }
 
     #[inline(always)]
+    pub fn bytes_remaining_including_buffer(&self) -> usize {
+        (self.end as usize - self.ptr as usize) + (self.bits_used as usize >> 3)
+    }
+
+    #[inline(always)]
     pub fn need_bits(&mut self, n: usize) -> Result<(), ReturnCode> {
         while (self.bits_used as usize) < n {
             self.pull_byte()?;
