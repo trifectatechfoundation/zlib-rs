@@ -2028,9 +2028,7 @@ fn inflate_fast_help(state: &mut State, _start: usize) {
         }
 
         let remaining = bit_reader.bytes_remaining();
-        if remaining.saturating_sub(INFLATE_FAST_MIN_LEFT - 1) > 0
-            && writer.remaining() > INFLATE_FAST_MIN_LEFT
-        {
+        if remaining >= INFLATE_FAST_MIN_HAVE && writer.remaining() >= INFLATE_FAST_MIN_LEFT {
             continue;
         }
 
