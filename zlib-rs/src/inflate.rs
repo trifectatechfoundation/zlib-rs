@@ -4,6 +4,7 @@
 use core::ffi::{c_char, c_int, c_long, c_ulong};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
+use core::ops::ControlFlow;
 
 mod bitreader;
 mod inffixed_tbl;
@@ -526,13 +527,16 @@ impl State<'_> {
     //
     // It unfortunately does duplicate the code for some of the states; deduplicating it by having
     // more of the states call this function is slower.
-    fn len_and_friends(&mut self) -> Option<ReturnCode> {
+    fn len_and_friends(&mut self) -> ControlFlow<ReturnCode, ()> {
         let avail_in = self.bit_reader.bytes_remaining();
         let avail_out = self.writer.remaining();
 
         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
             inflate_fast_help(self, 0);
-            return None;
+            match self.mode {
+                Mode::Len => {}
+                _ => return ControlFlow::Continue(()),
+            }
         }
 
         let mut mode;
@@ -584,7 +588,7 @@ impl State<'_> {
                     if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
                         restore!();
                         inflate_fast_help(self, 0);
-                        return None;
+                        return ControlFlow::Continue(());
                     }
 
                     self.back = 0;
@@ -601,7 +605,7 @@ impl State<'_> {
 
                         if let Err(return_code) = bit_reader.pull_byte() {
                             restore!();
-                            return Some(return_code);
+                            return ControlFlow::Break(return_code);
                         };
                     }
 
@@ -616,7 +620,7 @@ impl State<'_> {
 
                             if let Err(return_code) = bit_reader.pull_byte() {
                                 restore!();
-                                return Some(return_code);
+                                return ControlFlow::Break(return_code);
                             };
                         }
 
@@ -640,7 +644,7 @@ impl State<'_> {
                         mode = Mode::Type;
 
                         restore!();
-                        return None;
+                        return ControlFlow::Continue(());
                     } else if here.op & 64 != 0 {
                         mode = Mode::Bad;
                         {
@@ -650,7 +654,7 @@ impl State<'_> {
                             #[cfg(all(feature = "std", test))]
                             dbg!(msg);
                             this.error_message = Some(msg);
-                            return Some(this.inflate_leave(ReturnCode::DataError));
+                            return ControlFlow::Break(ReturnCode::DataError);
                         }
                     } else {
                         // length code
@@ -665,7 +669,7 @@ impl State<'_> {
                         restore!();
                         #[cfg(all(test, feature = "std"))]
                         eprintln!("Ok: writer is full ({} bytes)", self.writer.capacity());
-                        return Some(self.inflate_leave(ReturnCode::Ok));
+                        return ControlFlow::Break(ReturnCode::Ok);
                     }
 
                     writer.push(self.length as u8);
@@ -683,7 +687,7 @@ impl State<'_> {
                         match bit_reader.need_bits(extra) {
                             Err(return_code) => {
                                 restore!();
-                                return Some(self.inflate_leave(return_code));
+                                return ControlFlow::Break(return_code);
                             }
                             Ok(v) => v,
                         };
@@ -713,7 +717,7 @@ impl State<'_> {
 
                         if let Err(return_code) = bit_reader.pull_byte() {
                             restore!();
-                            return Some(return_code);
+                            return ControlFlow::Break(return_code);
                         };
                     }
 
@@ -730,7 +734,7 @@ impl State<'_> {
 
                             if let Err(return_code) = bit_reader.pull_byte() {
                                 restore!();
-                                return Some(return_code);
+                                return ControlFlow::Break(return_code);
                             };
                         }
 
@@ -743,7 +747,7 @@ impl State<'_> {
                     if here.op & 64 != 0 {
                         restore!();
                         self.mode = Mode::Bad;
-                        return Some(self.bad("invalid distance code\0"));
+                        return ControlFlow::Break(self.bad("invalid distance code\0"));
                     }
 
                     self.offset = here.val as usize;
@@ -761,7 +765,7 @@ impl State<'_> {
                         match bit_reader.need_bits(extra) {
                             Err(return_code) => {
                                 restore!();
-                                return Some(self.inflate_leave(return_code));
+                                return ControlFlow::Break(return_code);
                             }
                             Ok(v) => v,
                         };
@@ -773,7 +777,9 @@ impl State<'_> {
                     if INFLATE_STRICT && self.offset > self.dmax {
                         restore!();
                         self.mode = Mode::Bad;
-                        return Some(self.bad("invalid distance code too far back\0"));
+                        return ControlFlow::Break(
+                            self.bad("invalid distance code too far back\0"),
+                        );
                     }
 
                     // eprintln!("inflate: distance {}", state.offset);
@@ -791,7 +797,7 @@ impl State<'_> {
                             "BufError: writer is full ({} bytes)",
                             self.writer.capacity()
                         );
-                        return Some(self.inflate_leave(ReturnCode::Ok));
+                        return ControlFlow::Break(ReturnCode::Ok);
                     }
 
                     let left = writer.remaining();
@@ -806,7 +812,9 @@ impl State<'_> {
                             if self.flags.contains(Flags::SANE) {
                                 restore!();
                                 self.mode = Mode::Bad;
-                                return Some(self.bad("invalid distance too far back\0"));
+                                return ControlFlow::Break(
+                                    self.bad("invalid distance too far back\0"),
+                                );
                             }
 
                             // TODO INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
@@ -1395,8 +1403,8 @@ impl State<'_> {
                     continue 'label;
                 }
                 Mode::Len => match self.len_and_friends() {
-                    Some(return_code) => break 'label return_code,
-                    None => continue 'label,
+                    ControlFlow::Break(return_code) => break 'label return_code,
+                    ControlFlow::Continue(()) => continue 'label,
                 },
                 Mode::LenExt => {
                     // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
@@ -2027,10 +2035,9 @@ fn inflate_fast_help(state: &mut State, _start: usize) {
             break 'dolen;
         }
 
-        let remaining = bit_reader.bytes_remaining();
-        if remaining.saturating_sub(INFLATE_FAST_MIN_LEFT - 1) > 0
-            && writer.remaining() > INFLATE_FAST_MIN_LEFT
-        {
+        // include the bits in the bit_reader buffer in the count of available bytes
+        let remaining = bit_reader.bytes_remaining_including_buffer();
+        if remaining >= INFLATE_FAST_MIN_HAVE && writer.remaining() >= INFLATE_FAST_MIN_LEFT {
             continue;
         }
 
