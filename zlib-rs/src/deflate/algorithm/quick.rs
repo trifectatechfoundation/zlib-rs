@@ -104,7 +104,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
 
                 macro_rules! first_two_bytes {
                     ($slice:expr, $offset:expr) => {
-                        $slice[$offset] as u16 | ($slice[$offset + 1] as u16) << 8
+                        u16::from_le_bytes($slice[..2].try_into().unwrap())
                     }
                 }
                 if str_prefetch as u16 == first_two_bytes!(match_start, 0) {
