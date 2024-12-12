@@ -965,6 +965,7 @@ impl<'a> BitWriter<'a> {
         }
     }
 
+    #[inline(always)]
     fn send_bits(&mut self, val: u64, len: u8) {
         debug_assert!(len <= 64);
         debug_assert!(self.bits_used <= 64);
@@ -974,10 +975,21 @@ impl<'a> BitWriter<'a> {
         self.send_bits_trace(val, len);
         self.sent_bits_add(len as usize);
 
-        self.bit_buffer |= val << self.bits_used;
         if total_bits < Self::BIT_BUF_SIZE {
+            self.bit_buffer |= val << self.bits_used;
             self.bits_used = total_bits;
         } else {
+            self.send_bits_overflow(val, total_bits);
+        }
+    }
+
+    fn send_bits_overflow(&mut self, val: u64, total_bits: u8) {
+        if self.bits_used == Self::BIT_BUF_SIZE {
+            self.pending.extend(&self.bit_buffer.to_le_bytes());
+            self.bit_buffer = val;
+            self.bits_used = total_bits - Self::BIT_BUF_SIZE;
+        } else {
+            self.bit_buffer |= val << self.bits_used;
             self.pending.extend(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
