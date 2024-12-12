@@ -93,6 +93,8 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         }
 
         if state.lookahead >= WANT_MIN_MATCH {
+            let slice = &state.window.filled()[state.strstart..];
+            let str_prefetch = u32::from_le_bytes(slice[..4].try_into().unwrap());
             let hash_head = state.quick_insert_string(state.strstart);
             let dist = state.strstart as isize - hash_head as isize;
 
@@ -105,7 +107,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         $slice[$offset] as u16 | ($slice[$offset + 1] as u16) << 8
                     }
                 }
-                if first_two_bytes!(str_start, 0) == first_two_bytes!(match_start, 0) {
+                if str_prefetch as u16 == first_two_bytes!(match_start, 0) {
                     let mut match_len = crate::deflate::compare256::compare256_slice(
                         &str_start[2..],
                         &match_start[2..],

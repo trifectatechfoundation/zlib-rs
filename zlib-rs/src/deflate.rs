@@ -1353,11 +1353,27 @@ impl<'a> State<'a> {
     #[inline(always)]
     pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
         match self.hash_calc_variant {
-            HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
-            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
-            // which avoids choosing Crc32 if the system doesn't have support.
-            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::quick_insert_string(self, string) },
             HashCalcVariant::Roll => RollHashCalc::quick_insert_string(self, string),
+            _ => {
+                // Standard and Crc32 both can process 4 bytes at a time.
+                let slice = &self.window.filled()[string..];
+                let val = u32::from_le_bytes(slice[..4].try_into().unwrap());
+
+                let hm = match self.hash_calc_variant {
+                    // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
+                    // which avoids choosing Crc32 if the system doesn't have support.
+                    HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::update_hash(0, val) }
+                    _ => StandardHashCalc::update_hash(0, val)
+                } as usize;
+
+                let head = self.head.as_slice()[hm];
+                if head != string as u16 {
+                    self.prev.as_mut_slice()[string & self.w_mask] = head;
+                    self.head.as_mut_slice()[hm] = string as u16;
+                }
+
+                head
+            }
         }
     }
 
