@@ -372,6 +372,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // just provide a valid default; gets set properly later
         hash_calc_variant: HashCalcVariant::Standard,
+
+        len_cache: [(0, 0); 256]
     };
 
     unsafe { state_allocation.write(state) };
@@ -670,6 +672,7 @@ pub fn copy<'a>(
         crc_fold: source_state.crc_fold,
         gzhead: None,
         gzindex: source_state.gzindex,
+        len_cache: source_state.len_cache,
     };
 
     // write the cloned state into state_ptr
@@ -1048,17 +1051,14 @@ impl<'a> BitWriter<'a> {
         ltree[c as usize].len()
     }
 
-    pub(crate) fn emit_dist(
-        &mut self,
+    fn compute_len_bits(
         ltree: &[Value],
-        dtree: &[Value],
-        lc: u8,
-        mut dist: usize,
-    ) -> usize {
+        lc: u8
+    ) -> (u64, usize) {
         let mut lc = lc as usize;
 
         /* Send the length code, len is the match length - STD_MIN_MATCH */
-        let mut code = self::trees_tbl::LENGTH_CODE[lc] as usize;
+        let code = self::trees_tbl::LENGTH_CODE[lc] as usize;
         let c = code + LITERALS + 1;
         assert!(c < L_CODES, "bad l_code");
         // send_code_trace(s, c);
@@ -1066,15 +1066,41 @@ impl<'a> BitWriter<'a> {
         let lnode = ltree[c];
         let mut match_bits: u64 = lnode.code() as u64;
         let mut match_bits_len = lnode.len() as usize;
-        let mut extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
+        let extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
         if extra != 0 {
             lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
             match_bits |= (lc as u64) << match_bits_len;
             match_bits_len += extra;
         }
+        (match_bits, match_bits_len)
+    }
+
+    pub(crate) fn emit_dist(
+        &mut self,
+        ltree: &[Value],
+        dtree: &[Value],
+        lc: u8,
+        mut dist: usize,
+        len_cache: Option<&mut [(u64, usize); 256]>
+    ) -> usize {
+        let mut match_bits: u64;
+        let mut match_bits_len: usize;
+
+        match len_cache {
+            None => {
+                (match_bits, match_bits_len) = Self::compute_len_bits(ltree, lc);
+            },
+            Some(cache) => {
+                (match_bits, match_bits_len) = cache[lc as usize];
+                if match_bits_len == 0 {
+                    (match_bits, match_bits_len) = Self::compute_len_bits(ltree, lc);
+                    cache[lc as usize] = (match_bits, match_bits_len);
+                }
+            }
+        }
 
         dist -= 1; /* dist is now the match distance - 1 */
-        code = State::d_code(dist) as usize;
+        let code = State::d_code(dist) as usize;
         assert!(code < D_CODES, "bad d_code");
         // send_code_trace(s, code);
 
@@ -1082,7 +1108,7 @@ impl<'a> BitWriter<'a> {
         let dnode = dtree[code];
         match_bits |= (dnode.code() as u64) << match_bits_len;
         match_bits_len += dnode.len() as usize;
-        extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
+        let extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
         if extra != 0 {
             dist -= self::trees_tbl::BASE_DIST[code] as usize;
             match_bits |= (dist as u64) << match_bits_len;
@@ -1102,7 +1128,7 @@ impl<'a> BitWriter<'a> {
 
             match u16::from_be_bytes([dist_high, dist_low]) as usize {
                 0 => self.emit_lit(ltree, lc) as usize,
-                dist => self.emit_dist(ltree, dtree, lc, dist),
+                dist => self.emit_dist(ltree, dtree, lc, dist, None),
             };
         }
 
@@ -1291,6 +1317,8 @@ pub(crate) struct State<'a> {
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    len_cache: [(u64, usize); 256],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]

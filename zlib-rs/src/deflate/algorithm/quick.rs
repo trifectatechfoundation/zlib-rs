@@ -123,6 +123,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                             StaticTreeDesc::D.static_tree,
                             (match_len - STD_MIN_MATCH) as u8,
                             dist as usize,
+                            Some(&mut state.len_cache),
                         );
                         state.lookahead -= match_len;
                         state.strstart += match_len;
