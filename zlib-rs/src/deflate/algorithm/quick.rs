@@ -118,8 +118,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         // TODO do this with a debug_assert?
                         // check_match(s, state.strstart, hash_head, match_len);
 
-                        state.bit_writer.emit_dist(
-                            StaticTreeDesc::L.static_tree,
+                        state.bit_writer.emit_dist_static(
                             StaticTreeDesc::D.static_tree,
                             (match_len - STD_MIN_MATCH) as u8,
                             dist as usize,
