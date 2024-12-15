@@ -1114,11 +1114,12 @@ impl<'a> BitWriter<'a> {
         match_bits_len
     }
 
-    pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, dist: u16) -> usize {
+    pub(crate) fn emit_dist_static(&mut self, lc: u8, dist: u16) -> usize {
         let precomputed_len = trees_tbl::STATIC_LTREE_ENCODINGS[lc as usize];
         let mut match_bits = precomputed_len.code() as u64;
         let mut match_bits_len = precomputed_len.len() as usize;
 
+        let dtree = self::trees_tbl::STATIC_DTREE.as_slice();
         let (dist_match_bits, dist_match_bits_len) = encode_dist(dtree, dist);
 
         match_bits |= dist_match_bits << match_bits_len;
@@ -1494,7 +1495,6 @@ impl<'a> State<'a> {
 
     fn compress_block_static_trees(&mut self) {
         let ltree = self::trees_tbl::STATIC_LTREE.as_slice();
-        let dtree = self::trees_tbl::STATIC_DTREE.as_slice();
         for chunk in self.sym_buf.filled().chunks_exact(3) {
             let [dist_low, dist_high, lc] = *chunk else {
                 unreachable!("out of bound access on the symbol buffer");
@@ -1502,7 +1502,7 @@ impl<'a> State<'a> {
 
             match u16::from_le_bytes([dist_low, dist_high]) {
                 0 => self.bit_writer.emit_lit(ltree, lc) as usize,
-                dist => self.bit_writer.emit_dist_static(dtree, lc, dist),
+                dist => self.bit_writer.emit_dist_static(lc, dist),
             };
         }
 

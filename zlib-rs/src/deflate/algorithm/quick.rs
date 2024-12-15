@@ -122,11 +122,9 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         // in `emit_dist_static`, dist must be less than DIST_CODE_LEN, so u16 has plenty of space
                         let dist = u16::try_from(dist).unwrap();
 
-                        state.bit_writer.emit_dist_static(
-                            StaticTreeDesc::D.static_tree,
-                            (match_len - STD_MIN_MATCH) as u8,
-                            dist,
-                        );
+                        state
+                            .bit_writer
+                            .emit_dist_static((match_len - STD_MIN_MATCH) as u8, dist);
                         state.lookahead -= match_len;
                         state.strstart += match_len;
                         continue;
