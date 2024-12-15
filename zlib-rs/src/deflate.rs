@@ -919,6 +919,27 @@ const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
     (match_bits, match_bits_len)
 }
 
+#[inline]
+const fn encode_dist(dtree: &[Value], mut dist: u16) -> (u64, usize) {
+    dist -= 1; /* dist is now the match distance - 1 */
+    let code = State::d_code(dist as usize) as usize;
+    assert!(code < D_CODES, "bad d_code");
+    // send_code_trace(s, code);
+
+    /* Send the distance code */
+    let dnode = dtree[code];
+    let mut match_bits = dnode.code() as u64;
+    let mut match_bits_len = dnode.len() as usize;
+    let extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
+    if extra != 0 {
+        dist -= self::trees_tbl::BASE_DIST[code];
+        match_bits |= (dist as u64) << match_bits_len;
+        match_bits_len += extra;
+    }
+
+    (match_bits, match_bits_len)
+}
+
 impl<'a> BitWriter<'a> {
     pub(crate) const BIT_BUF_SIZE: u8 = 64;
 
@@ -1079,51 +1100,29 @@ impl<'a> BitWriter<'a> {
         ltree: &[Value],
         dtree: &[Value],
         lc: u8,
-        mut dist: usize,
+        dist: u16,
     ) -> usize {
         let (mut match_bits, mut match_bits_len) = encode_len(ltree, lc);
 
-        dist -= 1; /* dist is now the match distance - 1 */
-        let code = State::d_code(dist) as usize;
-        assert!(code < D_CODES, "bad d_code");
-        // send_code_trace(s, code);
+        let (dist_match_bits, dist_match_bits_len) = encode_dist(dtree, dist);
 
-        /* Send the distance code */
-        let dnode = dtree[code];
-        match_bits |= (dnode.code() as u64) << match_bits_len;
-        match_bits_len += dnode.len() as usize;
-        let extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
-        if extra != 0 {
-            dist -= self::trees_tbl::BASE_DIST[code] as usize;
-            match_bits |= (dist as u64) << match_bits_len;
-            match_bits_len += extra;
-        }
+        match_bits |= dist_match_bits << match_bits_len;
+        match_bits_len += dist_match_bits_len;
 
         self.send_bits(match_bits, match_bits_len as u8);
 
         match_bits_len
     }
 
-    pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, mut dist: usize) -> usize {
+    pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, dist: u16) -> usize {
         let precomputed_len = trees_tbl::STATIC_LTREE_ENCODINGS[lc as usize];
         let mut match_bits = precomputed_len.code() as u64;
         let mut match_bits_len = precomputed_len.len() as usize;
 
-        dist -= 1; /* dist is now the match distance - 1 */
-        let code = State::d_code(dist) as usize;
-        assert!(code < D_CODES, "bad d_code");
-        // send_code_trace(s, code);
+        let (dist_match_bits, dist_match_bits_len) = encode_dist(dtree, dist);
 
-        /* Send the distance code */
-        let dnode = dtree[code];
-        match_bits |= (dnode.code() as u64) << match_bits_len;
-        match_bits_len += dnode.len() as usize;
-        let extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
-        if extra != 0 {
-            dist -= self::trees_tbl::BASE_DIST[code] as usize;
-            match_bits |= (dist as u64) << match_bits_len;
-            match_bits_len += extra;
-        }
+        match_bits |= dist_match_bits << match_bits_len;
+        match_bits_len += dist_match_bits_len;
 
         self.send_bits(match_bits, match_bits_len as u8);
 
@@ -1136,7 +1135,7 @@ impl<'a> BitWriter<'a> {
                 unreachable!("out of bound access on the symbol buffer");
             };
 
-            match u16::from_le_bytes([dist_low, dist_high]) as usize {
+            match u16::from_le_bytes([dist_low, dist_high]) {
                 0 => self.emit_lit(ltree, lc) as usize,
                 dist => self.emit_dist(ltree, dtree, lc, dist),
             };
@@ -1501,7 +1500,7 @@ impl<'a> State<'a> {
                 unreachable!("out of bound access on the symbol buffer");
             };
 
-            match u16::from_le_bytes([dist_low, dist_high]) as usize {
+            match u16::from_le_bytes([dist_low, dist_high]) {
                 0 => self.bit_writer.emit_lit(ltree, lc) as usize,
                 dist => self.bit_writer.emit_dist_static(dtree, lc, dist),
             };
