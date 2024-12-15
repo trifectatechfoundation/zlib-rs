@@ -1106,8 +1106,8 @@ impl<'a> BitWriter<'a> {
 
     pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, mut dist: usize) -> usize {
         let precomputed_len = trees_tbl::STATIC_LTREE_ENCODINGS[lc as usize];
-        let mut match_bits = precomputed_len.a as u64;
-        let mut match_bits_len = precomputed_len.b as usize;
+        let mut match_bits = precomputed_len.code() as u64;
+        let mut match_bits_len = precomputed_len.len() as usize;
 
         dist -= 1; /* dist is now the match distance - 1 */
         let code = State::d_code(dist) as usize;
