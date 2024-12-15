@@ -919,7 +919,7 @@ const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
     (match_bits, match_bits_len)
 }
 
-pub const fn encode_static_len(lc: u8) -> (u64, usize) {
+const fn encode_static_len(lc: u8) -> (u64, usize) {
     encode_len(&STATIC_LTREE, lc)
 }
 
