@@ -1501,7 +1501,6 @@ impl<'a> State<'a> {
                 unreachable!("out of bound access on the symbol buffer");
             };
 
-            //match u16::from_le_bytes([dist_low, dist_high]) as usize {
             match u16::from_le_bytes([dist_low, dist_high]) as usize {
                 0 => self.bit_writer.emit_lit(ltree, lc) as usize,
                 dist => self.bit_writer.emit_dist_static(dtree, lc, dist),
