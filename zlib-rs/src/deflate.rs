@@ -919,10 +919,6 @@ const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
     (match_bits, match_bits_len)
 }
 
-const fn encode_static_len(lc: u8) -> (u64, usize) {
-    encode_len(&STATIC_LTREE, lc)
-}
-
 impl<'a> BitWriter<'a> {
     pub(crate) const BIT_BUF_SIZE: u8 = 64;
 
@@ -1109,7 +1105,7 @@ impl<'a> BitWriter<'a> {
     }
 
     pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, mut dist: usize) -> usize {
-        let precomputed_len = trees_tbl::STATIC_LENGTH_ENCODINGS[lc as usize];
+        let precomputed_len = trees_tbl::STATIC_LTREE_ENCODINGS[lc as usize];
         let mut match_bits = precomputed_len.a as u64;
         let mut match_bits_len = precomputed_len.b as usize;
 
