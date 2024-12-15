@@ -841,15 +841,18 @@ impl Value {
         self.a
     }
 
-    pub(crate) fn code(self) -> u16 {
+    #[inline(always)]
+    pub(crate) const fn code(self) -> u16 {
         self.a
     }
 
-    pub(crate) fn dad(self) -> u16 {
+    #[inline(always)]
+    pub(crate) const fn dad(self) -> u16 {
         self.b
     }
 
-    pub(crate) fn len(self) -> u16 {
+    #[inline(always)]
+    pub(crate) const fn len(self) -> u16 {
         self.b
     }
 }
@@ -894,10 +897,7 @@ struct BitWriter<'a> {
 }
 
 #[inline]
-fn encode_len(
-    ltree: &[Value],
-    lc: u8
-) -> (u64, usize) {
+const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
     let mut lc = lc as usize;
 
     /* Send the length code, len is the match length - STD_MIN_MATCH */
@@ -919,7 +919,7 @@ fn encode_len(
     (match_bits, match_bits_len)
 }
 
-pub fn encode_static_len(lc: u8) -> (u64, usize) {
+pub const fn encode_static_len(lc: u8) -> (u64, usize) {
     encode_len(&STATIC_LTREE, lc)
 }
 
@@ -1108,12 +1108,7 @@ impl<'a> BitWriter<'a> {
         match_bits_len
     }
 
-    pub(crate) fn emit_dist_static(
-        &mut self,
-        dtree: &[Value],
-        lc: u8,
-        mut dist: usize,
-    ) -> usize {
+    pub(crate) fn emit_dist_static(&mut self, dtree: &[Value], lc: u8, mut dist: usize) -> usize {
         let precomputed_len = trees_tbl::STATIC_LENGTH_ENCODINGS[lc as usize];
         let mut match_bits = precomputed_len.a as u64;
         let mut match_bits_len = precomputed_len.b as usize;
@@ -1518,7 +1513,6 @@ impl<'a> State<'a> {
         }
 
         self.bit_writer.emit_end_block(ltree, false)
-
     }
 
     fn compress_block_dynamic_trees(&mut self) {
