@@ -15,6 +15,7 @@
 - [ ] Run `cargo clean`
 - [ ] Run `cargo build --release`
 - [ ] Run `cargo test --release`
+- [ ] Run `(cd libz-rs-sys-cdylib && cargo check)`
 - [ ] `git commit -a -S -m "Release $VERSION"` (where `$VERSION` is the actual
       version to be released, making sure the commit is signed)
 - [ ] Run `cargo publish --dry-run -p zlib-rs`
