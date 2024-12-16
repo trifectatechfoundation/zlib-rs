@@ -15,7 +15,7 @@ resolver = "2"
 
 # Global settings for our crates
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "Zlib"
 repository = "https://github.com/trifectatechfoundation/zlib-rs"
@@ -37,7 +37,7 @@ libz-sys = { version = "1.1.19", default-features = false, features = ["zlib-ng"
 arbitrary = { version = "1.0" }
 quickcheck = { version = "1.0.3", default-features = false, features = [] }
 
-libz-rs-sys = { version = "0.4.0", path = "./libz-rs-sys", default-features = false }
-zlib-rs = { version = "0.4.0", path = "./zlib-rs", default-features = false }
+libz-rs-sys = { version = "0.4.1", path = "./libz-rs-sys", default-features = false }
+zlib-rs = { version = "0.4.1", path = "./zlib-rs", default-features = false }
 dynamic-libz-sys = { path = "./dynamic-libz-sys" }
 
