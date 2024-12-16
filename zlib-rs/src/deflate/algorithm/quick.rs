@@ -119,7 +119,8 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         // TODO do this with a debug_assert?
                         // check_match(s, state.strstart, hash_head, match_len);
 
-                        // in `emit_dist_static`, dist must be less than DIST_CODE_LEN, so u16 has plenty of space
+                        // The `dist` value is a distance within the window,
+                        // and MAX_WBITS == 15 (32k), hence a u16 can always represent this value.
                         let dist = u16::try_from(dist).unwrap();
 
                         state
