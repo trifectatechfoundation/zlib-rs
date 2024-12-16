@@ -112,3 +112,34 @@ target
         ├── libz_rs.so
         └── libz_rs-uninstalled.pc
 ```
+
+## Performance
+
+Performance is generally on-par with [zlib-ng].
+
+### Compiler Flags
+
+Compiler flags that can be used to improve performance.
+
+#### `-Ctarget-cpu=...`
+
+Providing more information about the SIMD capabilities of the target machine can improve performance. E.g.
+
+```
+RUSTFLAGS="-Ctarget-cpu=native" cargo build --release ...
+```
+
+The resulting binary statically assumes the SIMD capabilities of the current machine.
+
+Note: binaries built with `-Ctarget-cpu` almost certainly crash on systems that don't have the specified CPU! Only use this flag if you control how the binary is deployed, and can guarantee that the CPU assumptions are never violated.
+
+#### `-Cllvm-args=-enable-dfa-jump-thread`
+
+For best performance with very small input sizes, compile with:
+
+```
+RUSTFLAGS="-Cllvm-args=-enable-dfa-jump-thread" cargo build --release ...
+```
+
+This flag gives around a 10% boost when the input arrives in chunks of 16 bytes, and a couple percent when input arrives in chunks of under 1024 bytes. Beyond that, the effect is not significant. Using this flag can lead to longer compile times, but otherwise has no adverse effects.
+
