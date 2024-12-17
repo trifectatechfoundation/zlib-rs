@@ -1,0 +1,57 @@
+name: Benchmark
+
+permissions:
+  contents: read
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "The commit or branch to benchmark"
+        required: true
+        type: string
+  merge_group:
+    branches:
+      - main
+
+# Make sure only a single benchmark job runs at a time for the main branch to prevent conflicts when
+# pushing the benchmark data.
+concurrency:
+  group: "benchmarking-${{inputs.ref}}"
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: "Benchmark ${{ matrix.name }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - name: linux-x86
+            os: [benchmark, X64]
+            target: "x86_64-unknown-linux-gnu"
+          - name: macos-arm64
+            os: [benchmark, ARM64, macOS]
+            target: "aarch64-apple-darwin"
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+          ref: "${{inputs.ref}}"
+          fetch-depth: 0 # ensure the base commit to compare against is available
+      - name: cargo build
+        run: |
+          . "$HOME/.cargo/env"
+          RUSTFLAGS="-Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          cp target/${{matrix.target}}/release/examples/blogpost-compress .
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
+      - name: Benchmark
+        uses: trifectatechfoundation/benchmarker-action@main
+        with:
+          deploy-key: "${{ secrets.BENCH_DATA_DEPLOY_KEY }}"
+          bench-repo: "git@github.com:trifectatechfoundation/zlib-rs-bench.git"
+          metric-key: "${{ matrix.name }}"
+          benchmarks: "zlib_benchmarks.json"

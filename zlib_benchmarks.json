@@ -1,0 +1,140 @@
+{
+    "commands": {
+        "blogpost-compress-rs": [
+            "./blogpost-compress 0 rs silesia-small.tar",
+            "./blogpost-compress 1 rs silesia-small.tar",
+            "./blogpost-compress 2 rs silesia-small.tar",
+            "./blogpost-compress 3 rs silesia-small.tar",
+            "./blogpost-compress 4 rs silesia-small.tar",
+            "./blogpost-compress 5 rs silesia-small.tar",
+            "./blogpost-compress 6 rs silesia-small.tar",
+            "./blogpost-compress 7 rs silesia-small.tar",
+            "./blogpost-compress 8 rs silesia-small.tar",
+            "./blogpost-compress 9 rs silesia-small.tar"
+        ],
+        "blogpost-compress-ng": [
+            "./blogpost-compress 0 ng silesia-small.tar",
+            "./blogpost-compress 1 ng silesia-small.tar",
+            "./blogpost-compress 2 ng silesia-small.tar",
+            "./blogpost-compress 3 ng silesia-small.tar",
+            "./blogpost-compress 4 ng silesia-small.tar",
+            "./blogpost-compress 5 ng silesia-small.tar",
+            "./blogpost-compress 6 ng silesia-small.tar",
+            "./blogpost-compress 7 ng silesia-small.tar",
+            "./blogpost-compress 8 ng silesia-small.tar",
+            "./blogpost-compress 9 ng silesia-small.tar"
+        ],
+        "blogpost-uncompress-rs": [
+            "./blogpost-uncompress rs-chunked 4 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 5 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 6 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 7 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 8 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 9 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 10 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 11 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 12 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 13 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 14 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 15 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 16 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 17 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 18 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 19 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 20 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 21 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 22 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 23 silesia-small.tar",
+            "./blogpost-uncompress rs-chunked 24 silesia-small.tar"
+        ],
+        "blogpost-uncompress-ng": [
+            "./blogpost-uncompress ng-chunked 4 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 5 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 6 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 7 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 8 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 9 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 10 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 11 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 12 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 13 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 14 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 15 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 16 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 17 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 18 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 19 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 20 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 21 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 22 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 23 silesia-small.tar",
+            "./blogpost-uncompress ng-chunked 24 silesia-small.tar"
+        ]
+    },
+    "render-versus-self": {
+        "compression (ng vs rs)": {
+            "level 0": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 0 }, "after": { "command": "blogpost-compress-rs", "index": 0 } },
+            "level 1": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 1 }, "after": { "command": "blogpost-compress-rs", "index": 1 } },
+            "level 2": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 2 }, "after": { "command": "blogpost-compress-rs", "index": 2 } },
+            "level 3": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 3 }, "after": { "command": "blogpost-compress-rs", "index": 3 } },
+            "level 4": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 4 }, "after": { "command": "blogpost-compress-rs", "index": 4 } },
+            "level 5": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 5 }, "after": { "command": "blogpost-compress-rs", "index": 5 } },
+            "level 6": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 6 }, "after": { "command": "blogpost-compress-rs", "index": 6 } },
+            "level 7": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 7 }, "after": { "command": "blogpost-compress-rs", "index": 7 } },
+            "level 8": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 8 }, "after": { "command": "blogpost-compress-rs", "index": 8 } },
+            "level 9": { "measure": "cycles", "before": { "command": "blogpost-compress-ng", "index": 9 }, "after": { "command": "blogpost-compress-rs", "index": 9 } }
+        },
+        "decompression (ng vs rs)": {
+            "chunk size 4": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 0 }, "after": { "command": "blogpost-uncompress-rs", "index": 0 } },
+            "chunk size 5": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 1 }, "after": { "command": "blogpost-uncompress-rs", "index": 1 } },
+            "chunk size 6": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 2 }, "after": { "command": "blogpost-uncompress-rs", "index": 2 } },
+            "chunk size 7": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 3 }, "after": { "command": "blogpost-uncompress-rs", "index": 3 } },
+            "chunk size 8": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 4 }, "after": { "command": "blogpost-uncompress-rs", "index": 4 } },
+            "chunk size 9": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 5 }, "after": { "command": "blogpost-uncompress-rs", "index": 5 } },
+            "chunk size 10": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 6 }, "after": { "command": "blogpost-uncompress-rs", "index": 6 } },
+            "chunk size 11": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 7 }, "after": { "command": "blogpost-uncompress-rs", "index": 7 } },
+            "chunk size 12": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 8 }, "after": { "command": "blogpost-uncompress-rs", "index": 8 } },
+            "chunk size 13": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 9 }, "after": { "command": "blogpost-uncompress-rs", "index": 9 } },
+            "chunk size 14": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 10 }, "after": { "command": "blogpost-uncompress-rs", "index": 10 } },
+            "chunk size 15": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 11 }, "after": { "command": "blogpost-uncompress-rs", "index": 11 } },
+            "chunk size 16": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 12 }, "after": { "command": "blogpost-uncompress-rs", "index": 12 } }
+        }
+    },
+    "render-versus-other": {
+        "compression (rs, other versus self)": {
+            "measure": "cycles",
+            "command": "blogpost-compress-rs",
+            "rows": {
+                "level 0": 0,
+                "level 1": 1,
+                "level 2": 2,
+                "level 3": 3,
+                "level 4": 4,
+                "level 5": 5,
+                "level 6": 6,
+                "level 7": 7,
+                "level 8": 8,
+                "level 9": 9
+            }
+        },
+        "decompression (rs, other versus self)": {
+            "measure": "cycles",
+            "command": "blogpost-uncompress-rs",
+            "rows": {
+                "chunk size 4": 0,
+                "chunk size 5": 1,
+                "chunk size 6": 2,
+                "chunk size 7": 3,
+                "chunk size 8": 4,
+                "chunk size 9": 5,
+                "chunk size 10": 6,
+                "chunk size 11": 7,
+                "chunk size 12": 8,
+                "chunk size 13": 9,
+                "chunk size 14": 10,
+                "chunk size 15": 11,
+                "chunk size 16": 12
+            }
+        }
+    }
+}
