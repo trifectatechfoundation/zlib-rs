@@ -15,6 +15,12 @@ on:
     branches:
       - main
 
+# Make sure only a single benchmark job runs at a time for the main branch to prevent conflicts when
+# pushing the benchmark data.
+concurrency:
+  group: "benchmarking-${{inputs.ref}}"
+  cancel-in-progress: false
+
 jobs:
   bench:
     name: "Benchmark ${{ matrix.name }}"
@@ -62,4 +68,4 @@ jobs:
           cd zlib-rs-bench
           git add .
           git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
-          git push origin main
+          git push origin main || (git pull --rebase && git push origin main)
