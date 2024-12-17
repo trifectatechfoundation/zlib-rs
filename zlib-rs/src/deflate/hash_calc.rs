@@ -142,6 +142,13 @@ impl RollHashCalc {
 /// The methods of this struct can only be executed if the system has platform support, otherwise
 /// the result is UB. Use [`Self::is_supported()`] to check at runtime whether the system has
 /// support before executing any methods.
+///
+/// # Compatibility
+///
+/// The methods of this struct implement different CRC variants on different CPU types,
+/// for consistency with zlib-ng. For example, the x86 implementation computes CRC-32C,
+/// whereas the AArch64 implementation computes IEEE CRC-32. Therefore, this struct is
+/// suitable for internal hash table use, but not for generating portable checksums.
 pub struct Crc32HashCalc;
 
 impl Crc32HashCalc {
