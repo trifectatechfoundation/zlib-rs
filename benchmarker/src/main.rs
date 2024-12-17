@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 use std::time::SystemTime;
 use std::{env, fs};
@@ -69,16 +69,36 @@ impl BenchData {
 
         for bench_group in &self.bench_groups {
             writeln!(md, "### {}", bench_group.group_name).unwrap();
-            writeln!(md, "").unwrap();
+            writeln!(md).unwrap();
+
+            let mut available_counters = BTreeSet::new();
             for bench in &bench_group.results {
-                writeln!(md, "#### `{}`", bench.cmd.join(" ")).unwrap();
-                writeln!(md, "").unwrap();
-                writeln!(md, "|metric|value|").unwrap();
-                writeln!(md, "|------|-----|").unwrap();
-                for (name, data) in bench.counters.iter() {
-                    writeln!(md, "|{name}|`{}` {}|", data.value, data.unit).unwrap();
+                for counter in bench.counters.keys() {
+                    available_counters.insert(counter);
                 }
-                writeln!(md, "").unwrap();
+            }
+
+            write!(md, "|command|").unwrap();
+            for counter in &available_counters {
+                write!(md, "{counter}|").unwrap();
+            }
+            writeln!(md).unwrap();
+            write!(md, "|---|").unwrap();
+            for _ in &available_counters {
+                write!(md, "---|").unwrap();
+            }
+            writeln!(md).unwrap();
+
+            for bench in &bench_group.results {
+                write!(md, "|`{}`|", bench.cmd.join(" ")).unwrap();
+                for &counter in &available_counters {
+                    if let Some(data) = bench.counters.get(counter) {
+                        write!(md, "`{}` {}|", data.value, data.unit).unwrap();
+                    } else {
+                        write!(md, "|").unwrap();
+                    }
+                }
+                writeln!(md).unwrap();
             }
         }
 
