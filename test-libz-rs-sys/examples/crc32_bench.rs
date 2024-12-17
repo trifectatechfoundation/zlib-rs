@@ -56,6 +56,7 @@ pub fn main() {
             println!("{:#x}", h);
         }
 
-        other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
+        other => panic!("invalid option '{other}', expected one of 'sse', 'crc32fast', \
+                              'sse-chunked', 'crc32fast-chunked' or 'adler32'"),
     }
 }
