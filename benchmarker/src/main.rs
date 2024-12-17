@@ -107,22 +107,34 @@ impl BenchData {
 }
 
 fn get_cpu_model() -> String {
-    if !cfg!(target_os = "linux") {
-        return "<unknown>".to_owned();
-    }
-
-    serde_json::from_slice::<serde_json::Value>(
-        &Command::new("lscpu").arg("-J").output().unwrap().stdout,
-    )
-    .unwrap()["lscpu"]
-        .as_array()
+    if cfg!(target_os = "linux") {
+        serde_json::from_slice::<serde_json::Value>(
+            &Command::new("lscpu").arg("-J").output().unwrap().stdout,
+        )
+        .unwrap()["lscpu"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["field"] == "Model name:")
+            .unwrap()["data"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    } else if cfg!(target_os = "macos") {
+        String::from_utf8(
+            Command::new("sysctl")
+                .arg("-n")
+                .arg("machdep.cpu.brand_string")
+                .output()
+                .unwrap()
+                .stdout,
+        )
         .unwrap()
-        .iter()
-        .find(|entry| entry["field"] == "Model name:")
-        .unwrap()["data"]
-        .as_str()
-        .unwrap()
+        .trim()
         .to_owned()
+    } else {
+        "unknown".to_owned()
+    }
 }
 
 fn bench_single_cmd(cmd: Vec<String>) -> SingleBench {
