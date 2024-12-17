@@ -1,0 +1,65 @@
+name: Benchmark
+
+permissions:
+  contents: read
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "The commit or branch to benchmark"
+        required: true
+        type: string
+  merge_group:
+    branches:
+      - main
+
+jobs:
+  bench:
+    name: "Benchmark ${{ matrix.name }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - name: linux-x86
+            os: [benchmark, X64]
+            target: "x86_64-unknown-linux-gnu"
+          - name: macos-arm64
+            os: [benchmark, ARM64, macOS]
+            target: "aarch64-apple-darwin"
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+          ref: "${{inputs.ref}}"
+      - name: cargo build
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          cd benchmarker && cargo build --release
+      - name: Benchmark
+        run: |
+          cp target/${{matrix.target}}/release/examples/blogpost-compress .
+          benchmarker/target/release/benchmarker zlib_benchmarks.json > bench_results.json
+      - name: Upload benchmark results to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "benchmark-results-${{matrix.name}}"
+          path: bench_results.json
+      - name: Upload benchmark results to bench repo
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BENCH_DATA_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 700 ~/.ssh
+
+          git clone --depth 1 git@github.com:trifectatechfoundation/zlib-rs-bench.git
+          cat bench_results.json >> zlib-rs-bench/metrics-${{matrix.name}}.json
+          cd zlib-rs-bench
+          git add .
+          git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
+          git push origin main

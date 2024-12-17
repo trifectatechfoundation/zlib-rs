@@ -1,0 +1,13 @@
+[package]
+name = "benchmarker"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+libc = "0.2.168"
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.133"
