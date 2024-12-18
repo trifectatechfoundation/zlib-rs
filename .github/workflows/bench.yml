@@ -73,4 +73,4 @@ jobs:
           git add .
           git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
           # git pull --rebase in case of a race condition with another job
-          git push origin main || (git pull --rebase && git push origin main)
+          git push origin main || (git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org pull --rebase && git push origin main)
