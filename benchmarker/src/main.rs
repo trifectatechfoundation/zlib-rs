@@ -26,15 +26,8 @@ struct BenchData {
     cpu_model: String,
 
     // The actual results for benchmarks
-    bench_groups: Vec<BenchGroup>,
+    bench_groups: BTreeMap<String, Vec<SingleBench>>,
 }
-
-#[derive(Debug, Serialize)]
-struct BenchGroup {
-    group_name: String,
-    results: Vec<SingleBench>,
-}
-
 
 impl BenchData {
     fn render_markdown(&self) -> String {
@@ -52,12 +45,12 @@ impl BenchData {
         .unwrap();
         writeln!(md, "").unwrap();
 
-        for bench_group in &self.bench_groups {
-            writeln!(md, "### {}", bench_group.group_name).unwrap();
+        for (group_name, group_results) in &self.bench_groups {
+            writeln!(md, "### {}", group_name).unwrap();
             writeln!(md).unwrap();
 
             let mut available_counters = BTreeSet::new();
-            for bench in &bench_group.results {
+            for bench in group_results {
                 for counter in bench.counters.keys() {
                     available_counters.insert(counter);
                 }
@@ -74,7 +67,7 @@ impl BenchData {
             }
             writeln!(md).unwrap();
 
-            for bench in &bench_group.results {
+            for bench in group_results {
                 write!(md, "|`{}`|", bench.cmd.join(" ")).unwrap();
                 for &counter in &available_counters {
                     if let Some(data) = bench.counters.get(counter) {
@@ -122,7 +115,6 @@ fn get_cpu_model() -> String {
     }
 }
 
-
 fn main() {
     let mut bench_data = BenchData {
         commit_hash: env::var("GITHUB_SHA").unwrap_or_default(),
@@ -133,23 +125,20 @@ fn main() {
         runner: env::var("RUNNER_NAME").unwrap_or_else(|_| "<local bench>".to_owned()),
         cpu_model: get_cpu_model(),
 
-        bench_groups: vec![],
+        bench_groups: BTreeMap::new(),
     };
 
     let commands: Commands =
         serde_json::from_slice(&fs::read(env::args().nth(1).unwrap()).unwrap()).unwrap();
 
     for (group_name, benches) in commands.0 {
-        let mut group = BenchGroup {
-            group_name,
-            results: vec![],
-        };
+        let mut group_results = vec![];
         for cmd in benches {
-            group.results.push(bench_single_cmd(
+            group_results.push(bench_single_cmd(
                 cmd.split(" ").map(|arg| arg.to_owned()).collect(),
             ));
         }
-        bench_data.bench_groups.push(group);
+        bench_data.bench_groups.insert(group_name, group_results);
     }
 
     println!("{}", serde_json::to_string(&bench_data).unwrap());
