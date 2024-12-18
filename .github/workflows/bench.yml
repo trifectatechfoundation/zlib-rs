@@ -46,7 +46,8 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           RUSTFLAGS="-Ctarget-cpu=native -Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
-          cd benchmarker && cargo build --release
+          cp target/${{matrix.target}}/release/examples/blogpost-compress .
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
       - name: Fetch previous benchmark results
         run: |
           mkdir -p ~/.ssh
@@ -57,8 +58,7 @@ jobs:
           git clone --depth 1 git@github.com:trifectatechfoundation/zlib-rs-bench.git
       - name: Benchmark
         run: |
-          cp target/${{matrix.target}}/release/examples/blogpost-compress .
-          cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
+          cd benchmarker && cargo build --release
           benchmarker/target/release/benchmarker zlib_benchmarks.json zlib-rs-bench/metrics-${{matrix.name}}.json > bench_results.json
       - name: Upload benchmark results to artifacts
         uses: actions/upload-artifact@v4
