@@ -41,7 +41,7 @@ fn bench_single_cmd_perf(cmd: Vec<String>) -> SingleBench {
         .arg("-e")
         .arg("task-clock,cycles,instructions")
         .arg("--repeat")
-        .arg("1") // FIXME 20
+        .arg("5") // FIXME 20
         .arg("--");
     perf_stat_cmd.args(&cmd);
 
