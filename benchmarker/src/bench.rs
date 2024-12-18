@@ -11,7 +11,7 @@ pub struct SingleBench {
 
 #[derive(Debug, Serialize)]
 pub struct BenchCounter {
-    pub value: String,
+    pub value: f64,
     pub unit: String,
 }
 
@@ -62,11 +62,15 @@ fn bench_single_cmd_perf(cmd: Vec<String>) -> SingleBench {
             serde_json::from_str::<PerfData>(line)
                 .unwrap_or_else(|e| panic!("Failed to parse {line:?}: {e}"))
         })
+        .filter(|counter| counter.counter_value != "<not counted>")
         .map(|counter| {
             (
                 counter.event,
                 BenchCounter {
-                    value: counter.counter_value,
+                    value: counter
+                        .counter_value
+                        .parse::<f64>()
+                        .unwrap_or_else(|_| panic!("Failed to parse {}", counter.counter_value)),
                     unit: counter.unit,
                 },
             )
@@ -116,7 +120,7 @@ fn bench_single_cmd_getrusage(cmd: Vec<String>) -> SingleBench {
         counters: BTreeMap::from_iter([(
             "user-time".to_owned(),
             BenchCounter {
-                value: format!("{:.06}", user_time.as_secs_f64() * 1000.0),
+                value: user_time.as_secs_f64() * 1000.0,
                 unit: "msec".to_owned(),
             },
         )]),
