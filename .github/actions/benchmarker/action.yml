@@ -1,0 +1,52 @@
+name: 'Benchmarker'
+inputs:
+  deploy-key:
+    description: 'Deploy key to use for pushing to the benchmark data repo (ed25519 secret key)'
+    required: true
+  bench-repo:
+    description: 'The benchmarking data repo (ssh clone url)'
+    required: true
+  metric-key:
+    description: 'Unique key for this set of metrics'
+    required: true
+  benchmarks:
+    description: 'The benchmarks to run as a json file'
+    required: true
+outputs:
+  random-number:
+    description: "Random number"
+    value: ${{ steps.random-number-generator.outputs.random-number }}
+runs:
+  using: "composite"
+  steps:
+    - name: Fetch previous benchmark results
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.deploy-key }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        chmod 700 ~/.ssh
+
+        git clone --depth 1 "${{ inputs.bench-repo }}" bench_data
+    - name: Benchmark
+      shell: bash
+      run: |
+        . "$HOME/.cargo/env"
+        cd "${{ github.action_path }}" && cargo build --release
+        cd "${{ github.workspace }}" && "${{ github.action_path }}/target/release/benchmarker" "${{ inputs.benchmarks }}" "bench_data/metrics-${{ inputs.metric-key }}.json" > bench_results.json
+    - name: Upload benchmark results to artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: "benchmark-results-${{ inputs.metric-key }}"
+        path: bench_results.json
+    - name: Upload benchmark results to bench repo
+      if: github.event_name == 'push'
+      shell: bash
+      run: |
+        cd bench_data
+        git pull # ensure we have the latest state when another job pushed changes while benchmarking
+        cat ../bench_results.json >> "metrics-${{ inputs.metric-key }}.json"
+        git add .
+        git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
+        # git pull --rebase in case of a race condition with another job
+        git push origin main || (git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org pull --rebase && git push origin main)

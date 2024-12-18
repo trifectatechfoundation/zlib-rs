@@ -48,30 +48,10 @@ jobs:
           RUSTFLAGS="-Ctarget-cpu=native -Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
-      - name: Fetch previous benchmark results
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.BENCH_DATA_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          chmod 700 ~/.ssh
-
-          git clone --depth 1 git@github.com:trifectatechfoundation/zlib-rs-bench.git
       - name: Benchmark
-        run: |
-          cd benchmarker && cargo build --release
-          benchmarker/target/release/benchmarker zlib_benchmarks.json zlib-rs-bench/metrics-${{matrix.name}}.json > bench_results.json
-      - name: Upload benchmark results to artifacts
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/benchmarker
         with:
-          name: "benchmark-results-${{matrix.name}}"
-          path: bench_results.json
-      - name: Upload benchmark results to bench repo
-        if: github.event_name == 'push'
-        run: |
-          cd zlib-rs-bench
-          git pull # ensure we have the latest state when another job pushed changes while benchmarking
-          cat ../bench_results.json >> metrics-${{matrix.name}}.json
-          git add .
-          git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
-          # git pull --rebase in case of a race condition with another job
-          git push origin main || (git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org pull --rebase && git push origin main)
+          deploy-key: "${{ secrets.BENCH_DATA_DEPLOY_KEY }}"
+          bench-repo: "git@github.com:trifectatechfoundation/zlib-rs-bench.git"
+          metric-key: "${{ matrix.name }}"
+          benchmarks: "zlib_benchmarks.json"
