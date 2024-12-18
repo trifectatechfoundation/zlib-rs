@@ -31,22 +31,43 @@ struct BenchData {
 }
 
 impl BenchData {
-    fn render_markdown(&self) -> String {
+    fn render_markdown(&self, prev_results: Option<&Self>) -> String {
+        if let Some(prev_results) = prev_results {
+            assert_eq!(self.arch, prev_results.arch);
+            assert_eq!(self.os, prev_results.os);
+            assert_eq!(self.runner, prev_results.runner);
+            assert_eq!(self.cpu_model, prev_results.cpu_model);
+        }
+
         use std::fmt::Write;
 
         let mut md = String::new();
 
-        writeln!(
+        if let Some(prev_results) = prev_results {
+            writeln!(
+                md,
+                "## [`{commit}`](https://github.com/trifectatechfoundation/zlib-rs/commit/{commit}) with parent [`{commit_old}`](https://github.com/trifectatechfoundation/zlib-rs/commit/{commit_old}) \
+                    (on {cpu})",
+                commit = self.commit_hash,
+                commit_old = prev_results.commit_hash,
+                cpu = self.cpu_model
+            )
+                .unwrap();
+        } else {
+            writeln!(
             md,
             "## [`{commit}`](https://github.com/trifectatechfoundation/zlib-rs/commit/{commit}) \
                 (on {cpu})",
             commit = self.commit_hash,
             cpu = self.cpu_model
         )
-        .unwrap();
+            .unwrap();
+        }
         writeln!(md, "").unwrap();
 
         for (group_name, group_results) in &self.bench_groups {
+            let prev_group_results = prev_results.and_then(|x| x.bench_groups.get(group_name));
+
             writeln!(md, "### {}", group_name).unwrap();
             writeln!(md).unwrap();
 
@@ -69,10 +90,40 @@ impl BenchData {
             writeln!(md).unwrap();
 
             for bench in group_results {
+                let prev_bench = prev_group_results
+                    .and_then(|x| x.iter().find(|prev_bench| prev_bench.cmd == bench.cmd));
+
                 write!(md, "|`{}`|", bench.cmd.join(" ")).unwrap();
+
                 for &counter in &available_counters {
                     if let Some(data) = bench.counters.get(counter) {
-                        write!(md, "`{}` {}|", data.value, data.unit).unwrap();
+                        if let Some(prev_data) = prev_bench.and_then(|prev_bench| {
+                            prev_bench.counters.get(
+                                counter
+                                    .strip_prefix("cpu_core/")
+                                    .unwrap_or(counter)
+                                    .strip_suffix("/")
+                                    .unwrap_or(&counter),
+                            )
+                        }) {
+                            let diff = if data.value > prev_data.value {
+                                format!(
+                                    "+{:.1}%",
+                                    (data.value - prev_data.value) as f64 / prev_data.value as f64
+                                        * 100.
+                                )
+                            } else {
+                                format!(
+                                    "+{:.1}%",
+                                    (prev_data.value - data.value) as f64 / prev_data.value as f64
+                                        * 100.
+                                )
+                            };
+
+                            write!(md, "`{}` {} ({diff})|", data.value, data.unit).unwrap();
+                        } else {
+                            write!(md, "`{}` {}|", data.value, data.unit).unwrap();
+                        }
                     } else {
                         write!(md, "|").unwrap();
                     }
@@ -158,8 +209,6 @@ fn main() {
         None
     })();
 
-    eprintln!("{:#?}", prev_results);
-
     for (group_name, benches) in commands.0 {
         let mut group_results = vec![];
         for cmd in benches {
@@ -172,8 +221,8 @@ fn main() {
 
     println!("{}", serde_json::to_string(&bench_data).unwrap());
 
-    eprintln!("{}", bench_data.render_markdown());
+    eprintln!("{}", bench_data.render_markdown(prev_results.as_ref()));
     if let Ok(path) = env::var("GITHUB_STEP_SUMMARY") {
-        fs::write(path, bench_data.render_markdown()).unwrap();
+        fs::write(path, bench_data.render_markdown(prev_results.as_ref())).unwrap();
     }
 }
