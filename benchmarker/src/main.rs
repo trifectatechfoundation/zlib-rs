@@ -18,6 +18,9 @@ struct Commands(BTreeMap<String, Vec<String>>);
 struct BenchData {
     // What and when are we benchmarking
     commit_hash: String,
+    commit_timestamp: u64,
+
+    // timestamp when the benchmark was started
     timestamp: SystemTime,
 
     // Where are we benchmarking it on
@@ -168,8 +171,30 @@ fn get_cpu_model() -> String {
 }
 
 fn main() {
+    let (commit_hash, commit_timestamp) = {
+        match env::var("GITHUB_SHA") {
+            Ok(sha) => {
+                // git show 27b31a568651dd725488e422e854095639d75af6 --no-patch --pretty=format:"%ct"
+                let output = Command::new("git")
+                    .args(&["show", &sha, "--no-patch", "--pretty=format:\"%ct\""])
+                    .output()
+                    .unwrap();
+
+                let timestamp: u64 = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .trim_matches('"')
+                    .parse()
+                    .unwrap();
+
+                (sha, timestamp)
+            }
+            Err(_) => (String::new(), 0),
+        }
+    };
+
     let mut bench_data = BenchData {
-        commit_hash: env::var("GITHUB_SHA").unwrap_or_default(),
+        commit_hash,
+        commit_timestamp,
         timestamp: SystemTime::now(),
 
         arch: env::var("RUNNER_ARCH").unwrap_or_default(),
