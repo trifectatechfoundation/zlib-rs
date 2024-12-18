@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::BufRead;
 use std::process::Command;
 use std::time::SystemTime;
 use std::{env, fs};
@@ -13,7 +14,7 @@ use bench::*;
 #[serde(rename_all = "kebab-case")]
 struct Commands(BTreeMap<String, Vec<String>>);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BenchData {
     // What and when are we benchmarking
     commit_hash: String,
@@ -130,6 +131,34 @@ fn main() {
 
     let commands: Commands =
         serde_json::from_slice(&fs::read(env::args().nth(1).unwrap()).unwrap()).unwrap();
+
+    let prev_results = (|| {
+        let base_commit = String::from_utf8(
+            Command::new("git")
+                .arg("rev-parse")
+                .arg("HEAD~")
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+
+        for line in fs::read(env::args().nth(2).unwrap()).unwrap().lines() {
+            let Ok(data) = serde_json::from_str::<BenchData>(&line.unwrap()) else {
+                continue; // Data format likely changed
+            };
+
+            if data.commit_hash == base_commit {
+                return Some(data);
+            }
+        }
+
+        None
+    })();
+
+    eprintln!("{:#?}", prev_results);
 
     for (group_name, benches) in commands.0 {
         let mut group_results = vec![];

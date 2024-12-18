@@ -3,13 +3,13 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SingleBench {
     pub cmd: Vec<String>,
     pub counters: BTreeMap<String, BenchCounter>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BenchCounter {
     pub value: f64,
     pub unit: String,

@@ -46,10 +46,18 @@ jobs:
           . "$HOME/.cargo/env"
           cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
           cd benchmarker && cargo build --release
+      - name: Fetch previous benchmark results
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BENCH_DATA_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 700 ~/.ssh
+
+          git clone --depth 1 git@github.com:trifectatechfoundation/zlib-rs-bench.git
       - name: Benchmark
         run: |
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
-          benchmarker/target/release/benchmarker zlib_benchmarks.json > bench_results.json
+          benchmarker/target/release/benchmarker zlib_benchmarks.json zlib-rs-bench/metrics-${{matrix.name}}.json > bench_results.json
       - name: Upload benchmark results to artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -58,14 +66,10 @@ jobs:
       - name: Upload benchmark results to bench repo
         if: github.event_name == 'push'
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.BENCH_DATA_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          chmod 700 ~/.ssh
-
-          git clone --depth 1 git@github.com:trifectatechfoundation/zlib-rs-bench.git
-          cat bench_results.json >> zlib-rs-bench/metrics-${{matrix.name}}.json
           cd zlib-rs-bench
+          git pull # ensure we have the latest state when another job pushed changes while benchmarking
+          cat ../bench_results.json >> metrics-${{matrix.name}}.json
           git add .
           git -c user.name="Perf bot" -c user.email=perf-bot@trifectatech.org commit --message 📈
+          # git pull --rebase in case of a race condition with another job
           git push origin main || (git pull --rebase && git push origin main)
