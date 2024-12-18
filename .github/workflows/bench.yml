@@ -45,7 +45,7 @@ jobs:
       - name: cargo build
         run: |
           . "$HOME/.cargo/env"
-          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          RUSTFLAGS="-Ctarget-cpu=native -Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
           cd benchmarker && cargo build --release
       - name: Fetch previous benchmark results
         run: |
