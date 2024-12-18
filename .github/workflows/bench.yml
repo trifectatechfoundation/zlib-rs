@@ -58,6 +58,7 @@ jobs:
       - name: Benchmark
         run: |
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
           benchmarker/target/release/benchmarker zlib_benchmarks.json zlib-rs-bench/metrics-${{matrix.name}}.json > bench_results.json
       - name: Upload benchmark results to artifacts
         uses: actions/upload-artifact@v4
