@@ -48,9 +48,6 @@ fn longest_match_help<const SLOW: bool>(
     let lookahead = state.lookahead;
     let mut match_offset = 0;
 
-    let mut scan_start = [0u8; 8];
-    let mut scan_end = [0u8; 8];
-
     macro_rules! goto_next_in_chain {
         () => {
             chain_length -= 1;
@@ -84,16 +81,8 @@ fn longest_match_help<const SLOW: bool>(
         }
     }
 
-    if UNALIGNED64_OK {
-        scan_start.copy_from_slice(&scan[..core::mem::size_of::<u64>()]);
-        scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
-    } else if UNALIGNED_OK {
-        scan_start[..4].copy_from_slice(&scan[..core::mem::size_of::<u32>()]);
-        scan_end[..4].copy_from_slice(&scan[offset..][..core::mem::size_of::<u32>()]);
-    } else {
-        scan_start[..2].copy_from_slice(&scan[..core::mem::size_of::<u16>()]);
-        scan_end[..2].copy_from_slice(&scan[offset..][..core::mem::size_of::<u16>()]);
-    }
+    let scan_start = window[strstart..].as_ptr();
+    let mut scan_end = window[strstart + offset..].as_ptr();
 
     let mut mbase_start = window.as_ptr();
     let mut mbase_end = window[offset..].as_ptr();
@@ -208,9 +197,6 @@ fn longest_match_help<const SLOW: bool>(
         // this loop also breaks before cur_match gets past strstart, which is bounded by
         // window_size - MIN_LOOKAHEAD, so 8 byte reads of mbase_end/start are in-bounds.
         unsafe {
-            let scan_start = scan_start.as_ptr();
-            let scan_end = scan_end.as_ptr();
-
             if UNALIGNED_OK {
                 if best_len < core::mem::size_of::<u32>() {
                     loop {
@@ -289,13 +275,7 @@ fn longest_match_help<const SLOW: bool>(
                 }
             }
 
-            if UNALIGNED64_OK {
-                scan_end.copy_from_slice(&scan[offset..][..core::mem::size_of::<u64>()]);
-            } else if UNALIGNED_OK {
-                scan_end[..4].copy_from_slice(&scan[offset..][..core::mem::size_of::<u32>()]);
-            } else {
-                scan_end[..2].copy_from_slice(&scan[offset..][..core::mem::size_of::<u16>()]);
-            }
+            scan_end = window[strstart + offset..].as_ptr();
 
             // Look for a better string offset
             if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
