@@ -1314,7 +1314,14 @@ pub(crate) struct State<'a> {
     pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
+    /// prev[N], where N is an offset in the current window, contains the offset in the window
+    /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
+    /// starting at N. Together with head, prev forms a chained hash table that can be used
+    /// to find earlier strings in the window that are potential matches for new input being
+    /// deflated.
     pub(crate) prev: WeakSliceMut<'a, u16>,
+    /// head[H] contains the offset of the last 4-character sequence seen so far in
+    /// the current window that hashes to H (as calculated using the hash_calc_variant).
     pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     ///  hash index of string to be inserted
