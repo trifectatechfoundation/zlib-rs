@@ -1745,6 +1745,7 @@ pub(crate) const WANT_MIN_MATCH: usize = 4;
 
 pub(crate) const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 
+#[inline]
 pub(crate) fn fill_window(stream: &mut DeflateStream) {
     debug_assert!(stream.state.lookahead < MIN_LOOKAHEAD);
 
