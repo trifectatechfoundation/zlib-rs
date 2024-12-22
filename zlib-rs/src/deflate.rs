@@ -1782,27 +1782,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
 
         let state = &mut stream.state;
-        state.lookahead += n;
 
-        // Initialize the hash value now that we have some input:
-        if state.lookahead + state.insert >= STD_MIN_MATCH {
-            let string = state.strstart - state.insert;
-            if state.max_chain_length > 1024 {
-                let v0 = state.window.filled()[string] as u32;
-                let v1 = state.window.filled()[string + 1] as u32;
-                state.ins_h = state.update_hash(v0, v1) as usize;
-            } else if string >= 1 {
-                state.quick_insert_string(string + 2 - STD_MIN_MATCH);
-            }
-            let mut count = state.insert;
-            if state.lookahead == 1 {
-                count -= 1;
-            }
-            if count > 0 {
-                state.insert_string(string, count);
-                state.insert -= count;
-            }
-        }
+        fill_window_help(n, state);
 
         // If the whole input has less than STD_MIN_MATCH bytes, ins_h is garbage,
         // but this is not important since only literal bytes will be emitted.
@@ -1821,6 +1802,30 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD,
         "not enough room for search"
     );
+}
+
+fn fill_window_help(n: usize, state: &mut &mut State) {
+    state.lookahead += n;
+
+    // Initialize the hash value now that we have some input:
+    if state.lookahead + state.insert >= STD_MIN_MATCH {
+        let string = state.strstart - state.insert;
+        if state.max_chain_length > 1024 {
+            let v0 = state.window.filled()[string] as u32;
+            let v1 = state.window.filled()[string + 1] as u32;
+            state.ins_h = state.update_hash(v0, v1) as usize;
+        } else if string >= 1 {
+            state.quick_insert_string(string + 2 - STD_MIN_MATCH);
+        }
+        let mut count = state.insert;
+        if state.lookahead == 1 {
+            count -= 1;
+        }
+        if count > 0 {
+            state.insert_string(string, count);
+            state.insert -= count;
+        }
+    }
 }
 
 pub(crate) struct StaticTreeDesc {
