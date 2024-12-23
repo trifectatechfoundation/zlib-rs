@@ -1,5 +1,6 @@
 {
     "blogpost-compress-rs": [
+        "./blogpost-compress 0 rs silesia-small.tar",
         "./blogpost-compress 1 rs silesia-small.tar",
         "./blogpost-compress 2 rs silesia-small.tar",
         "./blogpost-compress 3 rs silesia-small.tar",
@@ -11,6 +12,7 @@
         "./blogpost-compress 9 rs silesia-small.tar"
     ],
     "blogpost-compress-ng": [
+        "./blogpost-compress 0 ng silesia-small.tar",
         "./blogpost-compress 1 ng silesia-small.tar",
         "./blogpost-compress 2 ng silesia-small.tar",
         "./blogpost-compress 3 ng silesia-small.tar",
