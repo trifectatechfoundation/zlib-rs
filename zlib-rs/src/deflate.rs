@@ -1727,11 +1727,9 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If the window is almost full and there is insufficient lookahead,
         // move the upper half to the lower one to make room in the upper half.
         if state.strstart >= wsize + state.max_dist() {
-            // in some cases zlib-ng copies uninitialized bytes here. We cannot have that, so
-            // explicitly initialize them with zeros.
-            //
-            // see also the "fill_window_out_of_bounds" test.
-            state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
+            // shift the window to the left
+            let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
+            old.copy_from_slice(new);
 
             if state.match_start as usize >= wsize {
                 state.match_start -= wsize as u16;
@@ -1943,7 +1941,11 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     gen_codes(&mut desc.dyn_tree, max_code, &bl_count);
 }
 
-fn gen_bitlen<const N: usize>(state: &mut State, heap: &mut Heap, desc: &mut TreeDesc<N>) -> [u16; MAX_BITS + 1] {
+fn gen_bitlen<const N: usize>(
+    state: &mut State,
+    heap: &mut Heap,
+    desc: &mut TreeDesc<N>,
+) -> [u16; MAX_BITS + 1] {
     let tree = &mut desc.dyn_tree;
     let max_code = desc.max_code;
     let stree = desc.stat_desc.static_tree;
