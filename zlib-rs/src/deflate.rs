@@ -1650,7 +1650,6 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // we likely cannot fuse the crc32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
-        window.initialize_at_least(offset + len);
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
@@ -1660,7 +1659,6 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
         let window = &mut stream.state.window;
-        window.initialize_at_least(offset + len);
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
 
@@ -1668,7 +1666,6 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         stream.adler = adler32(stream.adler as u32, data) as _;
     } else {
         let window = &mut stream.state.window;
-        window.initialize_at_least(offset + len);
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
@@ -1742,7 +1739,6 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             // explicitly initialize them with zeros.
             //
             // see also the "fill_window_out_of_bounds" test.
-            state.window.initialize_at_least(2 * wsize);
             state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
 
             if state.match_start >= wsize {
@@ -1810,11 +1806,6 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             break;
         }
     }
-
-    // initialize some memory at the end of the (filled) window, so SIMD operations can go "out of
-    // bounds" without violating any requirements. The window allocation is already slightly bigger
-    // to allow for this.
-    stream.state.window.initialize_out_of_bounds();
 
     assert!(
         stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD,
