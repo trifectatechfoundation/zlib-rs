@@ -18,9 +18,9 @@ pub struct Window<'a> {
 impl<'a> Window<'a> {
     pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
         let len = 2 * ((1 << window_bits) + Self::padding());
-        let ptr = alloc.allocate_slice_raw::<MaybeUninit<u8>>(len)?;
+        let ptr = alloc.allocate_zeroed(len)?;
         // SAFETY: freshly allocated buffer
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.cast(), len) };
 
         Some(Self {
             buf,
