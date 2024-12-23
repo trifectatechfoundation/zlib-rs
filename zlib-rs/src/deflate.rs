@@ -1743,7 +1743,10 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             //
             // see also the "fill_window_out_of_bounds" test.
             state.window.initialize_at_least(2 * wsize);
-            state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
+
+            // shift the window to the left
+            let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
+            old.copy_from_slice(new);
 
             if state.match_start >= wsize {
                 state.match_start -= wsize;
