@@ -1,11 +1,10 @@
 use crate::{allocate::Allocator, weak_slice::WeakSliceMut};
-use core::mem::MaybeUninit;
 
 #[derive(Debug)]
 pub struct Window<'a> {
     // the full window allocation. This is longer than w_size so that operations don't need to
     // perform bounds checks.
-    buf: WeakSliceMut<'a, MaybeUninit<u8>>,
+    buf: WeakSliceMut<'a, u8>,
 
     // number of initialized bytes
     filled: usize,
@@ -20,7 +19,7 @@ impl<'a> Window<'a> {
         let len = 2 * ((1 << window_bits) + Self::padding());
         let ptr = alloc.allocate_zeroed(len)?;
         // SAFETY: freshly allocated buffer
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.cast(), len) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
         Some(Self {
             buf,
@@ -109,7 +108,7 @@ impl<'a> Window<'a> {
                 // bytes or up to end of window, whichever is less.
                 let init = Ord::min(self.capacity() - curr, WIN_INIT);
 
-                self.buf.as_mut_slice()[curr..][..init].fill(MaybeUninit::new(0));
+                self.buf.as_mut_slice()[curr..][..init].fill(0);
 
                 self.high_water = curr + init;
 
@@ -123,7 +122,7 @@ impl<'a> Window<'a> {
                     self.capacity() - self.high_water,
                 );
 
-                self.buf.as_mut_slice()[self.high_water..][..init].fill(MaybeUninit::new(0));
+                self.buf.as_mut_slice()[self.high_water..][..init].fill(0);
 
                 self.high_water += init;
                 self.filled += init;
@@ -133,7 +132,7 @@ impl<'a> Window<'a> {
 
     pub fn initialize_at_least(&mut self, at_least: usize) {
         let end = at_least.clamp(self.high_water, self.buf.len());
-        self.buf.as_mut_slice()[self.high_water..end].fill(MaybeUninit::new(0));
+        self.buf.as_mut_slice()[self.high_water..end].fill(0);
 
         self.high_water = end;
         self.filled = end;
