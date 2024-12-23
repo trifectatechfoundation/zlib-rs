@@ -1748,12 +1748,11 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
             old.copy_from_slice(new);
 
-            if state.match_start >= wsize {
-                state.match_start -= wsize;
-            } else {
-                state.match_start = 0;
+            state.match_start = state.match_start.saturating_sub(wsize);
+            if state.match_start == 0 {
                 state.prev_length = 0;
             }
+
             state.strstart -= wsize; /* we now have strstart >= MAX_DIST */
             state.block_start -= wsize as isize;
             if state.insert > state.strstart {
