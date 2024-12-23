@@ -1732,7 +1732,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
     let wsize = stream.state.w_size;
 
     loop {
-        let state = &mut stream.state;
+        let state = &mut *stream.state;
         let mut more = state.window_size - state.lookahead - state.strstart;
 
         // If the window is almost full and there is insufficient lookahead,
@@ -1780,7 +1780,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
 
         let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
 
-        let state = &mut stream.state;
+        let state = &mut *stream.state;
         state.lookahead += n;
 
         // Initialize the hash value now that we have some input:
