@@ -1732,7 +1732,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
     let wsize = stream.state.w_size;
 
     loop {
-        let state = &mut stream.state;
+        let state = &mut *stream.state;
         let mut more = state.window_size - state.lookahead - state.strstart;
 
         // If the window is almost full and there is insufficient lookahead,
@@ -1743,19 +1743,19 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             //
             // see also the "fill_window_out_of_bounds" test.
             state.window.initialize_at_least(2 * wsize);
-            state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
 
-            if state.match_start >= wsize {
-                state.match_start -= wsize;
-            } else {
-                state.match_start = 0;
+            // shift the window to the left
+            let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
+            old.copy_from_slice(new);
+
+            state.match_start = state.match_start.saturating_sub(wsize);
+            if state.match_start == 0 {
                 state.prev_length = 0;
             }
+
             state.strstart -= wsize; /* we now have strstart >= MAX_DIST */
             state.block_start -= wsize as isize;
-            if state.insert > state.strstart {
-                state.insert = state.strstart;
-            }
+            state.insert = Ord::min(state.insert, state.strstart);
 
             self::slide_hash::slide_hash(state);
 
@@ -1780,7 +1780,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
 
         let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
 
-        let state = &mut stream.state;
+        let state = &mut *stream.state;
         state.lookahead += n;
 
         // Initialize the hash value now that we have some input:
