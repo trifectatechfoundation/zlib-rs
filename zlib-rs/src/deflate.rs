@@ -1738,9 +1738,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
 
             state.strstart -= wsize; /* we now have strstart >= MAX_DIST */
             state.block_start -= wsize as isize;
-            if state.insert > state.strstart {
-                state.insert = state.strstart;
-            }
+            state.insert = Ord::min(state.insert, state.strstart);
 
             self::slide_hash::slide_hash(state);
 
