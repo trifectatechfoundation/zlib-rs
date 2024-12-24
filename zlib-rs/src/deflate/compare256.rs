@@ -1,6 +1,7 @@
 #[cfg(test)]
 const MAX_COMPARE_SIZE: usize = 256;
 
+#[inline(always)]
 pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
     let src0 = first_chunk::<_, 256>(src0).unwrap();
     let src1 = first_chunk::<_, 256>(src1).unwrap();
@@ -8,23 +9,66 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
     compare256(src0, src1)
 }
 
+/// Call the most optimal compare256
+///
+/// We attempt to call a specific version if its target feature is enabled at compile time
+/// (e.g. via `-Ctarget-cpu`). If the desired target feature is not found, we defer to
+/// [`compare256_via_function_pointer`].
+#[inline(always)]
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-    #[cfg(target_arch = "x86_64")]
-    if crate::cpu_features::is_enabled_avx2() {
-        return unsafe { avx2::compare256(src0, src1) };
+    #[cfg(target_feature = "avx2")]
+    return avx2::compare256(src0, src1);
+
+    #[cfg(target_feature = "neon")]
+    return neon::compare256(src0, src1);
+
+    #[cfg(target_feature = "simd128")]
+    return wasm32::compare256(src0, src1);
+
+    #[allow(unreachable_code)]
+    compare256_via_function_pointer(src0, src1)
+}
+
+/// Choose the most optimal implementation at runtime
+///
+/// We store the function pointer to the most optimal implementation in an AtomicPtr; every call
+/// loads this function pointer and then calls it.
+///
+/// The value is initially set to `initializer`, which on the first call will determine what the
+/// most efficient implementation is, and overwrite the value in the atomic, so that on subsequent
+/// calls the best implementation is called immediately.
+#[inline(always)]
+fn compare256_via_function_pointer(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+    use core::sync::atomic::{AtomicPtr, Ordering};
+
+    type F = unsafe fn(&[u8; 256], &[u8; 256]) -> usize;
+
+    static PTR: AtomicPtr<()> = AtomicPtr::new(initializer as *mut ());
+
+    fn initializer(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+        let ptr = match () {
+            #[cfg(target_arch = "x86_64")]
+            _ if crate::cpu_features::is_enabled_avx2() => avx2::compare256 as F,
+            #[cfg(target_arch = "aarch64")]
+            _ if crate::cpu_features::is_enabled_neon() => neon::compare256 as F,
+            #[cfg(target_arch = "wasm32")]
+            _ if crate::cpu_features::is_enabled_simd128() => wasm32::compare256 as F,
+            _ => rust::compare256 as F,
+        };
+
+        PTR.store(ptr as *mut (), Ordering::Relaxed);
+
+        // Safety: we've validated the target feature requirements
+        unsafe { ptr(src0, src1) }
     }
 
-    #[cfg(target_arch = "aarch64")]
-    if crate::cpu_features::is_enabled_neon() {
-        return unsafe { neon::compare256(src0, src1) };
-    }
+    let ptr = PTR.load(Ordering::Relaxed);
 
-    #[cfg(target_arch = "wasm32")]
-    if crate::cpu_features::is_enabled_simd128() {
-        return wasm32::compare256(src0, src1);
-    }
+    // Safety: we trust this function pointer (PTR is local to the function)
+    let dynamic_compare256 = unsafe { core::mem::transmute::<*mut (), F>(ptr) };
 
-    rust::compare256(src0, src1)
+    // Safety: we've validated the target feature requirements
+    unsafe { dynamic_compare256(src0, src1) }
 }
 
 pub fn compare256_rle_slice(byte: u8, src: &[u8]) -> usize {
