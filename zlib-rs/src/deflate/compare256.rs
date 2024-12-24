@@ -17,13 +17,13 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 #[inline(always)]
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(target_feature = "avx2")]
-    return avx2::compare256(src0, src1);
+    return unsafe { avx2::compare256(src0, src1) };
 
     #[cfg(target_feature = "neon")]
-    return neon::compare256(src0, src1);
+    return unsafe { neon::compare256(src0, src1) };
 
     #[cfg(target_feature = "simd128")]
-    return wasm32::compare256(src0, src1);
+    return unsafe { wasm32::compare256(src0, src1) };
 
     #[allow(unreachable_code)]
     compare256_via_function_pointer(src0, src1)
