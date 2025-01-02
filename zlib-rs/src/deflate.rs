@@ -353,11 +353,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         d_desc: TreeDesc::EMPTY,
         bl_desc: TreeDesc::EMPTY,
 
-        bl_count: [0u16; MAX_BITS + 1],
-
-        //
-        heap: Heap::new(),
-
         //
         crc_fold: Crc32Fold::new(),
         gzhead: None,
@@ -365,7 +360,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         //
         match_start: 0,
-        match_length: 0,
         prev_match: 0,
         match_available: false,
         prev_length: 0,
@@ -639,8 +633,6 @@ pub fn copy<'a>(
         l_desc: source_state.l_desc.clone(),
         d_desc: source_state.d_desc.clone(),
         bl_desc: source_state.bl_desc.clone(),
-        bl_count: source_state.bl_count,
-        match_length: source_state.match_length,
         prev_match: source_state.prev_match,
         match_available: source_state.match_available,
         strstart: source_state.strstart,
@@ -665,7 +657,6 @@ pub fn copy<'a>(
         prev,
         head,
         ins_h: source_state.ins_h,
-        heap: source_state.heap.clone(),
         hash_calc_variant: source_state.hash_calc_variant,
         crc_fold: source_state.crc_fold,
         gzhead: None,
@@ -1222,7 +1213,8 @@ pub(crate) struct State<'a> {
     pub(crate) level: i8,
 
     /// Whether or not a block is currently open for the QUICK deflation scheme.
-    /// true if there is an active block, or false if the block was just closed
+    /// 0 if the block is closed, 1 if there is an active block, or 2 if there
+    /// is an active block and it is the last block.
     pub(crate) block_open: u8,
 
     bit_writer: BitWriter<'a>,
@@ -1233,17 +1225,10 @@ pub(crate) struct State<'a> {
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: usize,
 
-    // part of the fields below
-    //    dyn_ltree: [Value; ],
-    //    dyn_dtree: [Value; ],
-    //    bl_tree: [Value; ],
     l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
     d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
     bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
 
-    pub(crate) bl_count: [u16; MAX_BITS + 1],
-
-    pub(crate) match_length: usize,   /* length of best match */
     pub(crate) prev_match: u16,       /* previous match */
     pub(crate) match_available: bool, /* set if previous match exists */
     pub(crate) strstart: usize,       /* start of string to insert */
@@ -1295,7 +1280,7 @@ pub(crate) struct State<'a> {
     ///   - I can't count above 4
     lit_bufsize: usize,
 
-    /// Actual size of window: 2*wSize, except when the user input buffer is directly used as sliding window.
+    /// Actual size of window: 2*w_size, except when the user input buffer is directly used as sliding window.
     pub(crate) window_size: usize,
 
     /// number of string matches in current block
@@ -1326,8 +1311,6 @@ pub(crate) struct State<'a> {
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
-
-    heap: Heap,
 
     pub(crate) hash_calc_variant: HashCalcVariant,
 
@@ -1909,14 +1892,15 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     let stree = desc.stat_desc.static_tree;
     let elements = desc.stat_desc.elems;
 
-    let mut max_code = state.heap.initialize(&mut tree[..elements]);
+    let mut heap = Heap::new();
+    let mut max_code = heap.initialize(&mut tree[..elements]);
 
     // The pkzip format requires that at least one distance code exists,
     // and that at least one bit should be sent even if there is only one
     // possible code. So to avoid special checks later on we force at least
     // two codes of non zero frequency.
-    while state.heap.heap_len < 2 {
-        state.heap.heap_len += 1;
+    while heap.heap_len < 2 {
+        heap.heap_len += 1;
         let node = if max_code < 2 {
             max_code += 1;
             max_code
@@ -1927,9 +1911,9 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
         debug_assert!(node >= 0);
         let node = node as usize;
 
-        state.heap.heap[state.heap.heap_len] = node as u32;
+        heap.heap[heap.heap_len] = node as u32;
         *tree[node].freq_mut() = 1;
-        state.heap.depth[node] = 0;
+        heap.depth[node] = 0;
         state.opt_len -= 1;
         if !stree.is_empty() {
             state.static_len -= stree[node].len() as usize;
@@ -1943,25 +1927,23 @@ fn build_tree<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
 
     // The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
     // establish sub-heaps of increasing lengths:
-    let mut n = state.heap.heap_len / 2;
+    let mut n = heap.heap_len / 2;
     while n >= 1 {
-        state.heap.pqdownheap(tree, n);
+        heap.pqdownheap(tree, n);
         n -= 1;
     }
 
-    state.heap.construct_huffman_tree(tree, elements);
+    heap.construct_huffman_tree(tree, elements);
 
     // At this point, the fields freq and dad are set. We can now
     // generate the bit lengths.
-    gen_bitlen(state, desc);
+    let bl_count = gen_bitlen(state, &mut heap, desc);
 
     // The field len is now set, we can generate the bit codes
-    gen_codes(&mut desc.dyn_tree, max_code, &state.bl_count);
+    gen_codes(&mut desc.dyn_tree, max_code, &bl_count);
 }
 
-fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
-    let heap = &mut state.heap;
-
+fn gen_bitlen<const N: usize>(state: &mut State, heap: &mut Heap, desc: &mut TreeDesc<N>) -> [u16; MAX_BITS + 1] {
     let tree = &mut desc.dyn_tree;
     let max_code = desc.max_code;
     let stree = desc.stat_desc.static_tree;
@@ -1969,7 +1951,7 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     let base = desc.stat_desc.extra_base;
     let max_length = desc.stat_desc.max_length;
 
-    state.bl_count.fill(0);
+    let mut bl_count = [0u16; MAX_BITS + 1];
 
     // In a first pass, compute the optimal bit lengths (which may
     // overflow in the case of the bit length tree).
@@ -1995,7 +1977,7 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
             continue;
         }
 
-        state.bl_count[bits as usize] += 1;
+        bl_count[bits as usize] += 1;
         let mut xbits = 0;
         if n >= base {
             xbits = extra[n - base] as usize;
@@ -2010,18 +1992,18 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     }
 
     if overflow == 0 {
-        return;
+        return bl_count;
     }
 
     /* Find the first bit length which could increase: */
     loop {
         let mut bits = max_length as usize - 1;
-        while state.bl_count[bits] == 0 {
+        while bl_count[bits] == 0 {
             bits -= 1;
         }
-        state.bl_count[bits] -= 1; /* move one leaf down the tree */
-        state.bl_count[bits + 1] += 2; /* move one overflow item as its brother */
-        state.bl_count[max_length as usize] -= 1;
+        bl_count[bits] -= 1; /* move one leaf down the tree */
+        bl_count[bits + 1] += 2; /* move one overflow item as its brother */
+        bl_count[max_length as usize] -= 1;
         /* The brother of the overflow item also moves one step up,
          * but this does not affect bl_count[max_length]
          */
@@ -2038,7 +2020,7 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
     // from 'ar' written by Haruhiko Okumura.)
     let mut h = HEAP_SIZE;
     for bits in (1..=max_length).rev() {
-        let mut n = state.bl_count[bits as usize];
+        let mut n = bl_count[bits as usize];
         while n != 0 {
             h -= 1;
             let m = heap.heap[h] as usize;
@@ -2056,6 +2038,7 @@ fn gen_bitlen<const N: usize>(state: &mut State, desc: &mut TreeDesc<N>) {
             n -= 1;
         }
     }
+    bl_count
 }
 
 /// Checks that symbol is a printing character (excluding space)
