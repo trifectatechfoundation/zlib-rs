@@ -49,7 +49,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         };
 
         // Find the longest match, discarding those <= prev_length.
-        state.prev_match = state.match_start as u16;
+        state.prev_match = state.match_start;
         match_len = STD_MIN_MATCH - 1;
         dist = state.strstart as isize - hash_head as isize;
 
