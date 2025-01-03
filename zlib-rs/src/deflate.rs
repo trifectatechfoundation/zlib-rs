@@ -29,6 +29,9 @@ mod slide_hash;
 mod trees_tbl;
 mod window;
 
+// Position relative to the current window
+pub(crate) type Pos = u16;
+
 // SAFETY: This struct must have the same layout as [`z_stream`], so that casts and transmutations
 // between the two can work without UB.
 #[repr(C)]
@@ -1229,10 +1232,10 @@ pub(crate) struct State<'a> {
     d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
     bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
 
-    pub(crate) prev_match: u16,       /* previous match */
-    pub(crate) match_available: bool, /* set if previous match exists */
     pub(crate) strstart: usize,       /* start of string to insert */
-    pub(crate) match_start: usize,    /* start of matching string */
+    pub(crate) match_start: Pos,      /* start of matching string */
+    pub(crate) prev_match: Pos,       /* previous match */
+    pub(crate) match_available: bool, /* set if previous match exists */
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
@@ -1728,8 +1731,8 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             state.window.initialize_at_least(2 * wsize);
             state.window.filled_mut().copy_within(wsize..2 * wsize, 0);
 
-            if state.match_start >= wsize {
-                state.match_start -= wsize;
+            if state.match_start as usize >= wsize {
+                state.match_start -= wsize as u16;
             } else {
                 state.match_start = 0;
                 state.prev_length = 0;

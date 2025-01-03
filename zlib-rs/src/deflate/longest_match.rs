@@ -1,6 +1,4 @@
-use crate::deflate::{State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
-
-type Pos = u16;
+use crate::deflate::{Pos, State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
 
 const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
@@ -20,18 +18,20 @@ const UNALIGNED64_OK: bool = cfg!(any(
     target_arch = "powerpc64",
 ));
 
-pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, usize) {
+/// Find the (length, offset) in the window of the longest match for the string
+/// at offset cur_match
+pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
     longest_match_help::<false>(state, cur_match)
 }
 
-pub fn longest_match_slow(state: &crate::deflate::State, cur_match: u16) -> (usize, usize) {
+pub fn longest_match_slow(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
     longest_match_help::<true>(state, cur_match)
 }
 
 fn longest_match_help<const SLOW: bool>(
     state: &crate::deflate::State,
     mut cur_match: u16,
-) -> (usize, usize) {
+) -> (usize, u16) {
     let mut match_start = state.match_start;
 
     let strstart = state.strstart;
@@ -270,7 +270,7 @@ fn longest_match_help<const SLOW: bool>(
         );
 
         if len > best_len {
-            match_start = (cur_match - match_offset) as usize;
+            match_start = cur_match - match_offset;
 
             /* Do not look for matches beyond the end of the input. */
             if len > lookahead {
@@ -298,7 +298,7 @@ fn longest_match_help<const SLOW: bool>(
             }
 
             // Look for a better string offset
-            if SLOW && len > STD_MIN_MATCH && match_start + len < strstart {
+            if SLOW && len > STD_MIN_MATCH && match_start as usize + len < strstart {
                 let mut pos: Pos;
                 // uint32_t i, hash;
                 // unsigned char *scan_endstr;
@@ -365,6 +365,6 @@ fn longest_match_help<const SLOW: bool>(
     (best_len, match_start)
 }
 
-fn break_matching(state: &State, best_len: usize, match_start: usize) -> (usize, usize) {
+fn break_matching(state: &State, best_len: usize, match_start: u16) -> (usize, u16) {
     (Ord::min(best_len, state.lookahead), match_start)
 }
