@@ -313,7 +313,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         status: Status::Init,
 
         // window
-        w_bits: window_bits,
         w_size,
         w_mask: w_size - 1,
 
@@ -654,7 +653,6 @@ pub fn copy<'a>(
         static_len: source_state.static_len,
         insert: source_state.insert,
         w_size: source_state.w_size,
-        w_bits: source_state.w_bits,
         w_mask: source_state.w_mask,
         lookahead: source_state.lookahead,
         prev,
@@ -1298,7 +1296,6 @@ pub(crate) struct State<'a> {
     pub(crate) insert: usize,
 
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
-    pub(crate) w_bits: usize,    /* log2(w_size)  (8..16) */
     pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
@@ -1357,6 +1354,10 @@ enum DataType {
 
 impl<'a> State<'a> {
     pub const BIT_BUF_SIZE: u8 = BitWriter::BIT_BUF_SIZE;
+
+    pub(crate) fn w_bits(&self) -> usize {
+        self.w_size.trailing_zeros() as usize
+    }
 
     pub(crate) fn max_dist(&self) -> usize {
         self.w_size - MIN_LOOKAHEAD
@@ -1523,7 +1524,7 @@ impl<'a> State<'a> {
         };
 
         let h =
-            (Z_DEFLATED + ((self.w_bits as u16 - 8) << 4)) << 8 | (self.level_flags() << 6) | dict;
+            (Z_DEFLATED + ((self.w_bits() as u16 - 8) << 4)) << 8 | (self.level_flags() << 6) | dict;
 
         h + 31 - (h % 31)
     }
@@ -3177,7 +3178,7 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
         }
     };
 
-    if stream.state.w_bits != MAX_WBITS as usize || HASH_BITS < 15 {
+    if stream.state.w_bits() != MAX_WBITS as usize || HASH_BITS < 15 {
         if stream.state.level == 0 {
             /* upper bound for stored blocks with length 127 (memLevel == 1) ~4% overhead plus a small constant */
             source_len
@@ -3410,7 +3411,7 @@ mod test {
             };
             assert_eq!(init(&mut stream, config), ReturnCode::Ok);
             let stream = unsafe { DeflateStream::from_stream_mut(&mut stream) }.unwrap();
-            assert_eq!(stream.state.w_bits, 9);
+            assert_eq!(stream.state.w_bits(), 9);
 
             assert!(end(stream).is_ok());
         }
