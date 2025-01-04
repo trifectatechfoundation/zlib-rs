@@ -4249,7 +4249,7 @@ mod test {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
     fn state_layout() {
         use memoffset::offset_of;
