@@ -1220,6 +1220,16 @@ pub(crate) struct State<'a> {
     /// is an active block and it is the last block.
     pub(crate) block_open: u8,
 
+    pub(crate) hash_calc_variant: HashCalcVariant,
+
+    pub(crate) match_available: bool, /* set if previous match exists */
+
+    pub(crate) strstart: usize,       /* start of string to insert */
+    pub(crate) w_mask: usize,          /* w_size - 1 */
+
+    pub(crate) match_start: Pos,      /* start of matching string */
+    pub(crate) prev_match: Pos,       /* previous match */
+
     bit_writer: BitWriter<'a>,
 
     /// Use a faster search when the previous match is longer than this
@@ -1227,15 +1237,6 @@ pub(crate) struct State<'a> {
 
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: usize,
-
-    l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
-    d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
-    bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
-
-    pub(crate) strstart: usize,       /* start of string to insert */
-    pub(crate) match_start: Pos,      /* start of matching string */
-    pub(crate) prev_match: Pos,       /* previous match */
-    pub(crate) match_available: bool, /* set if previous match exists */
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
@@ -1299,7 +1300,6 @@ pub(crate) struct State<'a> {
 
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
     pub(crate) w_bits: usize,    /* log2(w_size)  (8..16) */
-    pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
     /// prev[N], where N is an offset in the current window, contains the offset in the window
@@ -1315,11 +1315,13 @@ pub(crate) struct State<'a> {
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
 
-    pub(crate) hash_calc_variant: HashCalcVariant,
-
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
+    d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
+    bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
