@@ -369,6 +369,11 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // just provide a valid default; gets set properly later
         hash_calc_variant: HashCalcVariant::Standard,
+
+        _cache_line_1: (),
+        _cache_line_2: (),
+        _cache_line_3: (),
+        _cache_line_4: (),
     };
 
     unsafe { state_allocation.write(state) };
@@ -664,6 +669,10 @@ pub fn copy<'a>(
         crc_fold: source_state.crc_fold,
         gzhead: None,
         gzindex: source_state.gzindex,
+        _cache_line_1: (),
+        _cache_line_2: (),
+        _cache_line_3: (),
+        _cache_line_4: (),
     };
 
     // write the cloned state into state_ptr
@@ -1230,8 +1239,6 @@ pub(crate) struct State<'a> {
     pub(crate) match_start: Pos,      /* start of matching string */
     pub(crate) prev_match: Pos,       /* previous match */
 
-    bit_writer: BitWriter<'a>,
-
     /// Use a faster search when the previous match is longer than this
     pub(crate) good_match: usize,
 
@@ -1245,6 +1252,14 @@ pub(crate) struct State<'a> {
     /// To speed up deflation, hash chains are never searched beyond this length.
     /// A higher limit improves compression ratio but degrades the speed.
     pub(crate) max_chain_length: usize,
+
+    _cache_line_1: (), // end of cache line on 64-bit systems with 64-byte L1 cache lines
+
+    pub(crate) window: Window<'a>,
+
+    pub(crate) sym_buf: ReadBuf<'a>,
+
+    _cache_line_2: (),
 
     // TODO untangle this mess! zlib uses the same field differently based on compression level
     // we should just have 2 fields for clarity!
@@ -1261,9 +1276,9 @@ pub(crate) struct State<'a> {
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
 
-    pub(crate) window: Window<'a>,
+    bit_writer: BitWriter<'a>,
 
-    pub(crate) sym_buf: ReadBuf<'a>,
+    _cache_line_3: (),
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -1300,6 +1315,9 @@ pub(crate) struct State<'a> {
 
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
     pub(crate) w_bits: usize,    /* log2(w_size)  (8..16) */
+
+    _cache_line_4: (),
+
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
     /// prev[N], where N is an offset in the current window, contains the offset in the window
@@ -1308,6 +1326,7 @@ pub(crate) struct State<'a> {
     /// to find earlier strings in the window that are potential matches for new input being
     /// deflated.
     pub(crate) prev: WeakSliceMut<'a, u16>,
+
     /// head[H] contains the offset of the last 4-character sequence seen so far in
     /// the current window that hashes to H (as calculated using the hash_calc_variant).
     pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
@@ -1315,9 +1334,10 @@ pub(crate) struct State<'a> {
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
 
-    crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    crc_fold: crate::crc32::Crc32Fold,
 
     l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
     d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
@@ -4227,5 +4247,24 @@ mod test {
                 fuzz_based_test(&input, config, &other);
             }
         }
+    }
+
+    //#[cfg(target_arch = "x86_64")]
+    #[test]
+    fn state_layout() {
+        use memoffset::offset_of;
+
+        // Empirically, deflate performance depends on the layout of fields within
+        // the State structure. If you change the order of fields and this test starts
+        // failing, the recommended action is to run some benchmark tests. If there
+        // is no surprise performance regression with the new layout, please move
+        // the _cache_line_N markers to the corresponding right locations in the
+        // struct to make this test pass once again.
+        assert_eq!(offset_of!(State, status), 0);
+        assert_eq!(offset_of!(State, strstart), 8);
+        assert_eq!(offset_of!(State, _cache_line_1), 64);
+        assert_eq!(offset_of!(State, _cache_line_2), 128);
+        assert_eq!(offset_of!(State, _cache_line_3), 192);
+        assert_eq!(offset_of!(State, _cache_line_4), 256);
     }
 }
