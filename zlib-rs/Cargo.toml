@@ -29,4 +29,5 @@ quickcheck = { workspace = true, optional = true }
 
 [dev-dependencies]
 crc32fast = "1.3.2"
+memoffset = "0.9.1"
 quickcheck.workspace = true

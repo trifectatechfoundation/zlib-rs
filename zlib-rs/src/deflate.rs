@@ -1327,19 +1327,6 @@ pub(crate) struct State<'a> {
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-mod _cache_lines {
-    use super::State;
-    use core::mem::offset_of;
-
-    const _: () = assert!(offset_of!(State, status) == 0);
-    const _: () = assert!(offset_of!(State, _cache_line_0) == 64);
-
-    // strstart, the first field after the large TreeDesc fields in the middle of the
-    // State structure, currently is not aligned on a 64-byte boundary. For now, this
-    // check verifies that the offset is as expected.
-    // TODO: determine whether changing the aligment of this field will improve performance.
-    const _: () = assert!(offset_of!(State, strstart) == 2824);
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 #[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
@@ -4245,4 +4232,21 @@ mod test {
             }
         }
     }
+
+    mod _cache_lines {
+        use super::State;
+        // TODO: once zlib-rs Minimum Supported Rust Version >= 1.77, switch to core::mem::offset_of
+        // and move this _cache_lines module from up a level from tests to super::
+        use memoffset::offset_of;
+
+        const _: () = assert!(offset_of!(State, status) == 0);
+        const _: () = assert!(offset_of!(State, _cache_line_0) == 64);
+
+        // strstart, the first field after the large TreeDesc fields in the middle of the
+        // State structure, currently is not aligned on a 64-byte boundary. For now, this
+        // check verifies that the offset is as expected.
+        // TODO: determine whether changing the aligment of this field will improve performance.
+        const _: () = assert!(offset_of!(State, strstart) == 2824);
+    }
+
 }
