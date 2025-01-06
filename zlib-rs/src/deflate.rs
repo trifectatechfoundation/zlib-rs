@@ -1326,8 +1326,6 @@ pub(crate) struct State<'a> {
     gzindex: usize,
 }
 
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 #[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
 pub enum Strategy {
@@ -4233,6 +4231,7 @@ mod test {
         }
     }
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     mod _cache_lines {
         use super::State;
         // TODO: once zlib-rs Minimum Supported Rust Version >= 1.77, switch to core::mem::offset_of
