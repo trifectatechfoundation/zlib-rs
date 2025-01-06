@@ -14,7 +14,7 @@ impl<'a> Window<'a> {
         let len = 2 * ((1 << window_bits) + Self::padding());
         let ptr = alloc.allocate_zeroed(len)?;
         // SAFETY: freshly allocated buffer
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         Some(Self { buf, window_bits })
     }

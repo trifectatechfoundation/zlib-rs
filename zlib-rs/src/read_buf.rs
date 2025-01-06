@@ -74,7 +74,7 @@ impl<'a> ReadBuf<'a> {
         let ptr = alloc.allocate_zeroed(len)?;
 
         // safety: all elements are now initialized
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         Some(Self { buf, filled: 0 })
     }

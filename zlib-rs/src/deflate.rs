@@ -282,16 +282,16 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
                     pending.drop_in(&alloc);
                 }
                 if let Some(head) = head {
-                    alloc.deallocate(head, 1)
+                    alloc.deallocate(head.as_ptr(), 1)
                 }
                 if let Some(prev) = prev {
-                    alloc.deallocate(prev, w_size)
+                    alloc.deallocate(prev.as_ptr(), w_size)
                 }
                 if let Some(mut window) = window {
                     window.drop_in(&alloc);
                 }
 
-                alloc.deallocate(state_allocation, 1);
+                alloc.deallocate(state_allocation.as_ptr(), 1);
             }
 
             return ReturnCode::MemError;
@@ -299,10 +299,12 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     };
 
     // zero initialize the memory
+    let prev = prev.as_ptr(); // FIXME: write_bytes is stable for NonNull since 1.80.0
     unsafe { prev.write_bytes(0, w_size) };
     let prev = unsafe { WeakSliceMut::from_raw_parts_mut(prev, w_size) };
 
     // zero out head's first element
+    let head = head.as_ptr(); // FIXME: write_bytes is stable for NonNull since 1.80.0
     unsafe { head.write_bytes(0, 1) };
     let head = unsafe { WeakArrayMut::<u16, HASH_SIZE>::from_ptr(head) };
 
@@ -374,8 +376,9 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         hash_calc_variant: HashCalcVariant::Standard,
     };
 
-    unsafe { state_allocation.write(state) };
-    stream.state = state_allocation as *mut internal_state;
+    unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
+
+    stream.state = state_allocation.as_ptr() as *mut internal_state;
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
         if cfg!(debug_assertions) {
@@ -596,16 +599,16 @@ pub fn copy<'a>(
                     pending.drop_in(alloc);
                 }
                 if let Some(head) = head {
-                    alloc.deallocate(head, HASH_SIZE)
+                    alloc.deallocate(head.as_ptr(), HASH_SIZE)
                 }
                 if let Some(prev) = prev {
-                    alloc.deallocate(prev, source_state.w_size)
+                    alloc.deallocate(prev.as_ptr(), source_state.w_size)
                 }
                 if let Some(mut window) = window {
                     window.drop_in(alloc);
                 }
 
-                alloc.deallocate(state_allocation, 1);
+                alloc.deallocate(state_allocation.as_ptr(), 1);
             }
 
             return ReturnCode::MemError;
@@ -613,11 +616,14 @@ pub fn copy<'a>(
     };
 
     let prev = unsafe {
+        let prev = prev.as_ptr();
         prev.copy_from_nonoverlapping(source_state.prev.as_ptr(), source_state.prev.len());
         WeakSliceMut::from_raw_parts_mut(prev, source_state.prev.len())
     };
 
+    // FIXME: write_bytes is stable for NonNull since 1.80.0
     let head = unsafe {
+        let head = head.as_ptr();
         head.write_bytes(0, 1);
         head.cast::<u16>().write(source_state.head.as_slice()[0]);
         WeakArrayMut::from_ptr(head)
@@ -673,11 +679,11 @@ pub fn copy<'a>(
     };
 
     // write the cloned state into state_ptr
-    unsafe { state_allocation.write(dest_state) };
+    unsafe { state_allocation.as_ptr().write(dest_state) }; // FIXME: write is stable for NonNull since 1.80.0
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation.as_ptr()) };
 
     // update the gzhead field (it contains a mutable reference so we need to be careful
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
