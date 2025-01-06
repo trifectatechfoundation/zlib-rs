@@ -369,6 +369,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // just provide a valid default; gets set properly later
         hash_calc_variant: HashCalcVariant::Standard,
+        _cache_line_0: (),
     };
 
     unsafe { state_allocation.write(state) };
@@ -664,6 +665,7 @@ pub fn copy<'a>(
         crc_fold: source_state.crc_fold,
         gzhead: None,
         gzindex: source_state.gzindex,
+        _cache_line_0: (),
     };
 
     // write the cloned state into state_ptr
@@ -1225,6 +1227,8 @@ pub(crate) struct State<'a> {
     /// Use a faster search when the previous match is longer than this
     pub(crate) good_match: usize,
 
+    _cache_line_0: (),
+
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: usize,
 
@@ -1320,6 +1324,21 @@ pub(crate) struct State<'a> {
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+mod _cache_lines {
+    use super::State;
+    use core::mem::offset_of;
+
+    const _: () = assert!(offset_of!(State, status) == 0);
+    const _: () = assert!(offset_of!(State, _cache_line_0) == 64);
+
+    // strstart, the first field after the large TreeDesc fields in the middle of the
+    // State structure, currently is not aligned on a 64-byte boundary. For now, this
+    // check verifies that the offset is as expected.
+    // TODO: determine whether changing the aligment of this field will improve performance.
+    const _: () = assert!(offset_of!(State, strstart) == 2824);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
