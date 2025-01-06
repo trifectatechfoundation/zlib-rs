@@ -150,7 +150,7 @@ impl<'a> Window<'a> {
         let ptr = alloc.allocate_zeroed(len)?;
 
         Some(Self {
-            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
             have: 0,
             next: 0,
         })
@@ -161,7 +161,7 @@ impl<'a> Window<'a> {
         let ptr = alloc.allocate_zeroed(len)?;
 
         Some(Self {
-            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
             have: self.have,
             next: self.next,
         })

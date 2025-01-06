@@ -2121,8 +2121,9 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         return ReturnCode::MemError;
     };
 
-    unsafe { state_allocation.write(state) };
-    stream.state = state_allocation as *mut internal_state;
+    // FIXME: write is stable for NonNull since 1.80.0
+    unsafe { state_allocation.as_ptr().write(state) };
+    stream.state = state_allocation.as_ptr() as *mut internal_state;
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
     let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
@@ -2470,7 +2471,7 @@ pub unsafe fn copy<'a>(
     if !state.window.is_empty() {
         let Some(window) = state.window.clone_in(&source.alloc) else {
             // SAFETY: state_allocation is not used again.
-            source.alloc.deallocate(state_allocation, 1);
+            source.alloc.deallocate(state_allocation.as_ptr(), 1);
             return ReturnCode::MemError;
         };
 
@@ -2478,11 +2479,11 @@ pub unsafe fn copy<'a>(
     }
 
     // write the cloned state into state_ptr
-    unsafe { state_allocation.write(copy) };
+    unsafe { state_allocation.as_ptr().write(copy) }; // FIXME: write is stable for NonNull since 1.80.0
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation.as_ptr()) };
 
     // update the writer; it cannot be cloned so we need to use some shennanigans
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };
