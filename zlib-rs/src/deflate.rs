@@ -1236,6 +1236,8 @@ pub(crate) struct State<'a> {
     /// is an active block and it is the last block.
     pub(crate) block_open: u8,
 
+    pub(crate) hash_calc_variant: HashCalcVariant,
+
     bit_writer: BitWriter<'a>,
 
     /// Use a faster search when the previous match is longer than this
@@ -1339,8 +1341,6 @@ pub(crate) struct State<'a> {
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: usize,
-
-    pub(crate) hash_calc_variant: HashCalcVariant,
 
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
