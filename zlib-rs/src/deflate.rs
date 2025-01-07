@@ -372,6 +372,10 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         // just provide a valid default; gets set properly later
         hash_calc_variant: HashCalcVariant::Standard,
         _cache_line_0: (),
+        _cache_line_1: (),
+        _cache_line_2: (),
+        _cache_line_3: (),
+        _padding_0: 0,
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -672,6 +676,10 @@ pub fn copy<'a>(
         gzhead: None,
         gzindex: source_state.gzindex,
         _cache_line_0: (),
+        _cache_line_1: (),
+        _cache_line_2: (),
+        _cache_line_3: (),
+        _padding_0: source_state._padding_0,
     };
 
     // write the cloned state into state_ptr
@@ -1238,9 +1246,9 @@ pub(crate) struct State<'a> {
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: usize,
 
-    l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
-    d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
-    bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
+    // Padding to maintain the grouping of fields into cache lines during refactoring
+    // TODO find a real field to swap into this location after the overall layout is optimized.
+    _padding_0: usize,
 
     pub(crate) strstart: usize,       /* start of string to insert */
     pub(crate) match_start: Pos,      /* start of matching string */
@@ -1270,6 +1278,8 @@ pub(crate) struct State<'a> {
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
 
+    _cache_line_1: (),
+
     pub(crate) window: Window<'a>,
 
     pub(crate) sym_buf: ReadBuf<'a>,
@@ -1296,6 +1306,8 @@ pub(crate) struct State<'a> {
     /// Actual size of window: 2*w_size, except when the user input buffer is directly used as sliding window.
     pub(crate) window_size: usize,
 
+    _cache_line_2: (),
+
     /// number of string matches in current block
     pub(crate) matches: usize,
 
@@ -1309,8 +1321,11 @@ pub(crate) struct State<'a> {
 
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
     pub(crate) w_bits: usize,    /* log2(w_size)  (8..16) */
+
     pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
+
+    _cache_line_3: (),
 
     /// prev[N], where N is an offset in the current window, contains the offset in the window
     /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
@@ -1330,6 +1345,10 @@ pub(crate) struct State<'a> {
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
+    d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
+    bl_desc: TreeDesc<{ 2 * BL_CODES + 1 }>, /* Huffman tree for bit lengths */
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -4200,17 +4219,14 @@ mod test {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     mod _cache_lines {
         use super::State;
-        // TODO: once zlib-rs Minimum Supported Rust Version >= 1.77, switch to core::mem::offset_of
+        // FIXME: once zlib-rs Minimum Supported Rust Version >= 1.77, switch to core::mem::offset_of
         // and move this _cache_lines module from up a level from tests to super::
         use memoffset::offset_of;
 
         const _: () = assert!(offset_of!(State, status) == 0);
         const _: () = assert!(offset_of!(State, _cache_line_0) == 64);
-
-        // strstart, the first field after the large TreeDesc fields in the middle of the
-        // State structure, currently is not aligned on a 64-byte boundary. For now, this
-        // check verifies that the offset is as expected.
-        // TODO: determine whether changing the aligment of this field will improve performance.
-        const _: () = assert!(offset_of!(State, strstart) == 2824);
+        const _: () = assert!(offset_of!(State, _cache_line_1) == 128);
+        const _: () = assert!(offset_of!(State, _cache_line_2) == 192);
+        const _: () = assert!(offset_of!(State, _cache_line_3) == 256);
     }
 }
