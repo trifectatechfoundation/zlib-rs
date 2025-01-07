@@ -1247,7 +1247,7 @@ pub(crate) struct State<'a> {
     pub(crate) nice_match: usize,
 
     // Padding to maintain the grouping of fields into cache lines during refactoring
-    // TODO find a real field to swap into this location after the overall layout is optimized.
+    // FIXME find a real field to swap into this location after the overall layout is optimized.
     _padding_0: usize,
 
     pub(crate) strstart: usize,       /* start of string to insert */
