@@ -52,7 +52,7 @@ fn longest_match_help<const SLOW: bool>(
 
     // length of the previous match (if any), hence <= STD_MAX_MATCH
     best_len = if state.prev_length > 0 {
-        state.prev_length
+        state.prev_length as usize
     } else {
         STD_MIN_MATCH - 1
     };

@@ -378,6 +378,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _padding_1: 0,
         _padding_2: 0,
         _padding_3: [0; 6],
+        _padding_4: [0; 6],
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -684,6 +685,7 @@ pub fn copy<'a>(
         _padding_1: source_state._padding_1,
         _padding_2: source_state._padding_2,
         _padding_3: source_state._padding_3,
+        _padding_4: source_state._padding_4,
     };
 
     // write the cloned state into state_ptr
@@ -1264,7 +1266,9 @@ pub(crate) struct State<'a> {
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
-    pub(crate) prev_length: usize,
+    pub(crate) prev_length: u16,
+
+    _padding_4: [u8; 6],
 
     /// To speed up deflation, hash chains are never searched beyond this length.
     /// A higher limit improves compression ratio but degrades the speed.
