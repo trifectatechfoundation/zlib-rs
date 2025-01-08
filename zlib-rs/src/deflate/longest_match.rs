@@ -26,7 +26,7 @@ fn longest_match_help<const SLOW: bool>(
     let limit_base: Pos;
     let early_exit: bool;
 
-    let mut chain_length: usize;
+    let mut chain_length: u16;
     let mut best_len: usize;
 
     let lookahead = state.lookahead;
