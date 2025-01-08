@@ -797,7 +797,7 @@ fn lm_set_level(state: &mut State, level: i8) {
     state.max_lazy_match = CONFIGURATION_TABLE[level as usize].max_lazy as usize;
     state.good_match = CONFIGURATION_TABLE[level as usize].good_length as usize;
     state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length as usize;
-    state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain as usize;
+    state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain;
 
     state.hash_calc_variant = HashCalcVariant::for_max_chain_length(state.max_chain_length);
     state.level = level;
@@ -813,7 +813,7 @@ pub fn tune(
     stream.state.good_match = good_length;
     stream.state.max_lazy_match = max_lazy;
     stream.state.nice_match = nice_length;
-    stream.state.max_chain_length = max_chain;
+    stream.state.max_chain_length = max_chain as u16;
 
     ReturnCode::Ok
 }
@@ -1263,7 +1263,7 @@ pub(crate) struct State<'a> {
 
     /// To speed up deflation, hash chains are never searched beyond this length.
     /// A higher limit improves compression ratio but degrades the speed.
-    pub(crate) max_chain_length: usize,
+    pub(crate) max_chain_length: u16,
 
     // TODO untangle this mess! zlib uses the same field differently based on compression level
     // we should just have 2 fields for clarity!

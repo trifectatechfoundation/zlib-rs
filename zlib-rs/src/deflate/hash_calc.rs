@@ -9,7 +9,7 @@ pub enum HashCalcVariant {
 impl HashCalcVariant {
     /// Use rolling hash for deflate_slow algorithm with level 9. It allows us to
     /// properly lookup different hash chains to speed up longest_match search.
-    pub fn for_max_chain_length(max_chain_length: usize) -> Self {
+    pub fn for_max_chain_length(max_chain_length: u16) -> Self {
         if max_chain_length > 1024 {
             HashCalcVariant::Roll
         } else {
