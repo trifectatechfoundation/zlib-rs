@@ -374,9 +374,10 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: 0,
+        _padding_0: [0; 14],
         _padding_1: 0,
         _padding_2: 0,
+        _padding_3: [0; 6],
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -682,6 +683,7 @@ pub fn copy<'a>(
         _padding_0: source_state._padding_0,
         _padding_1: source_state._padding_1,
         _padding_2: source_state._padding_2,
+        _padding_3: source_state._padding_3,
     };
 
     // write the cloned state into state_ptr
@@ -797,8 +799,8 @@ fn lm_init(state: &mut State) {
 
 fn lm_set_level(state: &mut State, level: i8) {
     state.max_lazy_match = CONFIGURATION_TABLE[level as usize].max_lazy;
-    state.good_match = CONFIGURATION_TABLE[level as usize].good_length as usize;
-    state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length as usize;
+    state.good_match = CONFIGURATION_TABLE[level as usize].good_length;
+    state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length;
     state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain;
 
     state.hash_calc_variant = HashCalcVariant::for_max_chain_length(state.max_chain_length);
@@ -812,9 +814,9 @@ pub fn tune(
     nice_length: usize,
     max_chain: usize,
 ) -> ReturnCode {
-    stream.state.good_match = good_length;
+    stream.state.good_match = good_length as u16;
     stream.state.max_lazy_match = max_lazy as u16;
-    stream.state.nice_match = nice_length;
+    stream.state.nice_match = nice_length as u16;
     stream.state.max_chain_length = max_chain as u16;
 
     ReturnCode::Ok
@@ -1243,16 +1245,17 @@ pub(crate) struct State<'a> {
     bit_writer: BitWriter<'a>,
 
     /// Use a faster search when the previous match is longer than this
-    pub(crate) good_match: usize,
+    pub(crate) good_match: u16,
+    _padding_3: [u8; 6],
 
     _cache_line_0: (),
 
     /// Stop searching when current match exceeds this
-    pub(crate) nice_match: usize,
+    pub(crate) nice_match: u16,
 
     // Padding to maintain the grouping of fields into cache lines during refactoring
     // FIXME find a real field to swap into this location after the overall layout is optimized.
-    _padding_0: usize,
+    _padding_0: [u8; 14],
 
     pub(crate) strstart: usize,       /* start of string to insert */
     pub(crate) match_start: Pos,      /* start of matching string */

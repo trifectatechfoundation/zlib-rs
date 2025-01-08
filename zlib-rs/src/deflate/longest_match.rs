@@ -71,7 +71,7 @@ fn longest_match_help<const SLOW: bool>(
 
     // Don't waste too much time by following a chain if we already have a good match
     chain_length = state.max_chain_length;
-    if best_len >= state.good_match {
+    if best_len >= state.good_match as usize {
         chain_length >>= 2;
     }
     let nice_match = state.nice_match;
@@ -242,7 +242,7 @@ fn longest_match_help<const SLOW: bool>(
                 return (lookahead, match_start);
             }
             best_len = len;
-            if best_len >= nice_match {
+            if best_len >= nice_match as usize {
                 return (best_len, match_start);
             }
 
