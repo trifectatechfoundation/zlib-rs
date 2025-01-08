@@ -45,7 +45,7 @@ jobs:
       - name: cargo build
         run: |
           . "$HOME/.cargo/env"
-          RUSTFLAGS="-Ctarget-cpu=native -Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          RUSTFLAGS="-Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
       - name: Benchmark
