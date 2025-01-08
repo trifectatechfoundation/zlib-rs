@@ -376,6 +376,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_3: (),
         _padding_0: 0,
         _padding_1: 0,
+        _padding_2: 0,
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -680,6 +681,7 @@ pub fn copy<'a>(
         _cache_line_3: (),
         _padding_0: source_state._padding_0,
         _padding_1: source_state._padding_1,
+        _padding_2: source_state._padding_2,
     };
 
     // write the cloned state into state_ptr
@@ -794,7 +796,7 @@ fn lm_init(state: &mut State) {
 }
 
 fn lm_set_level(state: &mut State, level: i8) {
-    state.max_lazy_match = CONFIGURATION_TABLE[level as usize].max_lazy as usize;
+    state.max_lazy_match = CONFIGURATION_TABLE[level as usize].max_lazy;
     state.good_match = CONFIGURATION_TABLE[level as usize].good_length as usize;
     state.nice_match = CONFIGURATION_TABLE[level as usize].nice_length as usize;
     state.max_chain_length = CONFIGURATION_TABLE[level as usize].max_chain;
@@ -811,7 +813,7 @@ pub fn tune(
     max_chain: usize,
 ) -> ReturnCode {
     stream.state.good_match = good_length;
-    stream.state.max_lazy_match = max_lazy;
+    stream.state.max_lazy_match = max_lazy as u16;
     stream.state.nice_match = nice_length;
     stream.state.max_chain_length = max_chain as u16;
 
@@ -1274,7 +1276,9 @@ pub(crate) struct State<'a> {
     // define max_insert_length  max_lazy_match
     /// Attempt to find a better match only when the current match is strictly smaller
     /// than this value. This mechanism is used only for compression levels >= 4.
-    pub(crate) max_lazy_match: usize,
+    pub(crate) max_lazy_match: u16,
+
+    _padding_2: usize,
 
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
@@ -1399,7 +1403,7 @@ impl<'a> State<'a> {
     // TODO untangle this mess! zlib uses the same field differently based on compression level
     // we should just have 2 fields for clarity!
     pub(crate) fn max_insert_length(&self) -> usize {
-        self.max_lazy_match
+        self.max_lazy_match as usize
     }
 
     /// Total size of the pending buf. But because `pending` shares memory with `sym_buf`, this is

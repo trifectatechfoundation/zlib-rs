@@ -54,7 +54,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         dist = state.strstart as isize - hash_head as isize;
 
         if valid_distance_range.contains(&dist)
-            && state.prev_length < state.max_lazy_match
+            && state.prev_length < state.max_lazy_match as usize
             && hash_head != 0
         {
             // To simplify the code, we prevent matches with the string
