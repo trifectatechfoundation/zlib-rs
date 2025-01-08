@@ -1351,7 +1351,7 @@ pub(crate) struct State<'a> {
     pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     ///  hash index of string to be inserted
-    pub(crate) ins_h: usize,
+    pub(crate) ins_h: u32,
 
     crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
@@ -1802,7 +1802,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             if state.max_chain_length > 1024 {
                 let v0 = state.window.filled()[string] as u32;
                 let v1 = state.window.filled()[string + 1] as u32;
-                state.ins_h = state.update_hash(v0, v1) as usize;
+                state.ins_h = state.update_hash(v0, v1);
             } else if string >= 1 {
                 state.quick_insert_string(string + 2 - STD_MIN_MATCH);
             }

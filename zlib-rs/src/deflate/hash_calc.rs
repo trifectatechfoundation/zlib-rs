@@ -91,10 +91,10 @@ impl RollHashCalc {
     pub fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         let val = state.window.filled()[string + Self::HASH_CALC_OFFSET] as u32;
 
-        state.ins_h = Self::hash_calc(state.ins_h as u32, val) as usize;
-        state.ins_h &= Self::HASH_CALC_MASK as usize;
+        state.ins_h = Self::hash_calc(state.ins_h, val);
+        state.ins_h &= Self::HASH_CALC_MASK;
 
-        let hm = state.ins_h;
+        let hm = state.ins_h as usize;
 
         let head = state.head.as_slice()[hm];
         if head != string as u16 {
@@ -111,9 +111,9 @@ impl RollHashCalc {
         for (i, val) in slice.iter().copied().enumerate() {
             let idx = string as u16 + i as u16;
 
-            state.ins_h = Self::hash_calc(state.ins_h as u32, val as u32) as usize;
-            state.ins_h &= Self::HASH_CALC_MASK as usize;
-            let hm = state.ins_h;
+            state.ins_h = Self::hash_calc(state.ins_h, val as u32);
+            state.ins_h &= Self::HASH_CALC_MASK;
+            let hm = state.ins_h as usize;
 
             let head = state.head.as_slice()[hm];
             if head != idx {
