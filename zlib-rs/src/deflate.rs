@@ -4243,5 +4243,4 @@ mod test {
         // TODO: determine whether changing the aligment of this field will improve performance.
         const _: () = assert!(offset_of!(State, strstart) == 2824);
     }
-
 }
