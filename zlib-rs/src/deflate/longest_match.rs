@@ -2,22 +2,6 @@ use crate::deflate::{Pos, State, MIN_LOOKAHEAD, STD_MAX_MATCH, STD_MIN_MATCH};
 
 const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
-const UNALIGNED_OK: bool = cfg!(any(
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64",
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "powerpc64",
-));
-
-const UNALIGNED64_OK: bool = cfg!(any(
-    target_arch = "wasm32",
-    target_arch = "x86_64",
-    target_arch = "aarch64",
-    target_arch = "powerpc64",
-));
-
 /// Find the (length, offset) in the window of the longest match for the string
 /// at offset cur_match
 pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
@@ -75,9 +59,9 @@ fn longest_match_help<const SLOW: bool>(
 
     // Calculate read offset which should only extend an extra byte to find the next best match length.
     let mut offset = best_len - 1;
-    if best_len >= core::mem::size_of::<u32>() && UNALIGNED_OK {
+    if best_len >= core::mem::size_of::<u32>() {
         offset -= 2;
-        if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
+        if best_len >= core::mem::size_of::<u64>() {
             offset -= 4;
         }
     }
@@ -203,44 +187,29 @@ fn longest_match_help<const SLOW: bool>(
         //
         // scan_end is a bit trickier: it reads at a bounded offset from scan_start:
         //
-        // - UNALIGNED64_OK: scan_end is bounded by `258 - (4 + 2 + 1)`, so an 8-byte read is in-bounds
-        // - UNALIGNED_OK: scan_end is bounded by `258 - (2 + 1)`, so a 4-byte read is in-bounds
-        // - otherwise: scan_end is bounded by `258 - 1`, so a 2-byte read is in-bounds
+        // - >= 8: scan_end is bounded by `258 - (4 + 2 + 1)`, so an 8-byte read is in-bounds
+        // - >= 4: scan_end is bounded by `258 - (2 + 1)`, so a 4-byte read is in-bounds
+        // - >= 2: scan_end is bounded by `258 - 1`, so a 2-byte read is in-bounds
         unsafe {
-            if UNALIGNED_OK {
-                if best_len < core::mem::size_of::<u32>() {
-                    loop {
-                        if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
-                            break;
-                        }
-
-                        goto_next_in_chain!();
+            if best_len < core::mem::size_of::<u32>() {
+                loop {
+                    if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                        break;
                     }
-                } else if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
-                    loop {
-                        if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
-                            break;
-                        }
 
-                        goto_next_in_chain!();
+                    goto_next_in_chain!();
+                }
+            } else if best_len >= core::mem::size_of::<u64>() {
+                loop {
+                    if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                        break;
                     }
-                } else {
-                    loop {
-                        if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
-                            break;
-                        }
 
-                        goto_next_in_chain!();
-                    }
+                    goto_next_in_chain!();
                 }
             } else {
                 loop {
-                    if memcmp_n_ptr::<2>(mbase_end.wrapping_add(cur_match as usize), scan_end)
-                        && memcmp_n_ptr::<2>(
-                            mbase_start.wrapping_add(cur_match as usize),
-                            scan.as_ptr(),
-                        )
-                    {
+                    if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
                     }
 
@@ -278,9 +247,9 @@ fn longest_match_help<const SLOW: bool>(
             }
 
             offset = best_len - 1;
-            if best_len >= core::mem::size_of::<u32>() && UNALIGNED_OK {
+            if best_len >= core::mem::size_of::<u32>() {
                 offset -= 2;
-                if best_len >= core::mem::size_of::<u64>() && UNALIGNED64_OK {
+                if best_len >= core::mem::size_of::<u64>() {
                     offset -= 4;
                 }
             }
