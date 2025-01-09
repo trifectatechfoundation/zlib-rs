@@ -14,7 +14,7 @@ use crate::{
 
 use self::{
     algorithm::CONFIGURATION_TABLE,
-    hash_calc::{Crc32HashCalc, HashCalcVariant, RollHashCalc, StandardHashCalc},
+    hash_calc::{HashCalcVariant, RollHashCalc, StandardHashCalc},
     pending::Pending,
     trees_tbl::STATIC_LTREE,
     window::Window,
@@ -1388,9 +1388,6 @@ impl<'a> State<'a> {
     pub(crate) fn update_hash(&self, h: u32, val: u32) -> u32 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::update_hash(h, val),
-            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
-            // which avoids choosing Crc32 if the system doesn't have support.
-            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::update_hash(h, val) },
             HashCalcVariant::Roll => RollHashCalc::update_hash(h, val),
         }
     }
@@ -1399,9 +1396,6 @@ impl<'a> State<'a> {
     pub(crate) fn quick_insert_string(&mut self, string: usize) -> u16 {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::quick_insert_string(self, string),
-            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
-            // which avoids choosing Crc32 if the system doesn't have support.
-            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::quick_insert_string(self, string) },
             HashCalcVariant::Roll => RollHashCalc::quick_insert_string(self, string),
         }
     }
@@ -1410,9 +1404,6 @@ impl<'a> State<'a> {
     pub(crate) fn insert_string(&mut self, string: usize, count: usize) {
         match self.hash_calc_variant {
             HashCalcVariant::Standard => StandardHashCalc::insert_string(self, string, count),
-            // SAFETY: self.hash_calc_variant is set by HashCalcVariant::for_max_chain_length,
-            // which avoids choosing Crc32 if the system doesn't have support.
-            HashCalcVariant::Crc32 => unsafe { Crc32HashCalc::insert_string(self, string, count) },
             HashCalcVariant::Roll => RollHashCalc::insert_string(self, string, count),
         }
     }
@@ -4196,35 +4187,14 @@ mod test {
             strategy: Strategy::Default,
         };
 
-        let crc32 = [
-            24, 149, 99, 96, 96, 96, 96, 208, 6, 17, 112, 138, 129, 193, 128, 1, 29, 24, 50, 208,
-            1, 200, 146, 169, 79, 24, 74, 59, 96, 147, 52, 71, 22, 70, 246, 88, 26, 94, 80, 128,
-            83, 6, 162, 219, 144, 76, 183, 210, 5, 8, 67, 105, 7, 108, 146, 230, 216, 133, 145,
-            129, 22, 3, 3, 131, 17, 3, 0, 3, 228, 25, 128,
-        ];
-
-        let other = [
+        let expected = [
             24, 149, 99, 96, 96, 96, 96, 208, 6, 17, 112, 138, 129, 193, 128, 1, 29, 24, 50, 208,
             1, 200, 146, 169, 79, 24, 74, 59, 96, 147, 52, 71, 22, 70, 246, 88, 26, 94, 80, 128,
             83, 6, 162, 219, 144, 76, 183, 210, 5, 8, 67, 105, 36, 159, 35, 128, 57, 118, 97, 100,
             160, 197, 192, 192, 96, 196, 0, 0, 3, 228, 25, 128,
         ];
 
-        // the output is slightly different based on what hashing algorithm is used
-        match HashCalcVariant::for_compression_level(config.level as usize) {
-            HashCalcVariant::Crc32 => {
-                // the aarch64 hashing algorithm is different from the standard algorithm, but in
-                // this case they turn out to give the same output. Beware!
-                if cfg!(target_arch = "x86") || cfg!(target_arch = "x86_64") {
-                    fuzz_based_test(&input, config, &crc32);
-                } else {
-                    fuzz_based_test(&input, config, &other);
-                }
-            }
-            HashCalcVariant::Standard | HashCalcVariant::Roll => {
-                fuzz_based_test(&input, config, &other);
-            }
-        }
+        fuzz_based_test(&input, config, &expected);
     }
 
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
@@ -4243,5 +4213,4 @@ mod test {
         // TODO: determine whether changing the aligment of this field will improve performance.
         const _: () = assert!(offset_of!(State, strstart) == 2824);
     }
-
 }

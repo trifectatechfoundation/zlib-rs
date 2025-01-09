@@ -1815,14 +1815,9 @@ mod fuzz_based_tests {
         // depending on the algorithm that can give different results. Note that in this case, the
         // output of aarch64 and x86_64 do line up with the current aarch64 hashing approach.
 
-        let output_other = &[
-            24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
-            14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 122, 184, 17, 2, 40, 119, 41, 84, 175, 26, 0,
-            172, 56, 3, 232,
-        ];
-
-        // longest_match does not perform unaligned 32-bit reads/writes on s390x
-        let output_s390x = &[
+        // historical note: previously we used the crc32 hardware instructions, but later versions
+        // of zlib-ng stopped doing that (the dispatch cost was too high), and we followed suit.
+        let output = &[
             24, 149, 99, 96, 102, 24, 104, 160, 7, 38, 57, 96, 92, 117, 6, 14, 6, 38, 60, 202, 65,
             14, 86, 99, 208, 3, 3, 6, 67, 6, 38, 22, 58, 56, 17, 10, 40, 119, 41, 84, 175, 26, 0,
             172, 56, 3, 232,
@@ -1852,11 +1847,7 @@ mod fuzz_based_tests {
                 mem_level: 2,
                 strategy: Strategy::Default,
             },
-            if cfg!(any(miri, target_arch = "s390x", target_family = "wasm")) {
-                output_s390x
-            } else {
-                output_other
-            },
+            output,
         )
     }
 
