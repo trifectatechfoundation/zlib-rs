@@ -1933,6 +1933,26 @@ mod fuzz_based_tests {
             },
         )
     }
+
+    // a change introduced in [commit].
+    // make sure we match the new behavior, and throw an error if the test suite runs with older
+    // versions
+    //
+    // [commit]: https://github.com/zlib-ng/zlib-ng/commit/322753f36e833343ae030e499564691da15eef32
+    #[test]
+    fn deflate_medium_bypass() {
+        let mut input = [0u8; 268];
+        input[0] = 0x16;
+        input[263] = 0x5;
+
+        fuzz_based_test(
+            &input,
+            DeflateConfig::default(),
+            &[
+                120, 156, 19, 99, 24, 5, 12, 12, 12, 172, 32, 18, 0, 24, 45, 0, 28,
+            ],
+        )
+    }
 }
 
 #[test]
