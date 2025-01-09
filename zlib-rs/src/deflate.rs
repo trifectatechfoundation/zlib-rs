@@ -374,11 +374,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: [0; 14],
-        _padding_1: 0,
-        _padding_2: 0,
-        _padding_3: [0; 6],
-        _padding_4: [0; 6],
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -681,11 +676,6 @@ pub fn copy<'a>(
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: source_state._padding_0,
-        _padding_1: source_state._padding_1,
-        _padding_2: source_state._padding_2,
-        _padding_3: source_state._padding_3,
-        _padding_4: source_state._padding_4,
     };
 
     // write the cloned state into state_ptr
@@ -1226,7 +1216,7 @@ impl<'a> BitWriter<'a> {
     }
 }
 
-#[repr(C)]
+#[repr(C, align(64))]
 pub(crate) struct State<'a> {
     status: Status,
 
@@ -1244,31 +1234,37 @@ pub(crate) struct State<'a> {
 
     pub(crate) hash_calc_variant: HashCalcVariant,
 
-    bit_writer: BitWriter<'a>,
+    pub(crate) match_available: bool, /* set if previous match exists */
 
     /// Use a faster search when the previous match is longer than this
     pub(crate) good_match: u16,
-    _padding_3: [u8; 6],
-
-    _cache_line_0: (),
 
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: u16,
 
-    // Padding to maintain the grouping of fields into cache lines during refactoring
-    // FIXME find a real field to swap into this location after the overall layout is optimized.
-    _padding_0: [u8; 14],
-
-    pub(crate) strstart: usize,       /* start of string to insert */
     pub(crate) match_start: Pos,      /* start of matching string */
     pub(crate) prev_match: Pos,       /* previous match */
-    pub(crate) match_available: bool, /* set if previous match exists */
+    pub(crate) strstart: usize,       /* start of string to insert */
+
+    pub(crate) window: Window<'a>,
+    pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
+    pub(crate) w_mask: usize,    /* w_size - 1 */
+
+    _cache_line_0: (),
+
+    /// prev[N], where N is an offset in the current window, contains the offset in the window
+    /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
+    /// starting at N. Together with head, prev forms a chained hash table that can be used
+    /// to find earlier strings in the window that are potential matches for new input being
+    /// deflated.
+    pub(crate) prev: WeakSliceMut<'a, u16>,
+    /// head[H] contains the offset of the last 4-character sequence seen so far in
+    /// the current window that hashes to H (as calculated using the hash_calc_variant).
+    pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
     pub(crate) prev_length: u16,
-
-    _padding_4: [u8; 6],
 
     /// To speed up deflation, hash chains are never searched beyond this length.
     /// A higher limit improves compression ratio but degrades the speed.
@@ -1285,17 +1281,13 @@ pub(crate) struct State<'a> {
     /// than this value. This mechanism is used only for compression levels >= 4.
     pub(crate) max_lazy_match: u16,
 
-    _padding_2: usize,
-
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
 
-    _cache_line_1: (),
-
-    pub(crate) window: Window<'a>,
-
     pub(crate) sym_buf: ReadBuf<'a>,
+
+    _cache_line_1: (),
 
     /// Size of match buffer for literals/lengths.  There are 4 reasons for
     /// limiting lit_bufsize to 64K:
@@ -1319,6 +1311,8 @@ pub(crate) struct State<'a> {
     /// Actual size of window: 2*w_size, except when the user input buffer is directly used as sliding window.
     pub(crate) window_size: usize,
 
+    bit_writer: BitWriter<'a>,
+
     _cache_line_2: (),
 
     /// number of string matches in current block
@@ -1332,30 +1326,17 @@ pub(crate) struct State<'a> {
     /// bytes at end of window left to insert
     pub(crate) insert: usize,
 
-    pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
-    _padding_1: usize,
-
-    pub(crate) w_mask: usize,    /* w_size - 1 */
     pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
-
-    _cache_line_3: (),
-
-    /// prev[N], where N is an offset in the current window, contains the offset in the window
-    /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
-    /// starting at N. Together with head, prev forms a chained hash table that can be used
-    /// to find earlier strings in the window that are potential matches for new input being
-    /// deflated.
-    pub(crate) prev: WeakSliceMut<'a, u16>,
-    /// head[H] contains the offset of the last 4-character sequence seen so far in
-    /// the current window that hashes to H (as calculated using the hash_calc_variant).
-    pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: u32,
 
-    crc_fold: crate::crc32::Crc32Fold,
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    _cache_line_3: (),
+
+    crc_fold: crate::crc32::Crc32Fold,
 
     l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
     d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
