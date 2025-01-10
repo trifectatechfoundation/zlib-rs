@@ -190,26 +190,35 @@ fn longest_match_help<const SLOW: bool>(
         // - >= 8: scan_end is bounded by `258 - (4 + 2 + 1)`, so an 8-byte read is in-bounds
         // - >= 4: scan_end is bounded by `258 - (2 + 1)`, so a 4-byte read is in-bounds
         // - >= 2: scan_end is bounded by `258 - 1`, so a 2-byte read is in-bounds
+        let mut len = 0;
         unsafe {
-            if best_len < core::mem::size_of::<u32>() {
+            if best_len < core::mem::size_of::<u64>() {
+                let scan_val = u64::from_ne_bytes(
+                    std::slice::from_raw_parts(scan_start, 8).try_into().unwrap());
                 loop {
-                    if is_match::<2>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    let bs = mbase_start.wrapping_add(cur_match as usize);
+                    let match_val = u64::from_ne_bytes(
+                        std::slice::from_raw_parts(bs, 8).try_into().unwrap());
+                    let cmp = scan_val ^ match_val;
+                    if cmp == 0 {
+                        // The first 8 bytes all matched. Additional scanning will be needed
+                        // (the compare256 call below) to determine the full match length.
                         break;
                     }
-
-                    goto_next_in_chain!();
-                }
-            } else if best_len >= core::mem::size_of::<u64>() {
-                loop {
-                    if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    // Compute the number of leading bytes that match.
+                    let cmp_len = cmp.to_le().trailing_zeros() as usize / 8;
+                    if cmp_len > best_len {
+                        // The match is fully contained within the 8 bytes just compared,
+                        // so we know the match length without needing to do the more
+                        // expensive compare256 operation.
+                        len = cmp_len;
                         break;
                     }
-
                     goto_next_in_chain!();
                 }
             } else {
                 loop {
-                    if is_match::<4>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
+                    if is_match::<8>(cur_match, mbase_start, mbase_end, scan_start, scan_end) {
                         break;
                     }
 
@@ -219,15 +228,17 @@ fn longest_match_help<const SLOW: bool>(
         }
 
         // we know that there is at least some match. Now count how many bytes really match
-        let len = {
-            // SAFETY: cur_match is bounded by window_size - MIN_LOOKAHEAD, where MIN_LOOKAHEAD
-            // is 258 + 3 + 1, so 258-byte reads of mbase_start are in-bounds.
-            let src1 = unsafe {
-                core::slice::from_raw_parts(mbase_start.wrapping_add(cur_match as usize + 2), 256)
-            };
+        if len == 0 {
+            len = {
+                // SAFETY: cur_match is bounded by window_size - MIN_LOOKAHEAD, where MIN_LOOKAHEAD
+                // is 258 + 3 + 1, so 258-byte reads of mbase_start are in-bounds.
+                let src1 = unsafe {
+                    core::slice::from_raw_parts(mbase_start.wrapping_add(cur_match as usize + 2), 256)
+                };
 
-            crate::deflate::compare256::compare256_slice(&scan[2..], src1) + 2
-        };
+                crate::deflate::compare256::compare256_slice(&scan[2..], src1) + 2
+            };
+        }
 
         assert!(
             scan.as_ptr() as usize + len <= window.as_ptr() as usize + (state.window_size - 1),
