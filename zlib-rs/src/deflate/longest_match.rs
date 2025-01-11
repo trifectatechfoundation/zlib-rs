@@ -194,11 +194,11 @@ fn longest_match_help<const SLOW: bool>(
         unsafe {
             if best_len < core::mem::size_of::<u64>() {
                 let scan_val = u64::from_ne_bytes(
-                    std::slice::from_raw_parts(scan_start, 8).try_into().unwrap());
+                    core::slice::from_raw_parts(scan_start, 8).try_into().unwrap());
                 loop {
                     let bs = mbase_start.wrapping_add(cur_match as usize);
                     let match_val = u64::from_ne_bytes(
-                        std::slice::from_raw_parts(bs, 8).try_into().unwrap());
+                        core::slice::from_raw_parts(bs, 8).try_into().unwrap());
                     let cmp = scan_val ^ match_val;
                     if cmp == 0 {
                         // The first 8 bytes all matched. Additional scanning will be needed
