@@ -22,7 +22,7 @@ fuzz_target!(|data: String| {
 
     deflated.truncate(length as usize);
 
-    let mut output = [0u8; 1 << 10];
+    let mut output = vec![0u8; data.len()];
     let config = zlib_rs::inflate::InflateConfig { window_bits: 15 };
     let (output, error) = zlib_rs::inflate::uncompress_slice(&mut output, &deflated, config);
     assert_eq!(ReturnCode::Ok, error);
