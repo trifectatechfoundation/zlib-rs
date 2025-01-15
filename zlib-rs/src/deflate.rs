@@ -2962,34 +2962,37 @@ impl Heap {
     /// Index within the heap array of least frequent node in the Huffman tree
     const SMALLEST: usize = 1;
 
-    fn smaller(tree: &[Value], n: u32, m: u32, depth: &[u8]) -> bool {
-        let (n, m) = (n as usize, m as usize);
-
-        match Ord::cmp(&tree[n].freq(), &tree[m].freq()) {
-            core::cmp::Ordering::Less => true,
-            core::cmp::Ordering::Equal => depth[n] <= depth[m],
-            core::cmp::Ordering::Greater => false,
-        }
-    }
-
     fn pqdownheap(&mut self, tree: &[Value], mut k: usize) {
         /* tree: the tree to restore */
         /* k: node to move down */
 
+        // Given the index $i of a node in the tree, pack the node's frequency and depth
+        // into a single integer. The heap ordering logic uses a primary sort on frequency
+        // and a secondary sort on depth, so packing both into one integer makes it
+        // possible to sort with fewer comparison operations.
+        macro_rules! freq_and_depth {
+            ($i:expr) => {
+                (tree[$i as usize].freq() as u32) << 8 | self.depth[$i as usize] as u32
+            };
+        }
+
         let v = self.heap[k];
+        let v_val = freq_and_depth!(v);
         let mut j = k << 1; /* left son of k */
 
         while j <= self.heap_len {
             /* Set j to the smallest of the two sons: */
+            let mut j_val = freq_and_depth!(self.heap[j]);
             if j < self.heap_len {
-                let cond = Self::smaller(tree, self.heap[j + 1], self.heap[j], &self.depth);
-                if cond {
+                let j1_val = freq_and_depth!(self.heap[j + 1]);
+                if j1_val <= j_val {
                     j += 1;
+                    j_val = j1_val;
                 }
             }
 
             /* Exit if v is smaller than both sons */
-            if Self::smaller(tree, v, self.heap[j], &self.depth) {
+            if v_val <= j_val {
                 break;
             }
 
