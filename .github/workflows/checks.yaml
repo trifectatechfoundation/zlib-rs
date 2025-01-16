@@ -116,7 +116,6 @@ jobs:
             target: "i686-unknown-linux-gnu"
             gcc: "i686-linux-gnu-gcc"
     steps:
-      - uses: actions/checkout@v2
       - uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: qemu-user qemu-user-static qemu-system-s390x gcc-s390x-linux-gnu gcc-i686-linux-gnu g++-s390x-linux-gnu
