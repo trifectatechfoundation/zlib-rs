@@ -14,6 +14,7 @@ mod writer;
 
 use crate::allocate::Allocator;
 use crate::c_api::internal_state;
+use crate::cpu_features::CpuFeatures;
 use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
@@ -1869,15 +1870,15 @@ fn inflate_fast_help(state: &mut State, start: usize) {
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[target_feature(enable = "avx2")]
 unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
-    inflate_fast_help_impl(state, start);
+    inflate_fast_help_impl::<{ CpuFeatures::AVX2 }>(state, start);
 }
 
 fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
-    inflate_fast_help_impl(state, start);
+    inflate_fast_help_impl::<{ CpuFeatures::NONE }>(state, start);
 }
 
 #[inline(always)]
-fn inflate_fast_help_impl(state: &mut State, _start: usize) {
+fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usize) {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
 
@@ -2009,23 +2010,32 @@ fn inflate_fast_help_impl(state: &mut State, _start: usize) {
                                     // window, and part of it has wrapped around to the start. Copy
                                     // the end section here, the start section will be copied below.
                                     len -= op as u16;
-                                    writer.extend_from_window(&state.window, from..from + op);
+                                    writer.extend_from_window_with_features::<FEATURES>(
+                                        &state.window,
+                                        from..from + op,
+                                    );
                                     from = 0;
                                     op = window_next;
                                 }
                             }
 
                             let copy = Ord::min(op, len as usize);
-                            writer.extend_from_window(&state.window, from..from + copy);
+                            writer.extend_from_window_with_features::<FEATURES>(
+                                &state.window,
+                                from..from + copy,
+                            );
 
                             if op < len as usize {
                                 // here we need some bytes from the output itself
-                                writer.copy_match(dist as usize, len as usize - op);
+                                writer.copy_match_with_features::<FEATURES>(
+                                    dist as usize,
+                                    len as usize - op,
+                                );
                             }
                         } else if extra_safe {
                             todo!()
                         } else {
-                            writer.copy_match(dist as usize, len as usize)
+                            writer.copy_match_with_features::<FEATURES>(dist as usize, len as usize)
                         }
                     } else if (op & 64) == 0 {
                         // 2nd level distance code
