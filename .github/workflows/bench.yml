@@ -45,11 +45,18 @@ jobs:
           ref: "${{inputs.ref}}"
           fetch-depth: 0 # ensure the base commit to compare against is available
       - name: cargo build
+        env:
+          RUSTFLAGS: "-Cllvm-args=-enable-dfa-jump-thread"
         run: |
           . "$HOME/.cargo/env"
-          RUSTFLAGS="-Cllvm-args=-enable-dfa-jump-thread" cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
+          # switch the C implementation from zlib-ng to zlib-chromium
+          sed -i '/^libz-sys =/c\libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "4671e8e16bf277d06ff2397e3091db3515c6f934", default-features = false, features = ["zlib-ng"] }' Cargo.toml
+          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples
+          cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium
       - name: Benchmark
         uses: trifectatechfoundation/benchmarker-action@main
         with:
