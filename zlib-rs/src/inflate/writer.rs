@@ -77,10 +77,12 @@ impl<'a> Writer<'a> {
 
     #[inline(always)]
     pub fn extend_from_window(&mut self, window: &super::window::Window, range: Range<usize>) {
-        #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_avx512() {
-            return self.extend_from_window_help::<core::arch::x86_64::__m512i>(window, range);
-        }
+        // NOTE: the dynamic check for avx512 makes avx2 slower. Measure this carefully before re-enabling
+        //
+        //        #[cfg(target_arch = "x86_64")]
+        //        if crate::cpu_features::is_enabled_avx512() {
+        //            return self.extend_from_window_help::<core::arch::x86_64::__m512i>(window, range);
+        //        }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx2() {
@@ -138,10 +140,12 @@ impl<'a> Writer<'a> {
 
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
-        #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_avx512() {
-            return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
-        }
+        // NOTE: the dynamic check for avx512 makes avx2 slower. Measure this carefully before re-enabling
+        //
+        //        #[cfg(target_arch = "x86_64")]
+        //        if crate::cpu_features::is_enabled_avx512() {
+        //            return self.copy_match_help::<core::arch::x86_64::__m512i>(offset_from_end, length);
+        //        }
 
         #[cfg(target_arch = "x86_64")]
         if crate::cpu_features::is_enabled_avx2() {
