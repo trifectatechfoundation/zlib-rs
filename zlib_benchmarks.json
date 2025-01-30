@@ -69,6 +69,21 @@
             "./blogpost-uncompress ng-chunked 22 silesia-small.tar",
             "./blogpost-uncompress ng-chunked 23 silesia-small.tar",
             "./blogpost-uncompress ng-chunked 24 silesia-small.tar"
+        ],
+        "blogpost-uncompress-chromium": [
+            "./blogpost-uncompress-chromium ng-chunked 4 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 5 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 6 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 7 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 8 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 9 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 10 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 11 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 12 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 13 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 14 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 15 silesia-small.tar",
+            "./blogpost-uncompress-chromium ng-chunked 16 silesia-small.tar"
         ]
     },
     "render-versus-self": {
@@ -98,6 +113,21 @@
             "chunk size 14": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 10 }, "after": { "command": "blogpost-uncompress-rs", "index": 10 } },
             "chunk size 15": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 11 }, "after": { "command": "blogpost-uncompress-rs", "index": 11 } },
             "chunk size 16": { "measure": "cycles", "before": { "command": "blogpost-uncompress-ng", "index": 12 }, "after": { "command": "blogpost-uncompress-rs", "index": 12 } }
+        },
+        "decompression (chromium vs rs)": {
+            "chunk size 4": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 0 }, "after": { "command": "blogpost-uncompress-rs", "index": 0 } },
+            "chunk size 5": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 1 }, "after": { "command": "blogpost-uncompress-rs", "index": 1 } },
+            "chunk size 6": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 2 }, "after": { "command": "blogpost-uncompress-rs", "index": 2 } },
+            "chunk size 7": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 3 }, "after": { "command": "blogpost-uncompress-rs", "index": 3 } },
+            "chunk size 8": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 4 }, "after": { "command": "blogpost-uncompress-rs", "index": 4 } },
+            "chunk size 9": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 5 }, "after": { "command": "blogpost-uncompress-rs", "index": 5 } },
+            "chunk size 10": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 6 }, "after": { "command": "blogpost-uncompress-rs", "index": 6 } },
+            "chunk size 11": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 7 }, "after": { "command": "blogpost-uncompress-rs", "index": 7 } },
+            "chunk size 12": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 8 }, "after": { "command": "blogpost-uncompress-rs", "index": 8 } },
+            "chunk size 13": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 9 }, "after": { "command": "blogpost-uncompress-rs", "index": 9 } },
+            "chunk size 14": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 10 }, "after": { "command": "blogpost-uncompress-rs", "index": 10 } },
+            "chunk size 15": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 11 }, "after": { "command": "blogpost-uncompress-rs", "index": 11 } },
+            "chunk size 16": { "measure": "cycles", "before": { "command": "blogpost-uncompress-chromium", "index": 12 }, "after": { "command": "blogpost-uncompress-rs", "index": 12 } }
         }
     },
     "render-versus-other": {
