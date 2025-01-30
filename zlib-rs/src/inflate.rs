@@ -1856,7 +1856,28 @@ impl State<'_> {
     }
 }
 
-fn inflate_fast_help(state: &mut State, _start: usize) {
+fn inflate_fast_help(state: &mut State, start: usize) {
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    if crate::cpu_features::is_enabled_avx2() {
+        // SAFETY: we've verified the target features
+        return unsafe { inflate_fast_help_avx2(state, start) };
+    }
+
+    inflate_fast_help_vanilla(state, start);
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[target_feature(enable = "avx2")]
+unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
+    inflate_fast_help_impl(state, start);
+}
+
+fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
+    inflate_fast_help_impl(state, start);
+}
+
+#[inline(always)]
+fn inflate_fast_help_impl(state: &mut State, _start: usize) {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
 
