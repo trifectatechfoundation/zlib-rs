@@ -117,31 +117,32 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
 
     if used > 0 {
         let state = &mut stream.state;
+        let w_size = state.w_size;
         // If any input was used, then no unused input remains in the window, therefore s->block_start == s->strstart.
-        if used as usize >= state.w_size {
+        if used as usize >= w_size {
             /* supplant the previous history */
             state.matches = 2; /* clear hash */
 
             // SAFETY: we've advanced the next_in pointer at minimum w_size bytes
             // read_buf_direct_copy(), so we are able to backtrack that number of bytes.
-            let src = stream.next_in.wrapping_sub(state.w_size);
-            unsafe { state.window.copy_and_initialize(0..state.w_size, src) };
+            let src = stream.next_in.wrapping_sub(w_size);
+            unsafe { state.window.copy_and_initialize(0..w_size, src) };
 
-            state.strstart = state.w_size;
+            state.strstart = w_size;
             state.insert = state.strstart;
         } else {
             if state.window_size - state.strstart <= used as usize {
                 /* Slide the window down. */
-                state.strstart -= state.w_size;
+                state.strstart -= w_size;
 
                 // make sure we don't copy uninitialized bytes. While we discard the first lower w_size
                 // bytes, it is not guaranteed that the upper w_size bytes are all initialized
-                let copy = Ord::min(state.strstart, state.window.filled().len() - state.w_size);
+                let copy = Ord::min(state.strstart, state.window.filled().len() - w_size);
 
                 state
                     .window
                     .filled_mut()
-                    .copy_within(state.w_size..state.w_size + copy, 0);
+                    .copy_within(w_size.. w_size + copy, 0);
 
                 if state.matches < 2 {
                     state.matches += 1; /* add a pending slide_hash() */
@@ -156,7 +157,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
             unsafe { state.window.copy_and_initialize(dst, src) };
 
             state.strstart += used as usize;
-            state.insert += Ord::min(used as usize, state.w_size - state.insert);
+            state.insert += Ord::min(used as usize, w_size - state.insert);
         }
         state.block_start = state.strstart as isize;
     }
@@ -179,24 +180,25 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
     if stream.avail_in as usize > have && stream.state.block_start >= stream.state.w_size as isize {
         // slide the window down
         let state = &mut stream.state;
+        let w_size = state.w_size;
         state.block_start -= state.w_size as isize;
-        state.strstart -= state.w_size;
+        state.strstart -= w_size;
 
         // make sure we don't copy uninitialized bytes. While we discard the first lower w_size
         // bytes, it is not guaranteed that the upper w_size bytes are all initialized
-        let copy = Ord::min(state.strstart, state.window.filled().len() - state.w_size);
+        let copy = Ord::min(state.strstart, state.window.filled().len() - w_size);
 
         state
             .window
             .filled_mut()
-            .copy_within(state.w_size..state.w_size + copy, 0);
+            .copy_within(w_size..w_size + copy, 0);
 
         if state.matches < 2 {
             // add a pending slide_hash
             state.matches += 1;
         }
 
-        have += state.w_size; // more space now
+        have += w_size; // more space now
         state.insert = Ord::min(state.insert, state.strstart);
     }
 

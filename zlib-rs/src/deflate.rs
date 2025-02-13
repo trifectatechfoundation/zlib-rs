@@ -316,7 +316,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // window
         w_size,
-        w_mask: w_size - 1,
+        w_mask: w_size as u16 - 1,
 
         // allocated values
         window,
@@ -374,7 +374,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: 0,
+        _padding_0: [0; 6],
+        _padding_3: 0,
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -678,6 +679,7 @@ pub fn copy<'a>(
         _cache_line_2: (),
         _cache_line_3: (),
         _padding_0: source_state._padding_0,
+        _padding_3: source_state._padding_3,
     };
 
     // write the cloned state into state_ptr
@@ -1250,7 +1252,9 @@ pub(crate) struct State<'a> {
 
     pub(crate) window: Window<'a>,
     pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
-    pub(crate) w_mask: usize,    /* w_size - 1 */
+    pub(crate) w_mask: u16,      /* w_size - 1 */
+
+    _padding_0: [u8; 6],
 
     _cache_line_0: (),
 
@@ -1339,7 +1343,7 @@ pub(crate) struct State<'a> {
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
 
-    _padding_0: usize,
+    _padding_3: usize,
 
     _cache_line_3: (),
 

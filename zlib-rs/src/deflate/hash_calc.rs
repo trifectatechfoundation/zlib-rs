@@ -42,7 +42,7 @@ impl StandardHashCalc {
 
         let head = state.head.as_slice()[hm];
         if head != string as u16 {
-            state.prev.as_mut_slice()[string & state.w_mask] = head;
+            state.prev.as_mut_slice()[string & state.w_mask as usize] = head;
             state.head.as_mut_slice()[hm] = string as u16;
         }
 
@@ -65,7 +65,7 @@ impl StandardHashCalc {
 
             let head = state.head.as_slice()[hm];
             if head != idx {
-                state.prev.as_mut_slice()[idx as usize & state.w_mask] = head;
+                state.prev.as_mut_slice()[idx as usize & state.w_mask as usize] = head;
                 state.head.as_mut_slice()[hm] = idx;
             }
         }
@@ -98,7 +98,7 @@ impl RollHashCalc {
 
         let head = state.head.as_slice()[hm];
         if head != string as u16 {
-            state.prev.as_mut_slice()[string & state.w_mask] = head;
+            state.prev.as_mut_slice()[string & state.w_mask as usize] = head;
             state.head.as_mut_slice()[hm] = string as u16;
         }
 
@@ -117,7 +117,7 @@ impl RollHashCalc {
 
             let head = state.head.as_slice()[hm];
             if head != idx {
-                state.prev.as_mut_slice()[idx as usize & state.w_mask] = head;
+                state.prev.as_mut_slice()[idx as usize & state.w_mask as usize] = head;
                 state.head.as_mut_slice()[hm] = idx;
             }
         }

@@ -19,7 +19,7 @@ fn longest_match_help<const SLOW: bool>(
     let mut match_start = state.match_start;
 
     let strstart = state.strstart;
-    let wmask = state.w_mask;
+    let wmask = state.w_mask as usize;
     let window = state.window.filled();
     let scan = &window[strstart..];
     let mut limit: Pos;
