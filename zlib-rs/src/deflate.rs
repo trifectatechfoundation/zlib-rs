@@ -1284,8 +1284,9 @@ pub(crate) struct State<'a> {
     pub(crate) max_lazy_match: u16,
 
     /// number of string matches in current block
-    /// Note: this counter is just 8 bits to help keep the struct compact. Code that
-    /// increments it must be careful to avoid overflow.
+    /// NOTE: this is a saturating 8-bit counter, to help keep the struct compact. The code that
+    /// makes decisions based on this field only cares whether the count is greater than 2, so
+    /// an 8-bit counter is sufficient.
     pub(crate) matches: u8,
 
     /// Window position at the beginning of the current output block. Gets
