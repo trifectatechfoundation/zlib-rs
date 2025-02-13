@@ -374,6 +374,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
+        _padding_0: 0,
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -676,6 +677,7 @@ pub fn copy<'a>(
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
+        _padding_0: source_state._padding_0,
     };
 
     // write the cloned state into state_ptr
@@ -1281,6 +1283,11 @@ pub(crate) struct State<'a> {
     /// than this value. This mechanism is used only for compression levels >= 4.
     pub(crate) max_lazy_match: u16,
 
+    /// number of string matches in current block
+    /// Note: this counter is just 8 bits to help keep the struct compact. Code that
+    /// increments it must be careful to avoid overflow.
+    pub(crate) matches: u8,
+
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
@@ -1315,9 +1322,6 @@ pub(crate) struct State<'a> {
 
     _cache_line_2: (),
 
-    /// number of string matches in current block
-    pub(crate) matches: usize,
-
     /// bit length of current block with optimal trees
     opt_len: usize,
     /// bit length of current block with static trees
@@ -1333,6 +1337,8 @@ pub(crate) struct State<'a> {
 
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
+
+    _padding_0: usize,
 
     _cache_line_3: (),
 
@@ -1457,7 +1463,7 @@ impl<'a> State<'a> {
     pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
         self.sym_buf.push_dist(dist as u16, len as u8);
 
-        self.matches += 1;
+        self.matches = self.matches.saturating_add(1);
         dist -= 1;
 
         assert!(
