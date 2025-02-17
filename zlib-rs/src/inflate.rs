@@ -519,6 +519,26 @@ const INFLATE_FAST_MIN_HAVE: usize = 15;
 const INFLATE_FAST_MIN_LEFT: usize = 260;
 
 impl State<'_> {
+    fn len_and_friends(&mut self) -> ControlFlow<ReturnCode, ()> {
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+        if crate::cpu_features::is_enabled_avx2() {
+            // SAFETY: we've verified the target features
+            return unsafe { self.len_and_friends_avx2() };
+        }
+
+        self.len_and_friends_vanilla()
+    }
+
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[target_feature(enable = "avx2")]
+    unsafe fn len_and_friends_avx2(&mut self) -> ControlFlow<ReturnCode, ()> {
+        self.len_and_friends_impl::<{ CpuFeatures::AVX2 }>()
+    }
+
+    fn len_and_friends_vanilla(&mut self) -> ControlFlow<ReturnCode, ()> {
+        self.len_and_friends_impl::<{ CpuFeatures::NONE }>()
+    }
+
     // This logic is split into its own function for two reasons
     //
     // - We get to load state to the stack; doing this in all cases is expensive, but doing it just
@@ -528,7 +548,8 @@ impl State<'_> {
     //
     // It unfortunately does duplicate the code for some of the states; deduplicating it by having
     // more of the states call this function is slower.
-    fn len_and_friends(&mut self) -> ControlFlow<ReturnCode, ()> {
+    #[inline(always)]
+    fn len_and_friends_impl<const FEATURES: usize>(&mut self) -> ControlFlow<ReturnCode, ()> {
         let avail_in = self.bit_reader.bytes_remaining();
         let avail_out = self.writer.remaining();
 
