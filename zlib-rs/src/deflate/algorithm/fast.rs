@@ -17,9 +17,9 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         // at the end of the input file. We need STD_MAX_MATCH bytes
         // for the next match, plus WANT_MIN_MATCH bytes to insert the
         // string following the next match.
-        if stream.state.lookahead < MIN_LOOKAHEAD {
+        if stream.state.lookahead < MIN_LOOKAHEAD as u32 {
             fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD as u32 && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
             if stream.state.lookahead == 0 {
@@ -32,8 +32,8 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         // Insert the string window[strstart .. strstart+2] in the
         // dictionary, and set hash_head to the head of the hash chain:
 
-        if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = state.quick_insert_string(state.strstart);
+        if state.lookahead >= WANT_MIN_MATCH as u32 {
+            let hash_head = state.quick_insert_string(state.strstart as usize);
             dist = state.strstart as isize - hash_head as isize;
 
             /* Find the longest match, discarding those <= prev_length.
@@ -53,24 +53,24 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
 
             // bflush = zng_tr_tally_dist(s, s->strstart - s->match_start, match_len - STD_MIN_MATCH);
             bflush = state.tally_dist(
-                state.strstart - state.match_start as usize,
+                state.strstart as u16 - state.match_start,
                 match_len - STD_MIN_MATCH,
             );
 
-            state.lookahead -= match_len;
+            state.lookahead -= match_len as u32;
 
             /* Insert new strings in the hash table only if the match length
              * is not too large. This saves time but degrades compression.
              */
-            if match_len <= state.max_insert_length() && state.lookahead >= WANT_MIN_MATCH {
+            if match_len <= state.max_insert_length() && state.lookahead >= WANT_MIN_MATCH as u32 {
                 match_len -= 1; /* string at strstart already in table */
                 state.strstart += 1;
 
-                state.insert_string(state.strstart, match_len);
-                state.strstart += match_len;
+                state.insert_string(state.strstart as usize, match_len);
+                state.strstart += match_len as u32;
             } else {
-                state.strstart += match_len;
-                state.quick_insert_string(state.strstart + 2 - STD_MIN_MATCH);
+                state.strstart += match_len as u32;
+                state.quick_insert_string(state.strstart as usize + 2 - STD_MIN_MATCH);
 
                 /* If lookahead < STD_MIN_MATCH, ins_h is garbage, but it does not
                  * matter since it will be recomputed at next deflate call.
@@ -79,7 +79,7 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             match_len = 0;
         } else {
             /* No match, output a literal byte */
-            let lc = state.window.filled()[state.strstart];
+            let lc = state.window.filled()[state.strstart as usize];
             bflush = state.tally_lit(lc);
             state.lookahead -= 1;
             state.strstart += 1;
@@ -90,10 +90,10 @@ pub fn deflate_fast(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         }
     }
 
-    stream.state.insert = if stream.state.strstart < (STD_MIN_MATCH - 1) {
+    stream.state.insert = if stream.state.strstart < (STD_MIN_MATCH as u32 - 1) {
         stream.state.strstart
     } else {
-        STD_MIN_MATCH - 1
+        STD_MIN_MATCH as u32 - 1
     };
 
     if flush == DeflateFlush::Finish {

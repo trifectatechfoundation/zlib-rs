@@ -315,8 +315,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         status: Status::Init,
 
         // window
-        w_size,
-        w_mask: w_size as u16 - 1,
+        w_size: w_size as u32,
+        w_mask: (w_size - 1) as u16,
 
         // allocated values
         window,
@@ -325,7 +325,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         bit_writer: BitWriter::from_pending(pending),
 
         //
-        lit_bufsize,
+        lit_bufsize: lit_bufsize as u32,
 
         //
         sym_buf,
@@ -374,8 +374,8 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: [0; 6],
-        _padding_3: 0,
+        _padding_0: (),
+        _padding_3: [0; 40],
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -421,7 +421,7 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
         let state = &mut stream.state;
 
         if stream.avail_in != 0
-            || ((state.strstart as isize - state.block_start) + state.lookahead as isize) != 0
+            || ((state.strstart as i32 - state.block_start) + state.lookahead as i32) != 0
         {
             return ReturnCode::BufError;
         }
@@ -478,7 +478,7 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
         }
 
         // use the tail
-        dictionary = &dictionary[dictionary.len() - state.w_size..];
+        dictionary = &dictionary[dictionary.len() - state.w_size as usize..];
     }
 
     // insert dictionary into window and hash
@@ -488,12 +488,12 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     stream.next_in = dictionary.as_ptr() as *mut u8;
     fill_window(stream);
 
-    while stream.state.lookahead >= STD_MIN_MATCH {
+    while stream.state.lookahead >= STD_MIN_MATCH as u32 {
         let str = stream.state.strstart;
-        let n = stream.state.lookahead - (STD_MIN_MATCH - 1);
-        stream.state.insert_string(str, n);
+        let n = stream.state.lookahead - (STD_MIN_MATCH as u32 - 1);
+        stream.state.insert_string(str as usize, n as usize);
         stream.state.strstart = str + n;
-        stream.state.lookahead = STD_MIN_MATCH - 1;
+        stream.state.lookahead = STD_MIN_MATCH as u32 - 1;
         fill_window(stream);
     }
 
@@ -576,7 +576,7 @@ pub fn copy<'a>(
 
     let window = source_state.window.clone_in(alloc);
 
-    let prev = alloc.allocate_slice_raw::<u16>(source_state.w_size);
+    let prev = alloc.allocate_slice_raw::<u16>(source_state.w_size as usize);
     let head = alloc.allocate_raw::<[u16; HASH_SIZE]>();
 
     let pending = source_state.bit_writer.pending.clone_in(alloc);
@@ -604,7 +604,7 @@ pub fn copy<'a>(
                     alloc.deallocate(head.as_ptr(), HASH_SIZE)
                 }
                 if let Some(prev) = prev {
-                    alloc.deallocate(prev.as_ptr(), source_state.w_size)
+                    alloc.deallocate(prev.as_ptr(), source_state.w_size as usize)
                 }
                 if let Some(mut window) = window {
                     window.drop_in(alloc);
@@ -932,7 +932,7 @@ const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
 #[inline]
 const fn encode_dist(dtree: &[Value], mut dist: u16) -> (u64, usize) {
     dist -= 1; /* dist is now the match distance - 1 */
-    let code = State::d_code(dist as usize) as usize;
+    let code = State::d_code(dist) as usize;
     assert!(code < D_CODES, "bad d_code");
     // send_code_trace(s, code);
 
@@ -1240,6 +1240,32 @@ pub(crate) struct State<'a> {
 
     pub(crate) match_available: bool, /* set if previous match exists */
 
+
+    pub(crate) window: Window<'a>,
+
+    pub(crate) strstart: u32,         /* start of string to insert */
+
+    pub(crate) w_mask: u16,      /* w_size - 1 */
+
+    /// prev[N], where N is an offset in the current window, contains the offset in the window
+    /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
+    /// starting at N. Together with head, prev forms a chained hash table that can be used
+    /// to find earlier strings in the window that are potential matches for new input being
+    /// deflated.
+    pub(crate) prev: WeakSliceMut<'a, u16>,
+
+    /// head[H] contains the offset of the last 4-character sequence seen so far in
+    /// the current window that hashes to H (as calculated using the hash_calc_variant).
+    pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
+
+    _padding_0: (),
+
+    _cache_line_0: (),
+
+    pub(crate) lookahead: u32, /* number of valid bytes ahead in window */
+
+    pub(crate) w_size: u32,      /* LZ77 window size (32K by default) */
+
     /// Use a faster search when the previous match is longer than this
     pub(crate) good_match: u16,
 
@@ -1248,25 +1274,6 @@ pub(crate) struct State<'a> {
 
     pub(crate) match_start: Pos,      /* start of matching string */
     pub(crate) prev_match: Pos,       /* previous match */
-    pub(crate) strstart: usize,       /* start of string to insert */
-
-    pub(crate) window: Window<'a>,
-    pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
-    pub(crate) w_mask: u16,      /* w_size - 1 */
-
-    _padding_0: [u8; 6],
-
-    _cache_line_0: (),
-
-    /// prev[N], where N is an offset in the current window, contains the offset in the window
-    /// of the previous 4-byte sequence that hashes to the same value as the 4-byte sequence
-    /// starting at N. Together with head, prev forms a chained hash table that can be used
-    /// to find earlier strings in the window that are potential matches for new input being
-    /// deflated.
-    pub(crate) prev: WeakSliceMut<'a, u16>,
-    /// head[H] contains the offset of the last 4-character sequence seen so far in
-    /// the current window that hashes to H (as calculated using the hash_calc_variant).
-    pub(crate) head: WeakArrayMut<'a, u16, HASH_SIZE>,
 
     /// Length of the best match at previous step. Matches not greater than this
     /// are discarded. This is used in the lazy match evaluation.
@@ -1295,9 +1302,15 @@ pub(crate) struct State<'a> {
 
     /// Window position at the beginning of the current output block. Gets
     /// negative when the window is moved backwards.
-    pub(crate) block_start: isize,
+    pub(crate) block_start: i32,
 
     pub(crate) sym_buf: ReadBuf<'a>,
+
+    /// Actual size of window: 2*w_size, except when the user input buffer is directly used as sliding window.
+    pub(crate) window_size: u32,
+
+    /// bytes at end of window left to insert
+    pub(crate) insert: u32,
 
     _cache_line_1: (),
 
@@ -1318,32 +1331,25 @@ pub(crate) struct State<'a> {
     ///     fast adaptation but have of course the overhead of transmitting
     ///     trees more frequently.
     ///   - I can't count above 4
-    lit_bufsize: usize,
-
-    /// Actual size of window: 2*w_size, except when the user input buffer is directly used as sliding window.
-    pub(crate) window_size: usize,
-
-    bit_writer: BitWriter<'a>,
-
-    _cache_line_2: (),
-
-    /// bit length of current block with optimal trees
-    opt_len: usize,
-    /// bit length of current block with static trees
-    static_len: usize,
-
-    /// bytes at end of window left to insert
-    pub(crate) insert: usize,
-
-    pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
+    lit_bufsize: u32,
 
     ///  hash index of string to be inserted
     pub(crate) ins_h: u32,
 
+    bit_writer: BitWriter<'a>,
+
+    /// bit length of current block with optimal trees
+    opt_len: usize,
+
+    _cache_line_2: (),
+
+    /// bit length of current block with static trees
+    static_len: usize,
+
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
 
-    _padding_3: usize,
+    _padding_3: [u8; 40],
 
     _cache_line_3: (),
 
@@ -1395,8 +1401,8 @@ impl<'a> State<'a> {
         self.w_size.trailing_zeros()
     }
 
-    pub(crate) fn max_dist(&self) -> usize {
-        self.w_size - MIN_LOOKAHEAD
+    pub(crate) fn max_dist(&self) -> u16 {
+        (self.w_size - MIN_LOOKAHEAD as u32) as u16
     }
 
     // TODO untangle this mess! zlib uses the same field differently based on compression level
@@ -1408,7 +1414,7 @@ impl<'a> State<'a> {
     /// Total size of the pending buf. But because `pending` shares memory with `sym_buf`, this is
     /// not the number of bytes that are actually in `pending`!
     pub(crate) fn pending_buf_size(&self) -> usize {
-        self.lit_bufsize * 4
+        self.lit_bufsize as usize * 4
     }
 
     #[inline(always)]
@@ -1459,14 +1465,14 @@ impl<'a> State<'a> {
         sym_buf.len() == sym_buf.capacity() - 3
     }
 
-    const fn d_code(dist: usize) -> u8 {
+    const fn d_code(dist: u16) -> u8 {
         let index = if dist < 256 { dist } else { 256 + (dist >> 7) };
-        self::trees_tbl::DIST_CODE[index]
+        self::trees_tbl::DIST_CODE[index as usize]
     }
 
     #[inline(always)]
-    pub(crate) fn tally_dist(&mut self, mut dist: usize, len: usize) -> bool {
-        self.sym_buf.push_dist(dist as u16, len as u8);
+    pub(crate) fn tally_dist(&mut self, mut dist: u16, len: usize) -> bool {
+        self.sym_buf.push_dist(dist, len as u8);
 
         self.matches = self.matches.saturating_add(1);
         dist -= 1;
@@ -1739,7 +1745,7 @@ pub(crate) const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 
 #[inline]
 pub(crate) fn fill_window(stream: &mut DeflateStream) {
-    debug_assert!(stream.state.lookahead < MIN_LOOKAHEAD);
+    debug_assert!(stream.state.lookahead < MIN_LOOKAHEAD as u32);
 
     let wsize = stream.state.w_size;
 
@@ -1749,9 +1755,9 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
 
         // If the window is almost full and there is insufficient lookahead,
         // move the upper half to the lower one to make room in the upper half.
-        if state.strstart >= wsize + state.max_dist() {
+        if state.strstart >= wsize + state.max_dist() as u32 {
             // shift the window to the left
-            let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
+            let (old, new) = state.window.filled_mut()[..2 * wsize as usize].split_at_mut(wsize as usize);
             old.copy_from_slice(new);
 
             state.match_start = state.match_start.saturating_sub(wsize as u16);
@@ -1760,7 +1766,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             }
 
             state.strstart -= wsize; /* we now have strstart >= MAX_DIST */
-            state.block_start -= wsize as isize;
+            state.block_start -= wsize as i32;
             state.insert = Ord::min(state.insert, state.strstart);
 
             self::slide_hash::slide_hash(state);
@@ -1784,14 +1790,14 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If there was sliding, more >= WSIZE. So in all cases, more >= 2.
         assert!(more >= 2, "more < 2");
 
-        let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
+        let n = read_buf_window(stream, stream.state.strstart as usize + stream.state.lookahead as usize, more as usize);
 
         let state = &mut *stream.state;
-        state.lookahead += n;
+        state.lookahead += n as u32;
 
         // Initialize the hash value now that we have some input:
-        if state.lookahead + state.insert >= STD_MIN_MATCH {
-            let string = state.strstart - state.insert;
+        if state.lookahead + state.insert >= STD_MIN_MATCH as u32 {
+            let string = (state.strstart - state.insert) as usize;
             if state.max_chain_length > 1024 {
                 let v0 = state.window.filled()[string] as u32;
                 let v1 = state.window.filled()[string + 1] as u32;
@@ -1804,7 +1810,7 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
                 count -= 1;
             }
             if count > 0 {
-                state.insert_string(string, count);
+                state.insert_string(string, count as usize);
                 state.insert -= count;
             }
         }
@@ -1812,13 +1818,13 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If the whole input has less than STD_MIN_MATCH bytes, ins_h is garbage,
         // but this is not important since only literal bytes will be emitted.
 
-        if !(stream.state.lookahead < MIN_LOOKAHEAD && stream.avail_in != 0) {
+        if !(stream.state.lookahead < MIN_LOOKAHEAD as u32 && stream.avail_in != 0) {
             break;
         }
     }
 
     assert!(
-        stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD,
+        stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD as u32,
         "not enough room for search"
     );
 }
@@ -2399,11 +2405,11 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     zng_tr_flush_block(
         stream,
         (stream.state.block_start >= 0).then_some(stream.state.block_start as usize),
-        (stream.state.strstart as isize - stream.state.block_start) as u32,
+        (stream.state.strstart as i32 - stream.state.block_start) as u32,
         is_last,
     );
 
-    stream.state.block_start = stream.state.strstart as isize;
+    stream.state.block_start = stream.state.strstart as i32;
     flush_pending(stream)
 }
 

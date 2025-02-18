@@ -26,9 +26,9 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
          * for the next match, plus WANT_MIN_MATCH bytes to insert the
          * string following the next match.
          */
-        if stream.state.lookahead < MIN_LOOKAHEAD {
+        if stream.state.lookahead < MIN_LOOKAHEAD as u32 {
             fill_window(stream);
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD as u32 && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
 
@@ -42,8 +42,8 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         /* Insert the string window[strstart .. strstart+2] in the
          * dictionary, and set hash_head to the head of the hash chain:
          */
-        hash_head = if state.lookahead >= WANT_MIN_MATCH {
-            state.quick_insert_string(state.strstart)
+        hash_head = if state.lookahead >= WANT_MIN_MATCH as u32 {
+            state.quick_insert_string(state.strstart as usize)
         } else {
             0
         };
@@ -77,13 +77,13 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
         // If there was a match at the previous step and the current
         // match is not better, output the previous match:
         if state.prev_length as usize >= STD_MIN_MATCH && match_len <= state.prev_length as usize {
-            let max_insert = state.strstart + state.lookahead - STD_MIN_MATCH;
+            let max_insert = state.strstart as usize + state.lookahead as usize - STD_MIN_MATCH;
             /* Do not insert strings in hash table beyond this. */
 
             // check_match(s, state.strstart-1, state.prev_match, state.prev_length);
 
             bflush = state.tally_dist(
-                state.strstart - 1 - state.prev_match as usize,
+                state.strstart as u16 - 1 - state.prev_match,
                 state.prev_length as usize - STD_MIN_MATCH,
             );
 
@@ -93,17 +93,17 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
              * the hash table.
              */
             state.prev_length -= 1;
-            state.lookahead -= state.prev_length as usize;
+            state.lookahead -= state.prev_length as u32;
 
             let mov_fwd = state.prev_length as usize - 1;
-            if max_insert > state.strstart {
-                let insert_cnt = Ord::min(mov_fwd, max_insert - state.strstart);
-                state.insert_string(state.strstart + 1, insert_cnt);
+            if max_insert > state.strstart as usize {
+                let insert_cnt = Ord::min(mov_fwd, max_insert - state.strstart as usize);
+                state.insert_string(state.strstart as usize + 1, insert_cnt);
             }
             state.prev_length = 0;
             state.match_available = false;
             match_available = false;
-            state.strstart += mov_fwd + 1;
+            state.strstart += mov_fwd as u32 + 1;
 
             if bflush {
                 flush_block!(stream, false);
@@ -112,7 +112,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
             // If there was no match at the previous position, output a
             // single literal. If there was a match but the current match
             // is longer, truncate the previous match to a single literal.
-            let lc = state.window.filled()[state.strstart - 1];
+            let lc = state.window.filled()[state.strstart as usize - 1];
             bflush = state.tally_lit(lc);
             if bflush {
                 flush_block_only(stream, false);
@@ -140,12 +140,12 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
     let state = &mut stream.state;
 
     if state.match_available {
-        let lc = state.window.filled()[state.strstart - 1];
+        let lc = state.window.filled()[state.strstart as usize - 1];
         let _ = state.tally_lit(lc);
         state.match_available = false;
     }
 
-    state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
+    state.insert = Ord::min(state.strstart, STD_MIN_MATCH as u32 - 1);
 
     if flush == DeflateFlush::Finish {
         flush_block!(stream, true);

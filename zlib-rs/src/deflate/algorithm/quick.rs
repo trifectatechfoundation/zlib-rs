@@ -18,7 +18,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                     .bit_writer
                     .emit_end_block_and_align(&StaticTreeDesc::L.static_tree, $last);
                 state.block_open = 0;
-                state.block_start = state.strstart as isize;
+                state.block_start = state.strstart as i32;
                 flush_pending(stream);
                 #[allow(unused_assignments)]
                 {
@@ -38,7 +38,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         ($last:expr) => {
             state.bit_writer.emit_tree(BlockType::StaticTrees, $last);
             state.block_open = 1 + $last as u8;
-            state.block_start = state.strstart as isize;
+            state.block_start = state.strstart as i32;
         };
     }
 
@@ -74,11 +74,11 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             }
         }
 
-        if state.lookahead < MIN_LOOKAHEAD {
+        if state.lookahead < MIN_LOOKAHEAD as u32 {
             fill_window(stream);
             state = &mut stream.state;
 
-            if state.lookahead < MIN_LOOKAHEAD && matches!(flush, DeflateFlush::NoFlush) {
+            if state.lookahead < MIN_LOOKAHEAD as u32 && matches!(flush, DeflateFlush::NoFlush) {
                 return BlockState::NeedMore;
             }
             if state.lookahead == 0 {
@@ -92,12 +92,12 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             }
         }
 
-        if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = state.quick_insert_string(state.strstart);
+        if state.lookahead >= WANT_MIN_MATCH as u32 {
+            let hash_head = state.quick_insert_string(state.strstart as usize);
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
-                let str_start = &state.window.filled()[state.strstart..];
+                let str_start = &state.window.filled()[state.strstart as usize..];
                 let match_start = &state.window.filled()[hash_head as usize..];
 
                 macro_rules! first_two_bytes {
@@ -113,7 +113,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                     ) + 2;
 
                     if match_len >= WANT_MIN_MATCH {
-                        match_len = Ord::min(match_len, state.lookahead);
+                        match_len = Ord::min(match_len, state.lookahead as usize);
                         match_len = Ord::min(match_len, STD_MAX_MATCH);
 
                         // TODO do this with a debug_assert?
@@ -126,21 +126,21 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                         state
                             .bit_writer
                             .emit_dist_static((match_len - STD_MIN_MATCH) as u8, dist);
-                        state.lookahead -= match_len;
-                        state.strstart += match_len;
+                        state.lookahead -= match_len as u32;
+                        state.strstart += match_len as u32;
                         continue;
                     }
                 }
             }
         }
 
-        let lc = state.window.filled()[state.strstart];
+        let lc = state.window.filled()[state.strstart as usize];
         state.bit_writer.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;
     }
 
-    state.insert = Ord::min(state.strstart, STD_MIN_MATCH - 1);
+    state.insert = Ord::min(state.strstart, STD_MIN_MATCH as u32 - 1);
 
     quick_end_block!(last);
 

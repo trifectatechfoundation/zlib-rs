@@ -18,7 +18,7 @@ fn longest_match_help<const SLOW: bool>(
 ) -> (usize, u16) {
     let mut match_start = state.match_start;
 
-    let strstart = state.strstart;
+    let strstart = state.strstart as usize;
     let wmask = state.w_mask as usize;
     let window = state.window.filled();
     let scan = &window[strstart..];
@@ -78,7 +78,7 @@ fn longest_match_help<const SLOW: bool>(
 
     // Stop when cur_match becomes <= limit. To simplify the code,
     // we prevent matches with the string of window index 0
-    limit = strstart.saturating_sub(state.max_dist()) as Pos;
+    limit = strstart.saturating_sub(state.max_dist() as usize) as Pos;
 
     // look for a better string offset
     if SLOW {
@@ -131,7 +131,7 @@ fn longest_match_help<const SLOW: bool>(
     let mut scan_end = window[strstart + offset..].as_ptr();
 
     assert!(
-        strstart <= state.window_size.saturating_sub(MIN_LOOKAHEAD),
+        strstart <= (state.window_size as usize).saturating_sub(MIN_LOOKAHEAD),
         "need lookahead"
     );
 
@@ -241,7 +241,7 @@ fn longest_match_help<const SLOW: bool>(
         }
 
         assert!(
-            scan.as_ptr() as usize + len <= window.as_ptr() as usize + (state.window_size - 1),
+            scan.as_ptr() as usize + len <= window.as_ptr() as usize + (state.window_size as usize - 1),
             "wild scan"
         );
 
@@ -249,8 +249,8 @@ fn longest_match_help<const SLOW: bool>(
             match_start = cur_match - match_offset;
 
             /* Do not look for matches beyond the end of the input. */
-            if len > lookahead {
-                return (lookahead, match_start);
+            if len > lookahead as usize {
+                return (lookahead as usize, match_start);
             }
             best_len = len;
             if best_len >= nice_match as usize {
@@ -336,5 +336,5 @@ fn longest_match_help<const SLOW: bool>(
 }
 
 fn break_matching(state: &State, best_len: usize, match_start: u16) -> (usize, u16) {
-    (Ord::min(best_len, state.lookahead), match_start)
+    (Ord::min(best_len, state.lookahead as usize), match_start)
 }

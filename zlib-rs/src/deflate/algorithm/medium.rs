@@ -34,10 +34,10 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
          * for the next match, plus WANT_MIN_MATCH bytes to insert the
          * string following the next match.
          */
-        if stream.state.lookahead < MIN_LOOKAHEAD {
+        if stream.state.lookahead < MIN_LOOKAHEAD as u32 {
             fill_window(stream);
 
-            if stream.state.lookahead < MIN_LOOKAHEAD && flush == DeflateFlush::NoFlush {
+            if stream.state.lookahead < MIN_LOOKAHEAD as u32 && flush == DeflateFlush::NoFlush {
                 return BlockState::NeedMore;
             }
 
@@ -59,8 +59,8 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
             next_match.match_length = 0;
         } else {
             hash_head = 0;
-            if state.lookahead >= WANT_MIN_MATCH {
-                hash_head = state.quick_insert_string(state.strstart);
+            if state.lookahead >= WANT_MIN_MATCH as u32 {
+                hash_head = state.quick_insert_string(state.strstart as usize);
             }
 
             current_match.strstart = state.strstart as u16;
@@ -99,12 +99,12 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
 
         /* now, look ahead one */
         if !early_exit
-            && state.lookahead > MIN_LOOKAHEAD
-            && ((current_match.strstart + current_match.match_length) as usize)
-                < (state.window_size - MIN_LOOKAHEAD)
+            && state.lookahead > MIN_LOOKAHEAD as u32
+            && ((current_match.strstart + current_match.match_length) as u32)
+                < (state.window_size - MIN_LOOKAHEAD as u32)
         {
-            state.strstart = (current_match.strstart + current_match.match_length) as usize;
-            hash_head = state.quick_insert_string(state.strstart);
+            state.strstart = (current_match.strstart + current_match.match_length) as u32;
+            hash_head = state.quick_insert_string(state.strstart as usize);
 
             next_match.strstart = state.strstart as u16;
             next_match.orgstart = next_match.strstart;
@@ -145,7 +145,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 next_match.match_length = 1;
             }
 
-            state.strstart = current_match.strstart as usize;
+            state.strstart = current_match.strstart as u32;
         } else {
             next_match.match_length = 0;
         }
@@ -154,14 +154,14 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         let bflush = emit_match(state, current_match);
 
         /* move the "cursor" forward */
-        state.strstart += current_match.match_length as usize;
+        state.strstart += current_match.match_length as u32;
 
         if bflush {
             flush_block!(stream, false);
         }
     }
 
-    stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH - 1);
+    stream.state.insert = Ord::min(stream.state.strstart, STD_MIN_MATCH as u32 - 1);
 
     if flush == DeflateFlush::Finish {
         flush_block!(stream, true);
@@ -189,7 +189,7 @@ fn emit_match(state: &mut State, m: Match) -> bool {
 
     /* matches that are not long enough we need to emit as literals */
     if (m.match_length as usize) < WANT_MIN_MATCH {
-        for lc in &state.window.filled()[state.strstart..][..m.match_length as usize] {
+        for lc in &state.window.filled()[state.strstart as usize..][..m.match_length as usize] {
             bflush |= State::tally_lit_help(&mut state.sym_buf, &mut state.l_desc, *lc);
             state.lookahead -= 1;
         }
@@ -197,11 +197,11 @@ fn emit_match(state: &mut State, m: Match) -> bool {
         // check_match(s, m.strstart, m.match_start, m.match_length);
 
         bflush |= state.tally_dist(
-            (m.strstart - m.match_start) as usize,
+            m.strstart - m.match_start,
             m.match_length as usize - STD_MIN_MATCH,
         );
 
-        state.lookahead -= m.match_length as usize;
+        state.lookahead -= m.match_length as u32;
     }
 
     bflush
@@ -209,7 +209,7 @@ fn emit_match(state: &mut State, m: Match) -> bool {
 
 #[inline(always)]
 fn insert_match(state: &mut State, mut m: Match) {
-    if state.lookahead <= (m.match_length as usize + WANT_MIN_MATCH) {
+    if state.lookahead <= (m.match_length as u32 + WANT_MIN_MATCH as u32) {
         return;
     }
 
@@ -230,7 +230,7 @@ fn insert_match(state: &mut State, mut m: Match) {
     }
 
     // Insert new strings in the hash table
-    if state.lookahead >= WANT_MIN_MATCH {
+    if state.lookahead >= WANT_MIN_MATCH as u32 {
         m.match_length -= 1; /* string at strstart already in table */
         m.strstart += 1;
 
@@ -262,7 +262,7 @@ fn insert_match(state: &mut State, mut m: Match) {
     }
 }
 
-fn fizzle_matches(window: &[u8], max_dist: usize, current: &mut Match, next: &mut Match) {
+fn fizzle_matches(window: &[u8], max_dist: u16, current: &mut Match, next: &mut Match) {
     /* step zero: sanity checks */
 
     if current.match_length <= 1 {
@@ -286,7 +286,7 @@ fn fizzle_matches(window: &[u8], max_dist: usize, current: &mut Match, next: &mu
     }
 
     /* step one: try to move the "next" match to the left as much as possible */
-    let limit = next.strstart.saturating_sub(max_dist as u16);
+    let limit = next.strstart.saturating_sub(max_dist);
 
     let mut c = *current;
     let mut n = *next;
