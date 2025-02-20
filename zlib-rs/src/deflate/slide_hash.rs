@@ -1,6 +1,9 @@
 pub fn slide_hash(state: &mut crate::deflate::State) {
     let wsize = state.w_size as u16;
 
+    // The state.head and state.prev slices have a length that is a power of 2 between 8 and 16.
+    // That knowledge means `chunks_exact` with a (small) power of 2 can be used without risk of
+    // missing elements.
     slide_hash_chain(state.head.as_mut_slice(), wsize);
     slide_hash_chain(state.prev.as_mut_slice(), wsize);
 }
@@ -26,8 +29,10 @@ fn slide_hash_chain(table: &mut [u16], wsize: u16) {
 
 mod rust {
     pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-        for m in table.iter_mut() {
-            *m = m.saturating_sub(wsize);
+        for chunk in table.chunks_exact_mut(32) {
+            for m in chunk.iter_mut() {
+                *m = m.saturating_sub(wsize);
+            }
         }
     }
 }
