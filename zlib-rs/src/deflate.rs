@@ -1065,7 +1065,7 @@ impl<'a> BitWriter<'a> {
     }
 
     pub(crate) fn emit_tree(&mut self, block_type: BlockType, is_last_block: bool) {
-        let header_bits = (block_type as u64) << 1 | (is_last_block as u64);
+        let header_bits = ((block_type as u64) << 1) | (is_last_block as u64);
         self.send_bits(header_bits, 3);
         trace!("\n--- Emit Tree: Last: {}\n", is_last_block as u8);
     }
@@ -1244,13 +1244,13 @@ pub(crate) struct State<'a> {
     /// Stop searching when current match exceeds this
     pub(crate) nice_match: u16,
 
-    pub(crate) match_start: Pos,      /* start of matching string */
-    pub(crate) prev_match: Pos,       /* previous match */
-    pub(crate) strstart: usize,       /* start of string to insert */
+    pub(crate) match_start: Pos, /* start of matching string */
+    pub(crate) prev_match: Pos,  /* previous match */
+    pub(crate) strstart: usize,  /* start of string to insert */
 
     pub(crate) window: Window<'a>,
-    pub(crate) w_size: usize,    /* LZ77 window size (32K by default) */
-    pub(crate) w_mask: usize,    /* w_size - 1 */
+    pub(crate) w_size: usize, /* LZ77 window size (32K by default) */
+    pub(crate) w_mask: usize, /* w_size - 1 */
 
     _cache_line_0: (),
 
@@ -1546,8 +1546,9 @@ impl<'a> State<'a> {
             _ => PRESET_DICT,
         };
 
-        let h =
-            (Z_DEFLATED + ((self.w_bits() as u16 - 8) << 4)) << 8 | (self.level_flags() << 6) | dict;
+        let h = ((Z_DEFLATED + ((self.w_bits() as u16 - 8) << 4)) << 8)
+            | (self.level_flags() << 6)
+            | dict;
 
         h + 31 - (h % 31)
     }
