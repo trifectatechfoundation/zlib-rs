@@ -408,6 +408,9 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
 
     let state = &mut stream.state;
 
+    // FIXME: use fn_addr_eq when it's available in our MSRV. The comparison returning false here
+    // is not functionally incorrect, but would be inconsistent with zlib-ng.
+    #[allow(unpredictable_function_pointer_comparisons)]
     if (strategy != state.strategy || func != CONFIGURATION_TABLE[level as usize].func)
         && state.last_flush != -2
     {
