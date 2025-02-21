@@ -1,3 +1,5 @@
+#![allow(unpredictable_function_pointer_comparisons)]
+
 #[cfg(unix)]
 use core::ffi::c_int;
 use core::{

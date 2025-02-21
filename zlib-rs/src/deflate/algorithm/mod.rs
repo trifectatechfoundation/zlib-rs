@@ -66,7 +66,7 @@ impl Config {
     }
 }
 
-pub const CONFIGURATION_TABLE: [Config; 10] = {
+pub static CONFIGURATION_TABLE: [Config; 10] = {
     [
         Config::new(0, 0, 0, 0, stored::deflate_stored), // 0 /* store only */
         Config::new(0, 0, 0, 0, quick::deflate_quick),   // 1
