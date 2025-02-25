@@ -309,22 +309,31 @@ fn slice_to_uninit(slice: &[u8]) -> &[MaybeUninit<u8>] {
     unsafe { &*(slice as *const [u8] as *const [MaybeUninit<u8>]) }
 }
 
-trait Chunk {
+trait Chunk: Sized {
     /// # Safety
     ///
     /// Must be valid to read a `Self::Chunk` value from `from` with an unaligned read.
     ///
     /// Implementations may have CPU feature specific requirements depending on the type.
-    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self;
+    #[inline(always)]
+    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
+        core::ptr::read_unaligned(from.cast::<Self>())
+    }
 
     /// # Safety
     ///
     /// Must be valid to write a `Self::Chunk` value to `out` with an unaligned write.
     ///
     /// Implementations may have CPU feature specific requirements depending on the type.
-    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self);
+    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
+        core::ptr::write_unaligned(out.cast(), chunk)
+    }
 }
 
+#[cfg(target_endian = "little")]
+impl Chunk for u64 {}
+
+#[cfg(target_endian = "big")]
 impl Chunk for u64 {
     unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
         u64::to_le(core::ptr::read_unaligned(from.cast()))
@@ -340,51 +349,13 @@ impl Chunk for u64 {
 }
 
 #[cfg(target_arch = "x86_64")]
-impl Chunk for core::arch::x86_64::__m128i {
-    #[inline(always)]
-    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
-        core::arch::x86_64::_mm_loadu_si128(from.cast())
-    }
-
-    #[inline(always)]
-    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
-        core::arch::x86_64::_mm_storeu_si128(out as *mut Self, chunk);
-    }
-}
+impl Chunk for core::arch::x86_64::__m128i {}
 
 #[cfg(target_arch = "x86_64")]
-impl Chunk for core::arch::x86_64::__m256i {
-    #[inline(always)]
-    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
-        core::arch::x86_64::_mm256_loadu_si256(from.cast())
-    }
-
-    #[inline(always)]
-    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
-        core::arch::x86_64::_mm256_storeu_si256(out as *mut Self, chunk);
-    }
-}
+impl Chunk for core::arch::x86_64::__m256i {}
 
 #[cfg(target_arch = "x86_64")]
-impl Chunk for core::arch::x86_64::__m512i {
-    #[inline(always)]
-    unsafe fn load_chunk(from: *const MaybeUninit<u8>) -> Self {
-        // TODO AVX-512 is effectively unstable.
-        // We cross our fingers that LLVM optimizes this into a vmovdqu32
-        //
-        // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_loadu_si512&expand=3420&ig_expand=4110
-        core::ptr::read_unaligned(from.cast())
-    }
-
-    #[inline(always)]
-    unsafe fn store_chunk(out: *mut MaybeUninit<u8>, chunk: Self) {
-        // TODO AVX-512 is effectively unstable.
-        // We cross our fingers that LLVM optimizes this into a vmovdqu32
-        //
-        // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_storeu_si512&expand=3420&ig_expand=4110,6550
-        core::ptr::write_unaligned(out.cast(), chunk)
-    }
-}
+impl Chunk for core::arch::x86_64::__m512i {}
 
 #[cfg(target_arch = "aarch64")]
 impl Chunk for core::arch::aarch64::uint8x16_t {
