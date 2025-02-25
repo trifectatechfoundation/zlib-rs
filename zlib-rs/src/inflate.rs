@@ -844,6 +844,7 @@ impl State<'_> {
     }
 
     fn dispatch(&mut self) -> ReturnCode {
+        // Note: All early returns must save mode into self.mode again.
         let mut mode = self.mode;
 
         macro_rules! pull_byte {
