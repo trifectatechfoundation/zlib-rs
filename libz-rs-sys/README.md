@@ -97,7 +97,7 @@ The zlib library supports compression levels 0 up to and including 9. The level 
 - level 6: default (a good tradeoff between speed and compression ratio)
 - level 9: best compression
 
-Beyond this intuition, the exact behavior of the compression levels is not specified. The implementation of `zlib-rs` follows the implementation of [`zlig-ng`](https://github.com/zlib-ng/zlib-ng), and deviates from the one in stock zlib.
+Beyond this intuition, the exact behavior of the compression levels is not specified. The implementation of `zlib-rs` follows the implementation of [`zlib-ng`](https://github.com/zlib-ng/zlib-ng), and deviates from the one in stock zlib.
 
 In particular, our compression level 1 is extremely fast, but also just does not compress that well. On the `silesia-small.tar` input file, we see these output sizes:
 
