@@ -181,21 +181,25 @@ mod avx2 {
     /// Behavior is undefined if the `avx` target feature is not enabled
     #[target_feature(enable = "avx2")]
     pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src0) };
-        let src1: &[[u8; 32]; 8] = unsafe { core::mem::transmute(src1) };
+        let src0 = src0.chunks_exact(32);
+        let src1 = src1.chunks_exact(32);
 
         let mut len = 0;
 
         unsafe {
-            for (chunk0, chunk1) in src0.iter().zip(src1) {
+            for (chunk0, chunk1) in src0.zip(src1) {
                 let ymm_src0 = _mm256_loadu_si256(chunk0.as_ptr() as *const __m256i);
                 let ymm_src1 = _mm256_loadu_si256(chunk1.as_ptr() as *const __m256i);
 
-                let ymm_cmp = _mm256_cmpeq_epi8(ymm_src0, ymm_src1); /* non-identical bytes = 00, identical bytes = FF */
+                // element-wise compare of the 8-bit elements
+                let ymm_cmp = _mm256_cmpeq_epi8(ymm_src0, ymm_src1);
+
+                // turn an 32 * 8-bit vector into a 32-bit integer.
+                // a bit in the output is one if the corresponding element is non-zero.
                 let mask = _mm256_movemask_epi8(ymm_cmp) as u32;
 
                 if mask != 0xFFFFFFFF {
-                    let match_byte = (!mask).trailing_zeros(); /* Invert bits so identical = 0 */
+                    let match_byte = mask.trailing_ones();
                     return len + match_byte as usize;
                 }
 
