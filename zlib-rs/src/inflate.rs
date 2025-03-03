@@ -1613,30 +1613,28 @@ impl State<'_> {
                 }
                 Mode::LenLens => {
                     // permutation of code lengths ;
-                    const ORDER: [u16; 19] = [
+                    const ORDER: [u8; 19] = [
                         16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
                     ];
 
                     while self.have < self.ncode {
                         need_bits!(self, 3);
-                        self.lens[ORDER[self.have] as usize] = self.bit_reader.bits(3) as u16;
+                        self.lens[usize::from(ORDER[self.have])] = self.bit_reader.bits(3) as u16;
                         self.have += 1;
                         self.bit_reader.drop_bits(3);
                     }
 
                     while self.have < 19 {
-                        self.lens[ORDER[self.have] as usize] = 0;
+                        self.lens[usize::from(ORDER[self.have])] = 0;
                         self.have += 1;
                     }
-
-                    self.len_table.bits = 7;
 
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Codes,
                         &self.lens,
                         19,
                         &mut self.codes_codes,
-                        self.len_table.bits,
+                        7,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
@@ -1672,7 +1670,7 @@ impl State<'_> {
                                 self.have += 1;
                             }
                             16 => {
-                                need_bits!(self, here_bits as usize + 2);
+                                need_bits!(self, usize::from(here_bits) + 2);
                                 self.bit_reader.drop_bits(here_bits);
                                 if self.have == 0 {
                                     mode = Mode::Bad;
@@ -1688,15 +1686,12 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(len);
+                                self.have += copy;
                             }
                             17 => {
-                                need_bits!(self, here_bits as usize + 3);
+                                need_bits!(self, usize::from(here_bits) + 3);
                                 self.bit_reader.drop_bits(here_bits);
-                                let len = 0;
                                 let copy = 3 + self.bit_reader.bits(3) as usize;
                                 self.bit_reader.drop_bits(3);
 
@@ -1705,15 +1700,12 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len as u16;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(0);
+                                self.have += copy;
                             }
                             18.. => {
-                                need_bits!(self, here_bits as usize + 7);
+                                need_bits!(self, usize::from(here_bits) + 7);
                                 self.bit_reader.drop_bits(here_bits);
-                                let len = 0;
                                 let copy = 11 + self.bit_reader.bits(7) as usize;
                                 self.bit_reader.drop_bits(7);
 
@@ -1722,10 +1714,8 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len as u16;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(0);
+                                self.have += copy;
                             }
                         }
                     }
@@ -1738,14 +1728,12 @@ impl State<'_> {
 
                     // build code tables
 
-                    self.len_table.bits = 10;
-
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Lens,
                         &self.lens,
                         self.nlen,
                         &mut self.len_codes,
-                        self.len_table.bits,
+                        10,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
@@ -1755,14 +1743,12 @@ impl State<'_> {
                     self.len_table.codes = Codes::Len;
                     self.len_table.bits = root;
 
-                    self.dist_table.bits = 9;
-
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Dists,
                         &self.lens[self.nlen..],
                         self.ndist,
                         &mut self.dist_codes,
-                        self.dist_table.bits,
+                        9,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
