@@ -1670,7 +1670,7 @@ impl State<'_> {
                                 self.have += 1;
                             }
                             16 => {
-                                need_bits!(self, here_bits as usize + 2);
+                                need_bits!(self, usize::from(here_bits) + 2);
                                 self.bit_reader.drop_bits(here_bits);
                                 if self.have == 0 {
                                     mode = Mode::Bad;
@@ -1690,7 +1690,7 @@ impl State<'_> {
                                 self.have += copy;
                             }
                             17 => {
-                                need_bits!(self, here_bits as usize + 3);
+                                need_bits!(self, usize::from(here_bits) + 3);
                                 self.bit_reader.drop_bits(here_bits);
                                 let copy = 3 + self.bit_reader.bits(3) as usize;
                                 self.bit_reader.drop_bits(3);
@@ -1704,7 +1704,7 @@ impl State<'_> {
                                 self.have += copy;
                             }
                             18.. => {
-                                need_bits!(self, here_bits as usize + 7);
+                                need_bits!(self, usize::from(here_bits) + 7);
                                 self.bit_reader.drop_bits(here_bits);
                                 let copy = 11 + self.bit_reader.bits(7) as usize;
                                 self.bit_reader.drop_bits(7);
