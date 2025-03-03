@@ -1613,19 +1613,19 @@ impl State<'_> {
                 }
                 Mode::LenLens => {
                     // permutation of code lengths ;
-                    const ORDER: [u16; 19] = [
+                    const ORDER: [u8; 19] = [
                         16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
                     ];
 
                     while self.have < self.ncode {
                         need_bits!(self, 3);
-                        self.lens[ORDER[self.have] as usize] = self.bit_reader.bits(3) as u16;
+                        self.lens[usize::from(ORDER[self.have])] = self.bit_reader.bits(3) as u16;
                         self.have += 1;
                         self.bit_reader.drop_bits(3);
                     }
 
                     while self.have < 19 {
-                        self.lens[ORDER[self.have] as usize] = 0;
+                        self.lens[usize::from(ORDER[self.have])] = 0;
                         self.have += 1;
                     }
 
