@@ -1686,15 +1686,12 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(len);
+                                self.have += copy;
                             }
                             17 => {
                                 need_bits!(self, here_bits as usize + 3);
                                 self.bit_reader.drop_bits(here_bits);
-                                let len = 0;
                                 let copy = 3 + self.bit_reader.bits(3) as usize;
                                 self.bit_reader.drop_bits(3);
 
@@ -1703,15 +1700,12 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len as u16;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(0);
+                                self.have += copy;
                             }
                             18.. => {
                                 need_bits!(self, here_bits as usize + 7);
                                 self.bit_reader.drop_bits(here_bits);
-                                let len = 0;
                                 let copy = 11 + self.bit_reader.bits(7) as usize;
                                 self.bit_reader.drop_bits(7);
 
@@ -1720,10 +1714,8 @@ impl State<'_> {
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
-                                for _ in 0..copy {
-                                    self.lens[self.have] = len as u16;
-                                    self.have += 1;
-                                }
+                                self.lens[self.have..][..copy].fill(0);
+                                self.have += copy;
                             }
                         }
                     }
