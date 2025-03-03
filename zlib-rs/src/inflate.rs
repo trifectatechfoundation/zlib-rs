@@ -1629,14 +1629,12 @@ impl State<'_> {
                         self.have += 1;
                     }
 
-                    self.len_table.bits = 7;
-
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Codes,
                         &self.lens,
                         19,
                         &mut self.codes_codes,
-                        self.len_table.bits,
+                        7,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
@@ -1738,14 +1736,12 @@ impl State<'_> {
 
                     // build code tables
 
-                    self.len_table.bits = 10;
-
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Lens,
                         &self.lens,
                         self.nlen,
                         &mut self.len_codes,
-                        self.len_table.bits,
+                        10,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
@@ -1755,14 +1751,12 @@ impl State<'_> {
                     self.len_table.codes = Codes::Len;
                     self.len_table.bits = root;
 
-                    self.dist_table.bits = 9;
-
                     let InflateTable::Success(root) = inflate_table(
                         CodeType::Dists,
                         &self.lens[self.nlen..],
                         self.ndist,
                         &mut self.dist_codes,
-                        self.dist_table.bits,
+                        9,
                         &mut self.work,
                     ) else {
                         mode = Mode::Bad;
