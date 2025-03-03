@@ -234,12 +234,12 @@ mod wasm32 {
 
     #[target_feature(enable = "simd128")]
     pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
-        let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
+        let src0 = src0.chunks_exact(16);
+        let src1 = src1.chunks_exact(16);
 
         let mut len = 0;
 
-        for (chunk0, chunk1) in src0.iter().zip(src1) {
+        for (chunk0, chunk1) in src0.zip(src1) {
             // SAFETY: these are valid pointers to slice data.
             let v128_src0 = unsafe { v128_load(chunk0.as_ptr() as *const v128) };
             let v128_src1 = unsafe { v128_load(chunk1.as_ptr() as *const v128) };
@@ -248,7 +248,7 @@ mod wasm32 {
             let mask = u8x16_bitmask(v128_cmp);
 
             if mask != 0xFFFF {
-                let match_byte = (!mask).trailing_zeros(); /* Invert bits so identical = 0 */
+                let match_byte = mask.trailing_ones();
                 return len + match_byte as usize;
             }
 
