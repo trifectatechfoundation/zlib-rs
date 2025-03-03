@@ -119,12 +119,12 @@ mod neon {
     /// Behavior is undefined if the `neon` target feature is not enabled
     #[target_feature(enable = "neon")]
     pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
-        let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
+        let src0 = src0.chunks_exact(16);
+        let src1 = src1.chunks_exact(16);
 
         let mut len = 0;
 
-        for (a, b) in src0.iter().zip(src1) {
+        for (a, b) in src0.zip(src1) {
             unsafe {
                 let a: uint8x16_t = vld1q_u8(a.as_ptr());
                 let b: uint8x16_t = vld1q_u8(b.as_ptr());
