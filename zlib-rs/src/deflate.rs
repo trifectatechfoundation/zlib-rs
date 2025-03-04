@@ -259,6 +259,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     };
 
     let w_size = 1 << window_bits;
+    assert!(w_size >= MIN_LOOKAHEAD);
     let window = Window::new_in(&alloc, window_bits);
 
     let prev = alloc.allocate_slice_raw::<u16>(w_size);
@@ -1149,7 +1150,14 @@ impl<'a> BitWriter<'a> {
 
             match u16::from_le_bytes([dist_low, dist_high]) {
                 0 => self.emit_lit(ltree, lc) as usize,
-                dist => self.emit_dist(ltree, dtree, lc, dist),
+                dist => {
+                    assert!(
+                        (dist >> 7) < 256,
+                        "invalid dist value {dist} from bytes {:?}",
+                        [dist_low, dist_high, lc]
+                    );
+                    self.emit_dist(ltree, dtree, lc, dist)
+                }
             };
         }
 
