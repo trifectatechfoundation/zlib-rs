@@ -14,7 +14,7 @@ mod writer;
 
 use crate::allocate::Allocator;
 use crate::c_api::internal_state;
-use crate::cpu_features::CpuFeatures;
+use crate::cpu_features::{is_enabled_avx512, CpuFeatures};
 use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
@@ -1862,12 +1862,24 @@ impl State<'_> {
 
 fn inflate_fast_help(state: &mut State, start: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    if is_enabled_avx512() {
+        // SAFETY: we've verified the target features
+        return unsafe { inflate_fast_help_avx512(state, start) };
+    }
+
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if crate::cpu_features::is_enabled_avx2() {
         // SAFETY: we've verified the target features
         return unsafe { inflate_fast_help_avx2(state, start) };
     }
 
     inflate_fast_help_vanilla(state, start);
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[target_feature(enable = "avx2")]
+unsafe fn inflate_fast_help_avx512(state: &mut State, start: usize) {
+    inflate_fast_help_impl::<{ CpuFeatures::AVX512 }>(state, start);
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]

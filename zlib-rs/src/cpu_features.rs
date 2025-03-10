@@ -6,6 +6,7 @@ pub struct CpuFeatures;
 impl CpuFeatures {
     pub const NONE: usize = 0;
     pub const AVX2: usize = 1;
+    pub const AVX512: usize = 2;
 }
 
 #[inline(always)]

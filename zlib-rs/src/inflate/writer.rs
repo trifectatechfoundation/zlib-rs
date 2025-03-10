@@ -89,6 +89,8 @@ impl<'a> Writer<'a> {
         match FEATURES {
             #[cfg(target_arch = "x86_64")]
             CpuFeatures::AVX2 => self.extend_from_window_help::<32>(window, range),
+            #[cfg(target_arch = "x86_64")]
+            CpuFeatures::AVX512 => self.extend_from_window_help::<64>(window, range),
             _ => self.extend_from_window_runtime_dispatch(window, range),
         }
     }
@@ -173,6 +175,8 @@ impl<'a> Writer<'a> {
         match FEATURES {
             #[cfg(target_arch = "x86_64")]
             CpuFeatures::AVX2 => self.copy_match_help::<32>(offset_from_end, length),
+            #[cfg(target_arch = "x86_64")]
+            CpuFeatures::AVX512 => self.copy_match_help::<64>(offset_from_end, length),
             _ => self.copy_match_runtime_dispatch(offset_from_end, length),
         }
     }
