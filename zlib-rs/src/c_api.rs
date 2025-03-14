@@ -18,6 +18,39 @@ pub type voidp = *mut c_void;
 pub type voidpc = *const c_void;
 pub type voidpf = *mut c_void;
 
+/// The current stream state
+///
+/// # Custom allocators
+///
+/// The low-level API supports passing in a custom allocator as part of the [`z_stream`]:
+///
+/// ```no_check
+/// struct z_stream {
+///     // ...
+///     zalloc: Option<unsafe extern "C" fn(*mut c_void, c_uint, c_uint) -> *mut c_void>,
+///     zfree: Option<unsafe extern "C" fn(*mut c_void, *mut c_void)>,
+///     opaque: *mut c_void,
+/// }
+/// ```
+///
+/// When these fields are `None` (or `NULL` in C), the initialization functions use a default allocator,
+/// based on feature flags:
+///
+/// - `"rust-allocator"` uses the rust global allocator
+/// - `"c-allocator"` uses an allocator based on `malloc` and `free`
+///
+/// When both are configured, the `"rust-allocator"` is preferred. When no default allocator is configured,
+/// and custom `zalloc` and `zfree` are provided, the initialization functions will return a [`Z_STREAM_ERROR`].
+///
+/// When custom `zalloc` and `zfree` functions are given, they must adhere to the following contract
+/// to be safe:
+///
+/// - a call `zalloc(opaque, n, m)` must return a pointer `p` to `n * m` bytes of memory, or
+///     `NULL` if out of memory
+/// - a call `zfree(opaque, p)` must free that memory
+///
+/// The `strm.opaque` value is passed to as the first argument to all calls to `zalloc`
+/// and `zfree`, but is otherwise ignored by the library.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct z_stream {
