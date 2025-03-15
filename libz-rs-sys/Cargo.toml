@@ -17,6 +17,7 @@ rust-allocator = ["zlib-rs/rust-allocator"] # by default, use the rust global al
 std = ["zlib-rs/std"] # assume `::std` is available
 custom-prefix = [] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 testing-prefix = [] # prefix all symbols with LIBZ_RS_SYS_TEST_ for testing
+semver-prefix = [] # prefix all symbols in a semver-compatible way
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
