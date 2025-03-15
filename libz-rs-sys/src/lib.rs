@@ -44,8 +44,27 @@ macro_rules! prefix {
     };
 }
 
+// NOTE: once we reach 1.0.0, the macro used for the `semver-prefix` feature should no longer include the
+// minor version in the name. The name is meant to be unique between semver-compatible versions!
+const _PRE_ONE_DOT_O: () = assert!(env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] == b'0');
+
+#[cfg(feature = "semver-prefix")]
+macro_rules! prefix {
+    ($name:expr) => {
+        concat!(
+            "LIBZ_RS_SYS_v",
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            ".",
+            env!("CARGO_PKG_VERSION_MINOR"),
+            ".x_",
+            stringify!($name)
+        )
+    };
+}
+
 #[cfg(all(
     not(feature = "custom-prefix"),
+    not(feature = "semver-prefix"),
     not(any(test, feature = "testing-prefix"))
 ))]
 macro_rules! prefix {
@@ -54,7 +73,11 @@ macro_rules! prefix {
     };
 }
 
-#[cfg(all(not(feature = "custom-prefix"), any(test, feature = "testing-prefix")))]
+#[cfg(all(
+    not(feature = "custom-prefix"),
+    not(feature = "semver-prefix"),
+    any(test, feature = "testing-prefix")
+))]
 macro_rules! prefix {
     ($name:expr) => {
         concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
