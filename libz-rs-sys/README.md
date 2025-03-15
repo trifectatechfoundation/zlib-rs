@@ -88,6 +88,32 @@ let inflated = &output[..strm.total_out as usize];
 assert_eq!(inflated, input.as_bytes())
 ```
 
+## Memory Management
+
+Zlib does not assume a global allocator, but instead accepts `zalloc` and `zfree` functions for allocating and deallocating memory.
+
+```rust,ignore
+type alloc_func = unsafe extern "C" fn(*mut c_void, c_uint, c_uint) -> *mut c_void;
+type free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
+struct z_stream {
+    // ...
+    zalloc: Option<alloc_func>,
+    zfree: Option<free_func>,
+    opaque: *mut c_void,
+    // ..
+}
+```
+
+These functions can run arbitrary logic, so long as they satisfy their contract. This mechanism can be used e.g. on embedded systems to use an array in static memory as the working memory for (de)compression. For more information see the [`z_stream`](https://docs.rs/zlib-rs/latest/zlib_rs/c_api/struct.z_stream.html) documentation.
+
+For convenience we provide two default memory allocators:
+
+- `rust` uses the rust global allocator
+- `c` uses `malloc` and `free`
+
+When used as a rust crate, the default is to use the rust global allocator. This behavior can be overridden using [feature flags](#features) to either configure the C allocator as the default, or to configure no default allocator at all. If no default is configured, and no custom allocation and deallocation functions are provided, initialization will return an error.
+
 ## Compression Levels
 
 The zlib library supports compression levels 0 up to and including 9. The level indicates a tradeoff between time spent on the compression versus the compression ratio, the factor by which the input is reduced in size:
@@ -123,4 +149,4 @@ In our example, the main options are:
 - level 2: equivalent compression, but significantly faster
 - level 4: better compression, at the same speed
 
-In summary, when you upgrade from stock zlib, we recommend that you benchmark on your data and target platform, and pick the right compression level for your use case. 
+In summary, when you upgrade from stock zlib, we recommend that you benchmark on your data and target platform, and pick the right compression level for your use case.
