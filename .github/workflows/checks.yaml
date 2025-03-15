@@ -302,6 +302,11 @@ jobs:
         run: |
           cargo build --release --target ${{matrix.target}} --features=custom-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q "MY_CUSTOM_PREFIX_uncompress" || (echo "symbol not found!" && exit 1)
+      - name: "cdylib: semver-prefix"
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo build --release --target ${{matrix.target}} --features=semver-prefix
+          objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
 
   cargo-c-dynamic-library:
     name: cargo-c dynamic library
