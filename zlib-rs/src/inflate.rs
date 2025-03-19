@@ -866,12 +866,11 @@ impl State<'_> {
         }
 
         let ret = 'label: loop {
-            {
+            mode = 'blk: {
                 match mode {
                     Mode::Head => {
                         if self.wrap == 0 {
-                            mode = Mode::TypeDo;
-                            continue 'label;
+                            break 'blk Mode::TypeDo;
                         }
 
                         need_bits!(self, 16);
@@ -887,9 +886,7 @@ impl State<'_> {
                             self.checksum = crc32(crate::CRC32_INITIAL_VALUE, &[b0, b1]);
                             self.bit_reader.init_bits();
 
-                            mode = Mode::Flags;
-
-                            continue 'label;
+                            break 'blk Mode::Flags;
                         }
 
                         if let Some(header) = &mut self.head {
@@ -929,15 +926,11 @@ impl State<'_> {
                         if self.bit_reader.hold() & 0x200 != 0 {
                             self.bit_reader.init_bits();
 
-                            mode = Mode::DictId;
-
-                            continue 'label;
+                            break 'blk Mode::DictId;
                         } else {
                             self.bit_reader.init_bits();
 
-                            mode = Mode::Type;
-
-                            continue 'label;
+                            break 'blk Mode::Type;
                         }
                     }
                     Mode::Flags => {
@@ -966,9 +959,8 @@ impl State<'_> {
                         }
 
                         self.bit_reader.init_bits();
-                        mode = Mode::Time;
 
-                        continue 'label;
+                        break 'blk Mode::Time;
                     }
                     Mode::Time => {
                         need_bits!(self, 32);
@@ -982,9 +974,8 @@ impl State<'_> {
                         }
 
                         self.bit_reader.init_bits();
-                        mode = Mode::Os;
 
-                        continue 'label;
+                        break 'blk Mode::Os;
                     }
                     Mode::Os => {
                         need_bits!(self, 16);
@@ -999,9 +990,8 @@ impl State<'_> {
                         }
 
                         self.bit_reader.init_bits();
-                        mode = Mode::ExLen;
 
-                        continue 'label;
+                        break 'blk Mode::ExLen;
                     }
                     Mode::ExLen => {
                         if (self.gzip_flags & 0x0400) != 0 {
@@ -1022,9 +1012,7 @@ impl State<'_> {
                             head.extra = core::ptr::null_mut();
                         }
 
-                        mode = Mode::Extra;
-
-                        continue 'label;
+                        break 'blk Mode::Extra;
                     }
                     Mode::Extra => {
                         if (self.gzip_flags & 0x0400) != 0 {
@@ -1087,9 +1075,8 @@ impl State<'_> {
                         }
 
                         self.length = 0;
-                        mode = Mode::Name;
 
-                        continue 'label;
+                        break 'blk Mode::Name;
                     }
                     Mode::Name => {
                         if (self.gzip_flags & 0x0800) != 0 {
@@ -1145,9 +1132,8 @@ impl State<'_> {
                         }
 
                         self.length = 0;
-                        mode = Mode::Comment;
 
-                        continue 'label;
+                        break 'blk Mode::Comment;
                     }
                     Mode::Comment => {
                         if (self.gzip_flags & 0x01000) != 0 {
@@ -1202,9 +1188,7 @@ impl State<'_> {
                             head.comment = core::ptr::null_mut();
                         }
 
-                        mode = Mode::HCrc;
-
-                        continue 'label;
+                        break 'blk Mode::HCrc;
                     }
                     Mode::HCrc => {
                         if (self.gzip_flags & 0x0200) != 0 {
@@ -1231,9 +1215,7 @@ impl State<'_> {
                             self.checksum = crate::CRC32_INITIAL_VALUE;
                         }
 
-                        mode = Mode::Type;
-
-                        continue 'label;
+                        break 'blk Mode::Type;
                     }
                     Mode::Type => {
                         use InflateFlush::*;
@@ -1242,17 +1224,14 @@ impl State<'_> {
                             Block | Trees => break 'label ReturnCode::Ok,
                             NoFlush | SyncFlush | Finish => {
                                 // NOTE: this is slightly different to what zlib-rs does!
-                                mode = Mode::TypeDo;
-                                continue 'label;
+                                break 'blk Mode::TypeDo;
                             }
                         }
                     }
                     Mode::TypeDo => {
                         if self.flags.contains(Flags::IS_LAST_BLOCK) {
                             self.bit_reader.next_byte_boundary();
-                            mode = Mode::Check;
-
-                            continue 'label;
+                            break 'blk Mode::Check;
                         }
 
                         need_bits!(self, 3);
@@ -1267,9 +1246,7 @@ impl State<'_> {
 
                                 self.bit_reader.drop_bits(2);
 
-                                mode = Mode::Stored;
-
-                                continue 'label;
+                                break 'blk Mode::Stored;
                             }
                             0b01 => {
                                 // eprintln!("inflate:     fixed codes block (last = {last})");
@@ -1291,7 +1268,7 @@ impl State<'_> {
                                 if let InflateFlush::Trees = self.flush {
                                     break 'label self.inflate_leave(ReturnCode::Ok);
                                 } else {
-                                    continue 'label;
+                                    break 'blk Mode::Len_;
                                 }
                             }
                             0b10 => {
@@ -1299,9 +1276,7 @@ impl State<'_> {
 
                                 self.bit_reader.drop_bits(2);
 
-                                mode = Mode::Table;
-
-                                continue 'label;
+                                break 'blk Mode::Table;
                             }
                             0b11 => {
                                 // eprintln!("inflate:     invalid block type");
@@ -1339,9 +1314,7 @@ impl State<'_> {
                         if let InflateFlush::Trees = self.flush {
                             break 'label self.inflate_leave(ReturnCode::Ok);
                         } else {
-                            mode = Mode::CopyBlock;
-
-                            continue 'label;
+                            break 'blk Mode::CopyBlock;
                         }
                     }
                     Mode::CopyBlock => {
@@ -1365,9 +1338,7 @@ impl State<'_> {
                             self.length -= copy;
                         }
 
-                        mode = Mode::Type;
-
-                        continue 'label;
+                        break 'blk Mode::Type;
                     }
                     Mode::Check => {
                         if !cfg!(feature = "__internal-fuzz-disable-checksum") && self.wrap != 0 {
@@ -1399,14 +1370,11 @@ impl State<'_> {
 
                             self.bit_reader.init_bits();
                         }
-                        mode = Mode::Length;
 
-                        continue 'label;
+                        break 'blk Mode::Length;
                     }
                     Mode::Len_ => {
-                        mode = Mode::Len;
-
-                        continue 'label;
+                        break 'blk Mode::Len;
                     }
                     Mode::Len => {
                         self.mode = mode;
@@ -1432,9 +1400,8 @@ impl State<'_> {
                         // eprintln!("inflate: length {}", state.length);
 
                         self.was = self.length;
-                        mode = Mode::Dist;
 
-                        continue 'label;
+                        break 'blk Mode::Dist;
                     }
                     Mode::Lit => {
                         // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
@@ -1446,9 +1413,7 @@ impl State<'_> {
 
                         self.writer.push(self.length as u8);
 
-                        mode = Mode::Len;
-
-                        continue 'label;
+                        break 'blk Mode::Len;
                     }
                     Mode::Dist => {
                         // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
@@ -1495,9 +1460,8 @@ impl State<'_> {
                         self.offset = here.val as usize;
 
                         self.extra = (here.op & MAX_BITS) as usize;
-                        mode = Mode::DistExt;
 
-                        continue 'label;
+                        break 'blk Mode::DistExt;
                     }
                     Mode::DistExt => {
                         // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
@@ -1517,9 +1481,7 @@ impl State<'_> {
 
                         // eprintln!("inflate: distance {}", state.offset);
 
-                        mode = Mode::Match;
-
-                        continue 'label;
+                        break 'blk Mode::Match;
                     }
                     Mode::Match => {
                         // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
@@ -1579,9 +1541,7 @@ impl State<'_> {
                             self.length -= copy;
 
                             if self.length == 0 {
-                                mode = Mode::Len;
-
-                                continue 'label;
+                                break 'blk Mode::Len;
                             } else {
                                 // otherwise it seems to recurse?
                                 continue 'match_;
@@ -1605,9 +1565,8 @@ impl State<'_> {
                         }
 
                         self.have = 0;
-                        mode = Mode::LenLens;
 
-                        continue 'label;
+                        break 'blk Mode::LenLens;
                     }
                     Mode::LenLens => {
                         // permutation of code lengths ;
@@ -1644,9 +1603,8 @@ impl State<'_> {
                         self.len_table.bits = root;
 
                         self.have = 0;
-                        mode = Mode::CodeLens;
 
-                        continue 'label;
+                        break 'blk Mode::CodeLens;
                     }
                     Mode::CodeLens => {
                         while self.have < self.nlen + self.ndist {
@@ -1763,7 +1721,7 @@ impl State<'_> {
                             break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
-                        continue 'label;
+                        break 'blk Mode::Len_;
                     }
                     Mode::Dict => {
                         if !self.flags.contains(Flags::HAVE_DICT) {
@@ -1772,9 +1730,7 @@ impl State<'_> {
 
                         self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
-                        mode = Mode::Type;
-
-                        continue 'label;
+                        break 'blk Mode::Type;
                     }
                     Mode::DictId => {
                         need_bits!(self, 32);
@@ -1783,9 +1739,7 @@ impl State<'_> {
 
                         self.bit_reader.init_bits();
 
-                        mode = Mode::Dict;
-
-                        continue 'label;
+                        break 'blk Mode::Dict;
                     }
                     Mode::Bad => {
                         let msg = "repeated call with bad state\0";
