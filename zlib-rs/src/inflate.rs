@@ -558,8 +558,8 @@ impl State<'_> {
             Codes::Dist => &self.dist_codes,
         };
 
-        'top: loop {
-            {
+        loop {
+            mode = 'top: {
                 match mode {
                     Mode::Len => {
                         let avail_in = bit_reader.bytes_remaining();
@@ -617,8 +617,7 @@ impl State<'_> {
                         self.length = here.val as usize;
 
                         if here.op == 0 {
-                            mode = Mode::Lit;
-                            continue 'top;
+                            break 'top Mode::Lit;
                         } else if here.op & 32 != 0 {
                             // end of block
 
@@ -643,8 +642,7 @@ impl State<'_> {
                         } else {
                             // length code
                             self.extra = (here.op & MAX_BITS) as usize;
-                            mode = Mode::LenExt;
-                            continue 'top;
+                            break 'top Mode::LenExt;
                         }
                     }
                     Mode::Lit => {
@@ -658,9 +656,7 @@ impl State<'_> {
 
                         writer.push(self.length as u8);
 
-                        mode = Mode::Len;
-
-                        continue 'top;
+                        break 'top Mode::Len;
                     }
                     Mode::LenExt => {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
@@ -683,9 +679,8 @@ impl State<'_> {
                         // eprintln!("inflate: length {}", state.length);
 
                         self.was = self.length;
-                        mode = Mode::Dist;
 
-                        continue 'top;
+                        break 'top Mode::Dist;
                     }
                     Mode::Dist => {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
@@ -738,9 +733,8 @@ impl State<'_> {
                         self.offset = here.val as usize;
 
                         self.extra = (here.op & MAX_BITS) as usize;
-                        mode = Mode::DistExt;
 
-                        continue 'top;
+                        break 'top Mode::DistExt;
                     }
                     Mode::DistExt => {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
@@ -769,9 +763,7 @@ impl State<'_> {
 
                         // eprintln!("inflate: distance {}", state.offset);
 
-                        mode = Mode::Match;
-
-                        continue 'top;
+                        break 'top Mode::Match;
                     }
                     Mode::Match => {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
@@ -832,12 +824,11 @@ impl State<'_> {
                         self.length -= copy;
 
                         if self.length == 0 {
-                            mode = Mode::Len;
-                            continue 'top;
+                            break 'top Mode::Len;
                         } else {
                             // otherwise it seems to recurse?
                             // self.match_()
-                            continue 'top;
+                            break 'top Mode::Match;
                         }
                     }
                     _ => unsafe { core::hint::unreachable_unchecked() },
