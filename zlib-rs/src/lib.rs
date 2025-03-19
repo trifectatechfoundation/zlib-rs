@@ -1,5 +1,7 @@
 #![doc = core::include_str!("../README.md")]
 #![cfg_attr(not(any(test, feature = "rust-allocator")), no_std)]
+#![cfg_attr(feature = "__internal-loop-match", feature(loop_match))]
+#![cfg_attr(feature = "__internal-loop-match", feature(stmt_expr_attributes))]
 
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
