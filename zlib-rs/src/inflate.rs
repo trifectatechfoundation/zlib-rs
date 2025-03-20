@@ -618,6 +618,7 @@ impl State<'_> {
                         self.length = here.val as usize;
 
                         if here.op == 0 {
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'top Mode::Lit;
                         } else if here.op & 32 != 0 {
                             // end of block
@@ -643,6 +644,7 @@ impl State<'_> {
                         } else {
                             // length code
                             self.extra = (here.op & MAX_BITS) as usize;
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'top Mode::LenExt;
                         }
                     }
@@ -657,6 +659,7 @@ impl State<'_> {
 
                         writer.push(self.length as u8);
 
+                        #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                         break 'top Mode::Len;
                     }
                     Mode::LenExt => {
@@ -681,6 +684,7 @@ impl State<'_> {
 
                         self.was = self.length;
 
+                        #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                         break 'top Mode::Dist;
                     }
                     Mode::Dist => {
@@ -735,6 +739,7 @@ impl State<'_> {
 
                         self.extra = (here.op & MAX_BITS) as usize;
 
+                        #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                         break 'top Mode::DistExt;
                     }
                     Mode::DistExt => {
@@ -764,6 +769,7 @@ impl State<'_> {
 
                         // eprintln!("inflate: distance {}", state.offset);
 
+                        #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                         break 'top Mode::Match;
                     }
                     Mode::Match => {
@@ -825,10 +831,11 @@ impl State<'_> {
                         self.length -= copy;
 
                         if self.length == 0 {
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'top Mode::Len;
                         } else {
                             // otherwise it seems to recurse?
-                            // self.match_()
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'top Mode::Match;
                         }
                     }
