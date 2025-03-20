@@ -558,6 +558,7 @@ impl State<'_> {
             Codes::Dist => &self.dist_codes,
         };
 
+        #[cfg_attr(feature = "__internal-loop-match", loop_match)]
         loop {
             mode = 'top: {
                 match mode {
@@ -866,6 +867,7 @@ impl State<'_> {
         }
 
         let ret = {
+            #[cfg_attr(feature = "__internal-loop-match", loop_match)]
             'label: loop {
                 mode = 'blk: {
                     match mode {
