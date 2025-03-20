@@ -880,6 +880,7 @@ impl State<'_> {
                     match mode {
                         Mode::Head => {
                             if self.wrap == 0 {
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::TypeDo;
                             }
 
@@ -896,6 +897,7 @@ impl State<'_> {
                                 self.checksum = crc32(crate::CRC32_INITIAL_VALUE, &[b0, b1]);
                                 self.bit_reader.init_bits();
 
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::Flags;
                             }
 
@@ -937,10 +939,12 @@ impl State<'_> {
                             if self.bit_reader.hold() & 0x200 != 0 {
                                 self.bit_reader.init_bits();
 
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::DictId;
                             } else {
                                 self.bit_reader.init_bits();
 
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::Type;
                             }
                         }
@@ -971,6 +975,7 @@ impl State<'_> {
 
                             self.bit_reader.init_bits();
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Time;
                         }
                         Mode::Time => {
@@ -986,6 +991,7 @@ impl State<'_> {
 
                             self.bit_reader.init_bits();
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Os;
                         }
                         Mode::Os => {
@@ -1002,6 +1008,7 @@ impl State<'_> {
 
                             self.bit_reader.init_bits();
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::ExLen;
                         }
                         Mode::ExLen => {
@@ -1023,6 +1030,7 @@ impl State<'_> {
                                 head.extra = core::ptr::null_mut();
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Extra;
                         }
                         Mode::Extra => {
@@ -1088,6 +1096,7 @@ impl State<'_> {
 
                             self.length = 0;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Name;
                         }
                         Mode::Name => {
@@ -1145,6 +1154,7 @@ impl State<'_> {
 
                             self.length = 0;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Comment;
                         }
                         Mode::Comment => {
@@ -1201,6 +1211,7 @@ impl State<'_> {
                                 head.comment = core::ptr::null_mut();
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::HCrc;
                         }
                         Mode::HCrc => {
@@ -1228,6 +1239,7 @@ impl State<'_> {
                                 self.checksum = crate::CRC32_INITIAL_VALUE;
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Type;
                         }
                         Mode::Type => {
@@ -1237,6 +1249,7 @@ impl State<'_> {
                                 Block | Trees => break 'label ReturnCode::Ok,
                                 NoFlush | SyncFlush | Finish => {
                                     // NOTE: this is slightly different to what zlib-rs does!
+                                    #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                     break 'blk Mode::TypeDo;
                                 }
                             }
@@ -1244,6 +1257,7 @@ impl State<'_> {
                         Mode::TypeDo => {
                             if self.flags.contains(Flags::IS_LAST_BLOCK) {
                                 self.bit_reader.next_byte_boundary();
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::Check;
                             }
 
@@ -1260,6 +1274,7 @@ impl State<'_> {
 
                                     self.bit_reader.drop_bits(2);
 
+                                    #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                     break 'blk Mode::Stored;
                                 }
                                 0b01 => {
@@ -1282,6 +1297,10 @@ impl State<'_> {
                                     if let InflateFlush::Trees = self.flush {
                                         break 'label self.inflate_leave(ReturnCode::Ok);
                                     } else {
+                                        #[cfg_attr(
+                                            feature = "__internal-loop-match",
+                                            const_continue
+                                        )]
                                         break 'blk Mode::Len_;
                                     }
                                 }
@@ -1290,6 +1309,7 @@ impl State<'_> {
 
                                     self.bit_reader.drop_bits(2);
 
+                                    #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                     break 'blk Mode::Table;
                                 }
                                 0b11 => {
@@ -1328,6 +1348,7 @@ impl State<'_> {
                             if let InflateFlush::Trees = self.flush {
                                 break 'label self.inflate_leave(ReturnCode::Ok);
                             } else {
+                                #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                 break 'blk Mode::CopyBlock;
                             }
                         }
@@ -1352,6 +1373,7 @@ impl State<'_> {
                                 self.length -= copy;
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Type;
                         }
                         Mode::Check => {
@@ -1387,9 +1409,11 @@ impl State<'_> {
                                 self.bit_reader.init_bits();
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Length;
                         }
                         Mode::Len_ => {
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Len;
                         }
                         Mode::Len => {
@@ -1417,6 +1441,7 @@ impl State<'_> {
 
                             self.was = self.length;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Dist;
                         }
                         Mode::Lit => {
@@ -1429,6 +1454,7 @@ impl State<'_> {
 
                             self.writer.push(self.length as u8);
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Len;
                         }
                         Mode::Dist => {
@@ -1477,6 +1503,7 @@ impl State<'_> {
 
                             self.extra = (here.op & MAX_BITS) as usize;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::DistExt;
                         }
                         Mode::DistExt => {
@@ -1497,6 +1524,7 @@ impl State<'_> {
 
                             // eprintln!("inflate: distance {}", state.offset);
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Match;
                         }
                         Mode::Match => {
@@ -1558,6 +1586,7 @@ impl State<'_> {
                                 self.length -= copy;
 
                                 if self.length == 0 {
+                                    #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                                     break 'blk Mode::Len;
                                 } else {
                                     // otherwise it seems to recurse?
@@ -1583,6 +1612,7 @@ impl State<'_> {
 
                             self.have = 0;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::LenLens;
                         }
                         Mode::LenLens => {
@@ -1622,6 +1652,7 @@ impl State<'_> {
 
                             self.have = 0;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::CodeLens;
                         }
                         Mode::CodeLens => {
@@ -1741,6 +1772,7 @@ impl State<'_> {
                                 break 'label self.inflate_leave(ReturnCode::Ok);
                             }
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Len_;
                         }
                         Mode::Dict => {
@@ -1750,6 +1782,7 @@ impl State<'_> {
 
                             self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Type;
                         }
                         Mode::DictId => {
@@ -1759,6 +1792,7 @@ impl State<'_> {
 
                             self.bit_reader.init_bits();
 
+                            #[cfg_attr(feature = "__internal-loop-match", const_continue)]
                             break 'blk Mode::Dict;
                         }
                         Mode::Bad => {
