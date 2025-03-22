@@ -1267,8 +1267,7 @@ impl State<'_> {
                                 .update(Flags::IS_LAST_BLOCK, self.bit_reader.bits(1) != 0);
                             self.bit_reader.drop_bits(1);
 
-                            let bits = self.bit_reader.bits(2);
-                            match bits {
+                            match self.bit_reader.bits(2) {
                                 0b00 => {
                                     // eprintln!("inflate:     stored block (last = {last})");
 
