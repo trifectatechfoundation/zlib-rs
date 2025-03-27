@@ -49,6 +49,22 @@ macro_rules! extract_error_message {
     };
 }
 
+/// a bit of a sanity check that nothing weird happened with symbol resolution
+#[cfg(not(miri))]
+#[cfg(test)]
+#[test]
+fn zlib_rs_is_not_zlib_ng() {
+    use std::ffi::CStr;
+
+    unsafe {
+        let rs = CStr::from_ptr(libz_rs_sys::zlibVersion());
+        assert!(rs.to_str().unwrap().contains("zlib-rs"));
+
+        let ng = CStr::from_ptr(libz_sys::zlibVersion());
+        assert!(ng.to_str().unwrap().contains("zlib-ng"));
+    }
+}
+
 #[cfg(test)]
 mod null {
     use core::mem::MaybeUninit;

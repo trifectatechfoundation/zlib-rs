@@ -282,7 +282,7 @@ jobs:
           LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
-          cargo build --release --target ${{matrix.target}} --no-default-features --features="rust-allocator"
+          cargo build --release --target ${{matrix.target}} --no-default-features --features="export-symbols,rust-allocator"
           cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
@@ -291,7 +291,7 @@ jobs:
           LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
-          cargo build --release --target ${{matrix.target}} --no-default-features
+          cargo build --release --target ${{matrix.target}} --no-default-features --features="export-symbols"
           cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
