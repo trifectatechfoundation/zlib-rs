@@ -13,6 +13,13 @@ rust-version = "1.75" # MSRV
 [lib]
 name = "z_rs" # turns into e.g. `libz_rs.so`
 crate-type=["cdylib"]
+test = false
+
+[profile.dev]
+panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
+
+[profile.release]
+panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
 
 [features]
 default = ["c-allocator"] # when used as a cdylib crate, use the c allocator
