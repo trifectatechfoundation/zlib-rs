@@ -1,6 +1,6 @@
 # `libz-rs-sys-cdylib`
 
-Build `zlib-rs` as a drop-in replacement for the zlib dynamic library
+Build `zlib-rs` as a drop-in replacement for the zlib dynamic library.
 
 ```sh
 # build the cdylib
@@ -16,6 +16,9 @@ cc -o zpipe zpipe.c target/release/libz_rs.so -I .
 
 By default this build uses libc `malloc`/`free` to (de)allocate memory, and only depends on the rust `core` library.
 See below for the available feature flags.
+
+The cdylib enables `panic="abort"`, meaning that when the rust code runs into a panic (e.g. from an assert), the program is aborted.
+Panics indicate bugs, and we'd appreciate a bug report for them if they ever appear in the wild.
 
 ## Feature Flags
 
