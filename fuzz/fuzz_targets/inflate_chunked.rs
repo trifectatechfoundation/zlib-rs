@@ -34,7 +34,7 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
             &mut stream,
             level,
             method,
-            window_bits as i32,
+            window_bits,
             mem_level,
             strategy,
             libz_ng_sys::zlibVersion(),
@@ -71,14 +71,14 @@ fuzz_target!(|input: (String, usize)| {
         return;
     }
 
-    let deflated = deflate_ng(data.as_bytes(), window_bits as i32);
+    let deflated = deflate_ng(data.as_bytes(), window_bits);
 
     let mut stream = libz_rs_sys::z_stream::default();
 
     unsafe {
         let err = libz_rs_sys::inflateInit2_(
             &mut stream,
-            window_bits as i32,
+            window_bits,
             libz_rs_sys::zlibVersion(),
             core::mem::size_of::<libz_rs_sys::z_stream>() as i32,
         );

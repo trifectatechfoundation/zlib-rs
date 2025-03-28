@@ -26,7 +26,7 @@ fn uncompress_help(input: &[u8]) -> Vec<u8> {
 fuzz_target!(|data: String| {
     // first, deflate the data using the standard zlib
     let mut length = 8 * 1024;
-    let mut deflated = vec![0; length as usize];
+    let mut deflated = vec![0; length];
 
     let error = unsafe {
         libz_ng_sys::compress(

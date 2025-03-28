@@ -33,7 +33,7 @@ fuzz_target!(|source: Vec<u8>| {
     assert_eq!(err_ng, err_rs);
 
     if err_ng == ReturnCode::Ok {
-        dest_ng.truncate(dest_len_ng as usize);
+        dest_ng.truncate(dest_len_ng);
         dest_rs.truncate(dest_len_rs as usize);
 
         assert_eq!(dest_ng, dest_rs);
