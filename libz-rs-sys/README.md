@@ -11,7 +11,7 @@ Add a custom prefix to all exported symbols.
 
 The value of the `LIBZ_RS_SYS_PREFIX` is used as a prefix for all exported symbols. For example:
 
-```ignore
+```text
 > LIBZ_RS_SYS_PREFIX="MY_CUSTOM_PREFIX" cargo build -p libz-rs-sys --features=custom-prefix
    Compiling libz-rs-sys v0.2.1 (/home/folkertdev/rust/zlib-rs/libz-rs-sys)
     Finished `dev` profile [optimized + debuginfo] target(s) in 0.21s
