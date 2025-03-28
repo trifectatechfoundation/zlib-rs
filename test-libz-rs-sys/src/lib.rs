@@ -65,6 +65,34 @@ fn zlib_rs_is_not_zlib_ng() {
     }
 }
 
+/// a bit of a sanity check that nothing weird happened with symbol resolution
+#[cfg(not(miri))]
+#[cfg(test)]
+#[test]
+fn flags() {
+    unsafe {
+        let rs = libz_rs_sys::zlibCompileFlags();
+        let ng = libz_sys::zlibCompileFlags();
+
+        // the first 8 bits store the size of various types
+        assert_eq!(rs & 0b11, ng & 0b11);
+        assert_eq!((rs >> 2) & 0b11, (ng >> 2) & 0b11);
+        assert_eq!((rs >> 4) & 0b11, (ng >> 4) & 0b11);
+        assert_eq!((rs >> 6) & 0b11, (ng >> 6) & 0b11);
+
+        // ZLIB_DEBUG
+        assert_eq!(rs & (1 << 8), ng & (1 << 8));
+
+        // PKZIP_BUG_WORKAROUND
+        assert_eq!(rs & (1 << 20), ng & (1 << 20));
+
+        // The sprintf variant used by gzprintf
+        assert_eq!(rs & (0b111 << 24), ng & (0b111 << 24));
+
+        assert_eq!(rs, ng);
+    }
+}
+
 #[cfg(test)]
 mod null {
     use core::mem::MaybeUninit;

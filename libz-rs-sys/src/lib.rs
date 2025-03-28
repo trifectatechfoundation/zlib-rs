@@ -1673,6 +1673,113 @@ pub const extern "C" fn zlibVersion() -> *const c_char {
     LIBZ_RS_SYS_VERSION.as_ptr().cast::<c_char>()
 }
 
+/// Return flags indicating compile-time options.
+///
+/// Type sizes, two bits each, `0b00` = 16 bits, `0b01` = 32, `0b10` = 64, `0b11` = other:
+///
+/// | bits | description |
+/// | -- | -- |
+/// | `0..=1` | size of [`uInt`] |
+/// | `2..=3` | size of [`uLong`] |
+/// | `4..=5` | size of [`voidpf`] (pointer) |
+/// | `6..=7` | size of [`z_off_t`] |
+///
+/// Compiler, assembler, and debug options:
+///
+/// | bits | flag | description |
+/// | -- | -- | -- |
+/// | `8`     | `ZLIB_DEBUG` | debug prints are enabled |
+/// | `9`     | `ASMV` or `ASMINF` | use ASM code |
+/// | `10`    | `ZLIB_WINAPI` | exported functions use the WINAPI calling convention |
+/// | `11`    | | reserved |
+///
+/// One-time table building (smaller code, but not thread-safe if true):
+///
+/// | bits | flag | description |
+/// | -- | -- | -- |
+/// | `12` | `BUILDFIXED` | build static block decoding tables when needed |
+/// | `13` | `DYNAMIC_CRC_TABLE` | build CRC calculation tables when needed |
+/// | `14`    | | reserved |
+/// | `15`    | | reserved |
+///
+/// Library content (indicates missing functionality):
+///
+/// | bits | flag | description |
+/// | -- | -- | -- |
+/// | `16` | `NO_GZCOMPRESS` | `gz*` functions cannot compress (to avoid linking deflate code when not needed) |
+/// | `17` | `NO_GZIP` | deflate can't write gzip streams, and inflate can't detect and decode gzip streams (to avoid linking crc code) |
+/// | `18`    | | reserved |
+/// | `19`    | | reserved |
+///
+/// Operation variations (changes in library functionality):
+///
+/// | bits | flag | description |
+/// | -- | -- | -- |
+/// | `20` | `PKZIP_BUG_WORKAROUND` | slightly more permissive inflate |
+/// | `21` | `FASTEST` | deflate algorithm with only one, lowest compression level |
+/// | `22`    | | reserved |
+/// | `23`    | | reserved |
+///
+/// The sprintf variant used by `gzprintf` (zero is best):
+///
+/// | bits | value | description |
+/// | -- | -- | -- |
+/// | `24` | 0 = vs*, 1 = s* | 1 means limited to 20 arguments after the format |
+/// | `25` | 0 = *nprintf, 1 = *printf | 1 means `gzprintf` not secure! |
+/// | `26` | 0 = returns value, 1 = void | 1 means inferred string length returned |
+///
+/// Remainder:
+///
+/// The remaining bits `27..=31` are 0 (reserved).
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(zlibCompileFlags))]
+pub const extern "C" fn zlibCompileFlags() -> c_ulong {
+    let mut flags = 0;
+
+    const fn encode_size<T>() -> c_ulong {
+        match core::mem::size_of::<T>() {
+            2 => 0b00,
+            4 => 0b01,
+            8 => 0b10,
+            _ => 0b11,
+        }
+    }
+
+    flags |= encode_size::<uInt>();
+    flags |= encode_size::<uLong>() << 2;
+    flags |= encode_size::<voidpf>() << 4;
+    flags |= encode_size::<z_off_t>() << 6;
+
+    macro_rules! set_bit {
+        ($i:expr, $v:expr) => {
+            flags |= (($v as uLong) << $i);
+        };
+    }
+
+    // Compiler, assembler, debug:
+    set_bit!(8, false); // ZLIB_DEBUG
+    set_bit!(9, false); // ASMV || ASMINF
+    set_bit!(10, false); // ZLIB_WINAPI
+
+    // One-time table building:
+    set_bit!(12, false); // BUILDFIXED
+    set_bit!(13, false); // DYNAMIC_CRC_TABLE
+
+    // Library content (indicates missing functionality):
+    set_bit!(16, false); // NO_GZCOMPRESS
+    set_bit!(17, false); // NO_GZIP
+
+    // Operation variations (changes in library functionality):
+    set_bit!(20, false); // PKZIP_BUG_WORKAROUND
+    set_bit!(21, false); // FASTEST
+
+    // The sprintf variant used by gzprintf (we assume a modern libc):
+    set_bit!(24, false);
+    set_bit!(25, false);
+    set_bit!(26, false);
+
+    flags
+}
+
 /// # Safety
 ///
 /// Either
