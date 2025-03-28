@@ -44,7 +44,7 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
             assert_eq!(crc1, crc4);
         }
 
-        crc2 = crc32(crc2, &data);
+        crc2 = crc32(crc2, data);
 
         assert_eq!(crc1, crc2);
 
@@ -76,7 +76,7 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
             assert_eq!(adler1, adler4);
         }
 
-        adler2 = adler32(adler2, &data);
+        adler2 = adler32(adler2, data);
 
         assert_eq!(adler1, adler2);
 
