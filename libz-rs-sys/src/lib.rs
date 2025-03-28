@@ -91,7 +91,11 @@ const _: () =
 // In spirit this type is `libc::off_t`, but it would be our only libc dependency, and so we
 // hardcode the type here. This should be correct on most operating systems. If we ever run into
 // issues with it, we can either special-case or add a feature flag to force a particular width
+#[cfg(not(target_arch = "wasm32"))]
 pub type z_off_t = c_long;
+
+#[cfg(target_arch = "wasm32")]
+pub type z_off_t = i64;
 
 /// Calculates the [crc32](https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks#CRC-32_algorithm) checksum
 /// of a sequence of bytes.
