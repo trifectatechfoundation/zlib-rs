@@ -37,6 +37,12 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+#[cfg(feature = "gz")]
+mod gz;
+
+#[cfg(feature = "gz")]
+pub use gz::*;
+
 #[cfg(feature = "custom-prefix")]
 macro_rules! prefix {
     ($name:expr) => {
@@ -49,6 +55,7 @@ macro_rules! prefix {
 const _PRE_ONE_DOT_O: () = assert!(env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] == b'0');
 
 #[cfg(feature = "semver-prefix")]
+#[macro_export]
 macro_rules! prefix {
     ($name:expr) => {
         concat!(
@@ -67,6 +74,7 @@ macro_rules! prefix {
     not(feature = "semver-prefix"),
     not(any(test, feature = "testing-prefix"))
 ))]
+#[macro_export]
 macro_rules! prefix {
     ($name:expr) => {
         stringify!($name)
@@ -78,6 +86,7 @@ macro_rules! prefix {
     not(feature = "semver-prefix"),
     any(test, feature = "testing-prefix")
 ))]
+#[macro_export]
 macro_rules! prefix {
     ($name:expr) => {
         concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
