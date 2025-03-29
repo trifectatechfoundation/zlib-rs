@@ -6,6 +6,9 @@ mod helpers;
 mod inflate;
 #[cfg(test)]
 mod zlib_ng_cve;
+#[cfg(test)]
+#[cfg(feature = "gz")]
+mod gz;
 
 #[cfg(test)]
 #[macro_export]
