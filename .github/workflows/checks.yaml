@@ -157,6 +157,7 @@ jobs:
           - ""
           - '--no-default-features --features="c-allocator"'
           - '--no-default-features --features="rust-allocator"'
+          - '--no-default-features --features="gz" --features="c-allocator"'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources

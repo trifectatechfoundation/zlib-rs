@@ -12,7 +12,7 @@ rust-version.workspace = true
 
 
 [features]
-default = ["rust-allocator"]
+default = ["rust-allocator", "gz"]
 c-allocator = ["libz-rs-sys/c-allocator"]
 rust-allocator = ["libz-rs-sys/rust-allocator"]
 gz = ["libz-rs-sys/gz"]
