@@ -1,13 +1,14 @@
+use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
-use core::ffi::{c_char, c_int, c_uint, c_void, CStr };
+use core::ffi::{c_char, c_int, c_uint, CStr };
 
-use std::ptr;
+use core::ptr;
 use libc::{O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL, O_LARGEFILE, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
 
-// For compatibility with the zlib C API, this structure exposes just enough of the
-// internal state of an open gzFile to support the gzgetc() C macro.
+/// For compatibility with the zlib C API, this structure exposes just enough of the
+/// internal state of an open gzFile to support the gzgetc() C macro.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct gzFile_s {
@@ -59,7 +60,7 @@ struct gz_state {
 
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 enum GzMode {
     GZ_NONE = 0,
     GZ_READ = 7247,
@@ -69,13 +70,22 @@ enum GzMode {
 
 const GZBUFSIZE: usize = 128 * 1024;
 
-const Z_DEFAULT_COMPRESSION: i8 = -1;
+#[cfg(feature = "rust-allocator")]
+const ALLOCATOR: &Allocator = &Allocator::RUST;
+
+#[cfg(not(feature = "rust-allocator"))]
+#[cfg(feature = "c-allocator")]
+const ALLOCATOR: &Allocator = &Allocator::C;
+
+#[cfg(not(feature = "rust-allocator"))]
+#[cfg(not(feature = "c-allocator"))]
+compile_error!("Either rust-allocator or c-allocator feature is required");
 
 /// Open a gzip file for reading or writing.
 ///
 /// # Safety
 /// The caller must ensure that path and mode point to valid C strings. If the
-/// return value is non-NULL, caller must delete it using only gzclose.
+/// return value is non-NULL, caller must delete it using only [`gzclose`].
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzopen))]
 pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char) -> gzFile {
     gzopen_help(path, -1, mode)
@@ -90,17 +100,16 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         return ptr::null_mut();
     }
 
-    let state_ptr = gz_alloc::<gz_state>();
-    if state_ptr.is_null() {
+    let Some(state) = ALLOCATOR.allocate_zeroed(size_of::<gz_state>()) else {
         return ptr::null_mut();
-    }
-    let state = &mut *state_ptr;
+    };
+    let state = state.cast::<gz_state>().as_mut();
     state.size = 0;
     state.want = GZBUFSIZE;
     state.msg = ptr::null();
 
     state.mode = GzMode::GZ_NONE;
-    state.level = Z_DEFAULT_COMPRESSION;
+    state.level = crate::Z_DEFAULT_COMPRESSION as i8;
     state.strategy = Strategy::Default;
     state.direct = false;
 
@@ -130,14 +139,15 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     // Must specify read, write, or append
     if state.mode == GzMode::GZ_NONE {
-        gz_free(state_ptr);
+        ALLOCATOR.deallocate(state, 1);
+
         return ptr::null_mut();
     }
 
     // Can't force transparent read
     if state.mode == GzMode::GZ_READ {
         if state.direct {
-            gz_free(state_ptr);
+            ALLOCATOR.deallocate(state, 1);
             return ptr::null_mut();
         }
         state.direct = true;
@@ -171,8 +181,8 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         // FIXME: support _wopen for WIN32
         state.fd = libc::open(state.path, oflag, 0o666);
         if state.fd == -1 {
-            gz_free(state.path);
-            gz_free(state_ptr);
+            ALLOCATOR.deallocate(state.path.cast_mut(), 1);
+            ALLOCATOR.deallocate(state, 1);
             return ptr::null_mut();
         }
         if state.mode == GzMode::GZ_APPEND {
@@ -191,7 +201,8 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     // FIXME verify the file headers, and initialize the inflate/deflate state
 
-    state_ptr.cast::<gzFile_s>()
+    // FIXME change this to core::ptr::from_mut(state).cast::<gzFile_s>() once MSRV >= 1.76
+    (state as *mut gz_state).cast::<gzFile_s>()
 }
 
 /// Close an open gzip file and free the internal data structures referenced by the file handle.
@@ -200,31 +211,18 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 /// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int{
-    if file.is_null() {
+    let Some(state) = file.cast::<gz_state>().as_mut() else {
         return Z_STREAM_ERROR;
-    }
+    };
 
     // FIXME: once read/write support is added, clean up internal buffers
-    let state = &*file.cast::<gz_state>();
+
     let err = libc::close(state.fd);
-    gz_free(state.path);
-    gz_free(file);
+    ALLOCATOR.deallocate(state.path.cast_mut(), 1);
+    ALLOCATOR.deallocate(state, 1);
     if err == 0 {
         Z_OK
     } else {
         Z_ERRNO
     }
-}
-
-// Allocate a block of memory
-// # Safety: if the returned value is non-NULL, caller must delete it only with gz_free.
-unsafe fn gz_alloc<T>() -> *mut T {
-    libc::calloc(1, size_of::<T>()).cast::<T>()
-}
-
-// Free a block of memory that was allocated with gz_alloc
-// # Safety: caller must ensure that ptr was obtained from a prior call to gz_alloc and that
-//           ptr has not already been passed to gz_free.
-unsafe fn gz_free<T>(ptr: *const T) {
-    libc::free(ptr.cast::<c_void>().cast_mut())
 }
