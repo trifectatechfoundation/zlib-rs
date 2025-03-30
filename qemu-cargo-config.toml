@@ -8,4 +8,4 @@ linker = "s390x-linux-gnu-gcc"
 linker = "i686-linux-gnu-gcc"
 
 [target.wasm32-wasip1]
-runner = "/home/runner/.wasmtime/bin/wasmtime"
+runner = "/home/runner/.wasmtime/bin/wasmtime --dir /home/runner/work/zlib-rs/zlib-rs/test-libz-rs-sys"
