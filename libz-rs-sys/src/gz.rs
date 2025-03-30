@@ -4,7 +4,7 @@ pub use zlib_rs::c_api::*;
 use core::ffi::{c_char, c_int, c_uint, CStr };
 
 use core::ptr;
-use libc::{O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL, O_LARGEFILE, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use libc::{O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
 
 /// For compatibility with the zlib C API, this structure exposes just enough of the
@@ -161,7 +161,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     if fd > -1 {
         state.fd = fd;
     } else {
-        let mut oflag: c_int = O_LARGEFILE;
+        let mut oflag: c_int = 0;
         if cloexec {
             oflag |= O_CLOEXEC;
         }
@@ -193,7 +193,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     if state.mode == GzMode::GZ_READ {
         // Save the current position for rewinding
-        state.start = libc::lseek(state.fd, 0, SEEK_CUR);
+        state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _;
         if state.start == -1 {
             state.start = 0;
         }
