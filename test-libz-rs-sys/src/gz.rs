@@ -1,20 +1,24 @@
 use zlib_rs::c_api::*;
 
-use std::ffi::CString;
-use std::ptr;
 use libz_rs_sys::gzclose;
 use libz_rs_sys::gzopen;
+use std::ffi::CString;
+use std::ptr;
 
 const BASE_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 // Turn a Rust string into a C string
 macro_rules! cs {
-    ($str:expr) => { CString::new($str).unwrap().as_ptr() }
+    ($str:expr) => {
+        CString::new($str).unwrap().as_ptr()
+    };
 }
 
 // Generate a file path relative to the project's root
 macro_rules! path {
-    ($str:expr) => { (BASE_DIR.to_owned() + "/" + $str).as_str() }
+    ($str:expr) => {
+        (BASE_DIR.to_owned() + "/" + $str).as_str()
+    };
 }
 
 unsafe fn test_open(path: &str, mode: &str, should_succeed: bool) {
