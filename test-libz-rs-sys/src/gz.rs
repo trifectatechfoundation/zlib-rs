@@ -5,8 +5,6 @@ use libz_rs_sys::gzopen;
 use std::ffi::CString;
 use std::ptr;
 
-const BASE_DIR: &str = env!("CARGO_MANIFEST_DIR");
-
 // Turn a Rust string into a C string
 macro_rules! cs {
     ($str:expr) => {
@@ -17,17 +15,13 @@ macro_rules! cs {
 // Generate a file path relative to the project's root
 macro_rules! path {
     ($str:expr) => {
-        (BASE_DIR.to_owned() + "/" + $str).as_str()
+        concat!(env!("CARGO_MANIFEST_DIR"), "/", $str)
     };
 }
 
 unsafe fn test_open(path: &str, mode: &str, should_succeed: bool) {
     let handle = gzopen(cs!(path), cs!(mode));
-    if should_succeed {
-        assert!(!handle.is_null());
-    } else {
-        assert!(handle.is_null());
-    }
+    assert_eq!(should_succeed, !handle.is_null(), "{path} {mode}");
     if !handle.is_null() {
         assert_eq!(gzclose(handle), Z_OK);
     }
