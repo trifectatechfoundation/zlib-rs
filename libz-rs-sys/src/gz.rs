@@ -1,66 +1,72 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
-use core::ffi::{c_char, c_int, c_uint, CStr };
+use core::ffi::{c_char, c_int, c_uint, CStr};
 use core::mem::size_of;
 use core::ptr;
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
 
-/// For compatibility with the zlib C API, this structure exposes just enough of the
-/// internal state of an open gzFile to support the gzgetc() C macro.
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct gzFile_s {
-    have: c_uint,        // number of bytes available at next
-    next: *const Bytef,  // next byte of uncompressed data
-    pos: u64,            // current offset in uncompressed data stream
-}
+/// In the zlib C API, this structure exposes just enough of the internal state
+/// of an open gzFile to support the gzgetc() C macro. Since Rust code won't be
+/// using that C macro, we define gzFile_s as an empty structure. The first fields
+/// in GzState match what would be in the C version of gzFile_s.
+pub enum gzFile_s {}
 
-// File handle for an open gzip file.
+/// File handle for an open gzip file.
 pub type gzFile = *mut gzFile_s;
 
 // The internals of a gzip file handle (the thing gzFile actually points to, with the
 // public gzFile_s part at the front for ABI compatibility).
 #[repr(C)]
 struct GzState {
-    x: gzFile_s,         // "x" for the exposed part of the data structure
+    // Public interface:
+    // These first three fields must match the structure gzFile_s in the C version
+    // of zlib. In the C library, a macro called gzgetc() reads and writes these
+    // fields directly.
+    have: c_uint,       // number of bytes available at next
+    next: *const Bytef, // next byte of uncompressed data
+    pos: u64,           // current offset in uncompressed data stream
+
+    // End of public interface:
+    // All fields after this point are opaque to C code using this library,
+    // so they can be rearranged without breaking compatibility.
 
     // Fields used for both reading and writing
     mode: GzMode,
-    fd: c_int,           // file descriptor
+    fd: c_int, // file descriptor
     path: *const c_char,
-    size: usize,         // buffer size; can be 0 if not yet allocated
-    want: usize,         // requested buffer size
-    input: *mut Bytef,   // input buffer
-    output: *mut Bytef,  // output buffer
-    direct: bool,        // true in pass-through mode, false if processing gzip data
+    size: usize,        // buffer size; can be 0 if not yet allocated
+    want: usize,        // requested buffer size
+    input: *mut Bytef,  // input buffer
+    output: *mut Bytef, // output buffer
+    direct: bool,       // true in pass-through mode, false if processing gzip data
 
     // Fields used just for reading
     // FIXME: add the 'how' field when read support is implemented
     start: i64,
-    eof: bool,           // whether we have reached the end of the input file
-    past: bool,          // whether a read past the end has been requested
+    eof: bool,  // whether we have reached the end of the input file
+    past: bool, // whether a read past the end has been requested
 
     // Fields used just for writing
     level: i8,
     strategy: Strategy,
-    reset: bool,         // whether a reset is pending after a Z_FINISH
+    reset: bool, // whether a reset is pending after a Z_FINISH
 
     // Fields used for seek requests
-    skip: i64,           // amount to skip (already rewound if backwards)
-    seek: bool,          // whether a seek request is pending
+    skip: i64,  // amount to skip (already rewound if backwards)
+    seek: bool, // whether a seek request is pending
 
     // Error information
-    err: c_int,          // last error (0 if no error)
-    msg: *const c_char,  // error message from last error (NULL if none)
+    err: c_int, // last error (0 if no error)
+    msg: *const c_char, // error message from last error (NULL if none)
 
-    // FIXME: add the zstream field when read/write support is implemented
+                // FIXME: add the zstream field when read/write support is implemented
 }
 
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
-#[derive(Eq, PartialEq)]
+#[derive(PartialEq, Eq)]
 enum GzMode {
     GZ_NONE = 0,
     GZ_READ = 7247,
@@ -124,7 +130,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
                 b'r' => state.mode = GzMode::GZ_READ,
                 b'w' => state.mode = GzMode::GZ_WRITE,
                 b'a' => state.mode = GzMode::GZ_APPEND,
-                b'b' => {}, // binary mode is the default
+                b'b' => {} // binary mode is the default
                 b'x' => exclusive = true,
                 b'f' => state.strategy = Strategy::Filtered,
                 b'h' => state.strategy = Strategy::HuffmanOnly,
@@ -222,7 +228,7 @@ unsafe fn free_state(state: &mut GzState) {
 /// # Safety
 /// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
-pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int{
+pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
     let Some(state) = file.cast::<GzState>().as_mut() else {
         return Z_STREAM_ERROR;
     };
