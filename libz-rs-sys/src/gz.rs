@@ -138,15 +138,14 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     // Must specify read, write, or append
     if state.mode == GzMode::GZ_NONE {
-        ALLOCATOR.deallocate(state, 1);
-
+        free_state(state);
         return ptr::null_mut();
     }
 
     // Can't force transparent read
     if state.mode == GzMode::GZ_READ {
         if state.direct {
-            ALLOCATOR.deallocate(state, 1);
+            free_state(state);
             return ptr::null_mut();
         }
         state.direct = true;
@@ -154,7 +153,14 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     // Save the path name for error messages
     // FIXME: support Windows wide characters for compatibility with zlib-ng
-    state.path = libc::strdup(path);
+    let len = libc::strlen(path) + 1;
+    let Some(path_copy) = ALLOCATOR.allocate_zeroed(len) else {
+        free_state(state);
+        return ptr::null_mut();
+    };
+    let path_copy = path_copy.as_ptr().cast::<c_char>();
+    libc::strncpy(path_copy, path, len);
+    state.path = path_copy;
 
     // Open the file unless the caller passed a file descriptor.
     if fd > -1 {
@@ -177,8 +183,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         // FIXME: support _wopen for WIN32
         state.fd = libc::open(state.path, oflag, 0o666);
         if state.fd == -1 {
-            ALLOCATOR.deallocate(state.path.cast_mut(), 1);
-            ALLOCATOR.deallocate(state, 1);
+            free_state(state);
             return ptr::null_mut();
         }
         if state.mode == GzMode::GZ_APPEND {
@@ -201,6 +206,17 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     (state as *mut gz_state).cast::<gzFile_s>()
 }
 
+// Deallocate a gz_state structure and all heap-allocated fields inside it.
+//
+// # Safety
+// The caller must not use the state after passing it to this function.
+unsafe fn free_state(state: &mut gz_state) {
+    if !state.path.is_null() {
+        ALLOCATOR.deallocate(state.path.cast_mut(), libc::strlen(state.path) + 1);
+    }
+    ALLOCATOR.deallocate(state, 1);
+}
+
 /// Close an open gzip file and free the internal data structures referenced by the file handle.
 ///
 /// # Safety
@@ -214,8 +230,7 @@ pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int{
     // FIXME: once read/write support is added, clean up internal buffers
 
     let err = libc::close(state.fd);
-    ALLOCATOR.deallocate(state.path.cast_mut(), 1);
-    ALLOCATOR.deallocate(state, 1);
+    free_state(state);
     if err == 0 {
         Z_OK
     } else {
