@@ -4,7 +4,7 @@ pub use zlib_rs::c_api::*;
 use core::ffi::{c_char, c_int, c_uint, CStr };
 use core::mem::size_of;
 use core::ptr;
-use libc::{O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
 
 /// For compatibility with the zlib C API, this structure exposes just enough of the
@@ -113,19 +113,18 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     state.strategy = Strategy::Default;
     state.direct = false;
 
-    let mut cloexec = false;
     let mut exclusive = false;
     let mode = CStr::from_ptr(mode);
     for &ch in mode.to_bytes() {
         if ch.is_ascii_digit() {
             state.level = (ch - b'0') as i8;
         } else {
+            // FIXME implement the 'e' flag on platforms where O_CLOEXEC is supported
             match ch {
                 b'r' => state.mode = GzMode::GZ_READ,
                 b'w' => state.mode = GzMode::GZ_WRITE,
                 b'a' => state.mode = GzMode::GZ_APPEND,
                 b'b' => {}, // binary mode is the default
-                b'e' => cloexec = true,
                 b'x' => exclusive = true,
                 b'f' => state.strategy = Strategy::Filtered,
                 b'h' => state.strategy = Strategy::HuffmanOnly,
@@ -162,9 +161,6 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         state.fd = fd;
     } else {
         let mut oflag: c_int = 0;
-        if cloexec {
-            oflag |= O_CLOEXEC;
-        }
         if state.mode == GzMode::GZ_READ {
             oflag |= O_RDONLY;
         } else {
