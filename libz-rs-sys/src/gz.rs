@@ -23,7 +23,7 @@ pub type gzFile = *mut gzFile_s;
 // The internals of a gzip file handle (the thing gzFile actually points to, with the
 // public gzFile_s part at the front for ABI compatibility).
 #[repr(C)]
-struct gz_state {
+struct GzState {
     x: gzFile_s,         // "x" for the exposed part of the data structure
 
     // Fields used for both reading and writing
@@ -100,10 +100,10 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         return ptr::null_mut();
     }
 
-    let Some(state) = ALLOCATOR.allocate_zeroed(size_of::<gz_state>()) else {
+    let Some(state) = ALLOCATOR.allocate_zeroed(size_of::<GzState>()) else {
         return ptr::null_mut();
     };
-    let state = state.cast::<gz_state>().as_mut();
+    let state = state.cast::<GzState>().as_mut();
     state.size = 0;
     state.want = GZBUFSIZE;
     state.msg = ptr::null();
@@ -203,14 +203,14 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     // FIXME verify the file headers, and initialize the inflate/deflate state
 
     // FIXME change this to core::ptr::from_mut(state).cast::<gzFile_s>() once MSRV >= 1.76
-    (state as *mut gz_state).cast::<gzFile_s>()
+    (state as *mut GzState).cast::<gzFile_s>()
 }
 
-// Deallocate a gz_state structure and all heap-allocated fields inside it.
+// Deallocate a GzState structure and all heap-allocated fields inside it.
 //
 // # Safety
 // The caller must not use the state after passing it to this function.
-unsafe fn free_state(state: &mut gz_state) {
+unsafe fn free_state(state: &mut GzState) {
     if !state.path.is_null() {
         ALLOCATOR.deallocate(state.path.cast_mut(), libc::strlen(state.path) + 1);
     }
@@ -223,7 +223,7 @@ unsafe fn free_state(state: &mut gz_state) {
 /// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int{
-    let Some(state) = file.cast::<gz_state>().as_mut() else {
+    let Some(state) = file.cast::<GzState>().as_mut() else {
         return Z_STREAM_ERROR;
     };
 
