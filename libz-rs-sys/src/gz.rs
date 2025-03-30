@@ -2,7 +2,7 @@ use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
 use core::ffi::{c_char, c_int, c_uint, CStr };
-
+use core::mem::size_of;
 use core::ptr;
 use libc::{O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
