@@ -2,7 +2,6 @@ use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
 use core::ffi::{c_char, c_int, c_uint, CStr};
-use core::mem::size_of;
 use core::ptr;
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
@@ -106,7 +105,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         return ptr::null_mut();
     }
 
-    let Some(state) = ALLOCATOR.allocate_zeroed(size_of::<GzState>()) else {
+    let Some(state) = ALLOCATOR.allocate_zeroed_raw::<GzState>() else {
         return ptr::null_mut();
     };
     let state = state.cast::<GzState>().as_mut();
@@ -160,7 +159,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     // Save the path name for error messages
     // FIXME: support Windows wide characters for compatibility with zlib-ng
     let len = libc::strlen(path) + 1;
-    let Some(path_copy) = ALLOCATOR.allocate_zeroed(len) else {
+    let Some(path_copy) = ALLOCATOR.allocate_slice_raw::<u8>(len) else {
         free_state(state);
         return ptr::null_mut();
     };
