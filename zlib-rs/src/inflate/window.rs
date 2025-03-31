@@ -147,7 +147,7 @@ impl<'a> Window<'a> {
 
     pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
         let len = (1 << window_bits) + Self::padding();
-        let ptr = alloc.allocate_zeroed(len)?;
+        let ptr = alloc.allocate_zeroed_buffer(len)?;
 
         Some(Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
@@ -158,7 +158,7 @@ impl<'a> Window<'a> {
 
     pub fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
         let len = self.buf.len();
-        let ptr = alloc.allocate_zeroed(len)?;
+        let ptr = alloc.allocate_zeroed_buffer(len)?;
 
         Some(Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
