@@ -164,7 +164,7 @@ impl Allocator<'static> {
 }
 
 impl Allocator<'_> {
-    pub fn allocate_layout(&self, layout: Layout) -> *mut c_void {
+    fn allocate_layout(&self, layout: Layout) -> *mut c_void {
         // Special case for the Rust `alloc` backed allocator
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
@@ -248,21 +248,10 @@ impl Allocator<'_> {
         ptr
     }
 
-    pub fn allocate_raw<T>(&self) -> Option<NonNull<T>> {
-        NonNull::new(self.allocate_layout(Layout::new::<T>()).cast())
-    }
-
-    pub fn allocate_slice_raw<T>(&self, len: usize) -> Option<NonNull<T>> {
-        NonNull::new(self.allocate_layout(Layout::array::<T>(len).ok()?).cast())
-    }
-
-    pub fn allocate_zeroed(&self, len: usize) -> Option<NonNull<u8>> {
+    fn allocate_layout_zeroed(&self, layout: Layout) -> *mut c_void {
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
-            // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
-            let layout = Layout::from_size_align(len, 64).unwrap();
-
-            return NonNull::new(unsafe { std::alloc::System.alloc_zeroed(layout) });
+            return unsafe { std::alloc::System.alloc_zeroed(layout).cast() };
         }
 
         #[cfg(feature = "c-allocator")]
@@ -274,20 +263,38 @@ impl Allocator<'_> {
                 _marker: PhantomData,
             };
 
-            let ptr = alloc.allocate_layout(Layout::array::<u8>(len).ok().unwrap());
+            let ptr = alloc.allocate_layout(layout);
 
-            return NonNull::new(ptr.cast());
+            return ptr;
         }
 
         // create the allocation (contents are uninitialized)
-        let ptr = self.allocate_layout(Layout::array::<u8>(len).ok().unwrap());
+        let ptr = self.allocate_layout(layout);
 
-        let ptr = NonNull::new(ptr)?;
+        if !ptr.is_null() {
+            // zero all contents (thus initializing the buffer)
+            unsafe { core::ptr::write_bytes(ptr, 0, layout.size()) };
+        }
 
-        // zero all contents (thus initializing the buffer)
-        unsafe { core::ptr::write_bytes(ptr.as_ptr(), 0, len) };
+        ptr
+    }
 
-        Some(ptr.cast())
+    pub fn allocate_raw<T>(&self) -> Option<NonNull<T>> {
+        NonNull::new(self.allocate_layout(Layout::new::<T>()).cast())
+    }
+
+    pub fn allocate_slice_raw<T>(&self, len: usize) -> Option<NonNull<T>> {
+        NonNull::new(self.allocate_layout(Layout::array::<T>(len).ok()?).cast())
+    }
+
+    pub fn allocate_zeroed_raw<T>(&self) -> Option<NonNull<T>> {
+        NonNull::new(self.allocate_layout_zeroed(Layout::new::<T>()).cast())
+    }
+
+    pub fn allocate_zeroed_buffer(&self, len: usize) -> Option<NonNull<u8>> {
+        // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
+        let layout = Layout::from_size_align(len, 64).unwrap();
+        NonNull::new(self.allocate_layout_zeroed(layout).cast())
     }
 
     /// # Panics
@@ -413,7 +420,7 @@ mod tests {
 
     fn test_allocate_zeroed_help(allocator: Allocator) {
         let len = 42;
-        let Some(buf) = allocator.allocate_zeroed(len) else {
+        let Some(buf) = allocator.allocate_zeroed_buffer(len) else {
             return;
         };
 

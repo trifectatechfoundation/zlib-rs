@@ -71,7 +71,7 @@ impl<'a> ReadBuf<'a> {
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
-        let ptr = alloc.allocate_zeroed(len)?;
+        let ptr = alloc.allocate_zeroed_buffer(len)?;
 
         // safety: all elements are now initialized
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
