@@ -15,6 +15,8 @@ use alloc::alloc::GlobalAlloc;
 #[allow(non_camel_case_types)]
 type size_t = usize;
 
+const ALIGN: u8 = 64;
+
 /// # Safety
 ///
 /// This function is safe, but must have this type signature to be used elsewhere in the library
@@ -27,7 +29,7 @@ unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) 
     }
 
     let mut ptr = core::ptr::null_mut();
-    match posix_memalign(&mut ptr, 64, items as size_t * size as size_t) {
+    match posix_memalign(&mut ptr, ALIGN.into(), items as size_t * size as size_t) {
         0 => ptr,
         _ => core::ptr::null_mut(),
     }
@@ -82,13 +84,31 @@ unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
 /// This function is safe to call.
 #[cfg(feature = "rust-allocator")]
 unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
-    let align = 64;
     let size = count as usize * size as usize;
 
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
-    let layout = Layout::from_size_align(size, align).unwrap();
+    let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
 
     let ptr = std::alloc::System.alloc(layout);
+
+    ptr as *mut c_void
+}
+
+/// # Safety
+///
+/// This function is safe to call.
+#[cfg(feature = "rust-allocator")]
+unsafe extern "C" fn zalloc_rust_calloc(
+    _opaque: *mut c_void,
+    count: c_uint,
+    size: c_uint,
+) -> *mut c_void {
+    let size = count as usize * size as usize;
+
+    // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
+    let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
+
+    let ptr = std::alloc::System.alloc_zeroed(layout);
 
     ptr as *mut c_void
 }
@@ -110,9 +130,8 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     }
 
     let size = *(opaque as *mut usize);
-    let align = 64;
 
-    let layout = Layout::from_size_align(size, align);
+    let layout = Layout::from_size_align(size, ALIGN.into());
     let layout = layout.unwrap();
 
     std::alloc::System.dealloc(ptr.cast(), layout);
@@ -251,7 +270,11 @@ impl Allocator<'_> {
     fn allocate_layout_zeroed(&self, layout: Layout) -> *mut c_void {
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
-            return unsafe { std::alloc::System.alloc_zeroed(layout).cast() };
+            let ptr = unsafe { zalloc_rust_calloc(self.opaque, layout.size() as _, 1) };
+
+            debug_assert_eq!(ptr as usize % layout.align(), 0);
+
+            return ptr;
         }
 
         #[cfg(feature = "c-allocator")]
@@ -263,9 +286,7 @@ impl Allocator<'_> {
                 _marker: PhantomData,
             };
 
-            let ptr = alloc.allocate_layout(layout);
-
-            return ptr;
+            return alloc.allocate_layout(layout);
         }
 
         // create the allocation (contents are uninitialized)
@@ -273,7 +294,7 @@ impl Allocator<'_> {
 
         if !ptr.is_null() {
             // zero all contents (thus initializing the buffer)
-            unsafe { core::ptr::write_bytes(ptr, 0, layout.size()) };
+            unsafe { core::ptr::write_bytes(ptr, 0u8, layout.size()) };
         }
 
         ptr
@@ -293,7 +314,7 @@ impl Allocator<'_> {
 
     pub fn allocate_zeroed_buffer(&self, len: usize) -> Option<NonNull<u8>> {
         // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
-        let layout = Layout::from_size_align(len, 64).unwrap();
+        let layout = Layout::from_size_align(len, ALIGN.into()).unwrap();
         NonNull::new(self.allocate_layout_zeroed(layout).cast())
     }
 
@@ -419,6 +440,26 @@ mod tests {
     }
 
     fn test_allocate_zeroed_help(allocator: Allocator) {
+        #[repr(C, align(64))]
+        struct Align64(u8);
+
+        let ptr = allocator.allocate_raw::<Align64>();
+        assert!(ptr.is_some());
+        unsafe { allocator.deallocate(ptr.unwrap().as_ptr(), 1) };
+    }
+
+    #[test]
+    fn test_allocate_zeroed() {
+        #[cfg(feature = "rust-allocator")]
+        test_allocate_zeroed_help(Allocator::RUST);
+
+        #[cfg(feature = "c-allocator")]
+        test_allocate_zeroed_help(Allocator::C);
+
+        assert!(Allocator::FAIL.allocate_raw::<u128>().is_none());
+    }
+
+    fn test_allocate_zeroed_buffer_help(allocator: Allocator) {
         let len = 42;
         let Some(buf) = allocator.allocate_zeroed_buffer(len) else {
             return;
@@ -432,14 +473,14 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_zeroed() {
+    fn test_allocate_buffer_zeroed() {
         #[cfg(feature = "rust-allocator")]
-        test_allocate_zeroed_help(Allocator::RUST);
+        test_allocate_zeroed_buffer_help(Allocator::RUST);
 
         #[cfg(feature = "c-allocator")]
-        test_allocate_zeroed_help(Allocator::C);
+        test_allocate_zeroed_buffer_help(Allocator::C);
 
-        test_allocate_zeroed_help(Allocator::FAIL);
+        test_allocate_zeroed_buffer_help(Allocator::FAIL);
     }
 
     #[test]
