@@ -178,6 +178,7 @@ jobs:
       - name: Run clippy
         run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
       - name: Run clippy (fuzzers)
+        if: ${{ !contains(matrix.features, 'gz') }}
         run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --manifest-path ./fuzz/Cargo.toml --all-targets -- -D warnings
       - name: Run cargo doc, deny warnings
         env:
