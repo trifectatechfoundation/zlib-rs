@@ -184,6 +184,8 @@ impl Allocator<'static> {
 
 impl Allocator<'_> {
     fn allocate_layout(&self, layout: Layout) -> *mut c_void {
+        assert!(layout.align() <= ALIGN.into());
+
         // Special case for the Rust `alloc` backed allocator
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
@@ -268,6 +270,8 @@ impl Allocator<'_> {
     }
 
     fn allocate_layout_zeroed(&self, layout: Layout) -> *mut c_void {
+        assert!(layout.align() <= ALIGN.into());
+
         #[cfg(feature = "rust-allocator")]
         if self.zalloc == Allocator::RUST.zalloc {
             let ptr = unsafe { zalloc_rust_calloc(self.opaque, layout.size() as _, 1) };
@@ -313,8 +317,7 @@ impl Allocator<'_> {
     }
 
     pub fn allocate_zeroed_buffer(&self, len: usize) -> Option<NonNull<u8>> {
-        // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
-        let layout = Layout::from_size_align(len, ALIGN.into()).unwrap();
+        let layout = Layout::array::<u8>(len).ok()?;
         NonNull::new(self.allocate_layout_zeroed(layout).cast())
     }
 
