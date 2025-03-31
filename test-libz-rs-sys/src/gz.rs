@@ -5,13 +5,6 @@ use libz_rs_sys::gzopen;
 use std::ffi::CString;
 use std::ptr;
 
-// Turn a Rust string into a C string
-macro_rules! cs {
-    ($str:expr) => {
-        CString::new($str).unwrap().as_ptr()
-    };
-}
-
 // Generate a file path relative to the project's root
 macro_rules! path {
     ($str:expr) => {
@@ -20,7 +13,9 @@ macro_rules! path {
 }
 
 unsafe fn test_open(path: &str, mode: &str, should_succeed: bool) {
-    let handle = gzopen(cs!(path), cs!(mode));
+    let cpath = CString::new(path).unwrap();
+    let cmode = CString::new(mode).unwrap();
+    let handle = gzopen(cpath.as_ptr(), cmode.as_ptr());
     assert_eq!(should_succeed, !handle.is_null(), "{path} {mode}");
     if !handle.is_null() {
         assert_eq!(gzclose(handle), Z_OK);
