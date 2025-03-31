@@ -159,7 +159,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     // Save the path name for error messages
     // FIXME: support Windows wide characters for compatibility with zlib-ng
     let len = libc::strlen(path) + 1;
-    let Some(path_copy) = ALLOCATOR.allocate_slice_raw::<u8>(len) else {
+    let Some(path_copy) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
         free_state(state);
         return ptr::null_mut();
     };
@@ -217,9 +217,9 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 // The caller must not use the state after passing it to this function.
 unsafe fn free_state(state: &mut GzState) {
     if !state.path.is_null() {
-        ALLOCATOR.deallocate(state.path.cast_mut(), libc::strlen(state.path) + 1);
+        ALLOCATOR.deallocate::<c_char>(state.path.cast_mut(), libc::strlen(state.path) + 1);
     }
-    ALLOCATOR.deallocate(state, 1);
+    ALLOCATOR.deallocate::<GzState>(state, 1);
 }
 
 /// Close an open gzip file and free the internal data structures referenced by the file handle.
