@@ -89,6 +89,7 @@ compile_error!("Either rust-allocator or c-allocator feature is required");
 /// Open a gzip file for reading or writing.
 ///
 /// # Safety
+///
 /// The caller must ensure that path and mode point to valid C strings. If the
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzopen))]
@@ -214,6 +215,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 // Deallocate a GzState structure and all heap-allocated fields inside it.
 //
 // # Safety
+//
 // The caller must not use the state after passing it to this function.
 unsafe fn free_state(state: &mut GzState) {
     if !state.path.is_null() {
@@ -224,7 +226,13 @@ unsafe fn free_state(state: &mut GzState) {
 
 /// Close an open gzip file and free the internal data structures referenced by the file handle.
 ///
+/// # Returns
+///
+/// * [`Z_ERRNO`] if closing the file failed
+/// * [`Z_OK`] otherwise
+///
 /// # Safety
+///
 /// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
