@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys-cdylib"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 readme = "README.md"
 license = "Zlib"
@@ -30,7 +30,7 @@ semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-c
 capi = []
 
 [dependencies]
-libz-rs-sys = { version = "0.4.2", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
+libz-rs-sys = { version = "0.5.0", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
 
 [package.metadata.capi.library]
 version = "1.3.0" # the zlib api version we match
