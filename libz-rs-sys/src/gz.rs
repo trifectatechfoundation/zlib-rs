@@ -178,7 +178,7 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         let mut oflag = 0;
 
         #[cfg(target_os = "linux")]
-        if true {
+        {
             oflag |= libc::O_LARGEFILE;
         }
 
