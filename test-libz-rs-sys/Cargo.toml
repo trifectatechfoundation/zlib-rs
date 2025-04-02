@@ -25,6 +25,7 @@ libz-sys.workspace = true
 [dev-dependencies]
 quickcheck.workspace = true
 crc32fast = "1.3.2"
+tempfile = "3.19.1"
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 libloading.workspace = true
