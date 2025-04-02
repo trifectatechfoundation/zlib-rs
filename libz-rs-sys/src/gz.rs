@@ -175,11 +175,12 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     if fd > -1 {
         state.fd = fd;
     } else {
-        let mut oflag: c_int = if cfg!(target_os = "linux") {
-            libc::O_LARGEFILE
-        } else {
-            0
-        };
+        let mut oflag = 0;
+
+        #[cfg(target_os = "linux")]
+        if true {
+            oflag |= libc::O_LARGEFILE;
+        }
 
         #[cfg(target_os = "linux")]
         if cloexec {
