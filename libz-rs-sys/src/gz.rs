@@ -112,7 +112,8 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
         return ptr::null_mut();
     };
     // Safety: the allocate_zeroed_raw call above ensures that the allocated block
-    // has the right size and alignment to be used as a GzState.
+    // has the right size and alignment to be used as a GzState. And because the
+    // allocator zeroes the allocated space, all the GzState fields are initialized.
     let state = unsafe { state.cast::<GzState>().as_mut() };
     state.size = 0;
     state.want = GZBUFSIZE;
@@ -258,7 +259,9 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 //
 // # Safety
 //
-// The caller must not use the state after passing it to this function.
+// - The `state` object and all heap-allocated fields within it must have been obtained
+//   using `ALLOCATOR`.
+// - The caller must not use the `state` after passing it to this function.
 unsafe fn free_state(state: &mut GzState) {
     unsafe {
         if !state.path.is_null() {
