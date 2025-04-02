@@ -45,6 +45,9 @@ fn open_close() {
     test_open!(crate_path("src/test-data/issue-109.gz"), "", false);
     test_open!(crate_path("src/test-data/issue-109.gz"), "e", false);
 
+    // "+" (read plus write) mode isn't supported
+    test_open!(crate_path("src/test-data/issue-109.gz"), "+", false);
+
     // For zlib-ng compatibility, mode can't specify transparent read
     test_open!(crate_path("src/test-data/issue-109.gz"), "Tr", false);
 
@@ -85,4 +88,7 @@ fn create() {
     // "x" flag should work for append mode, too
     test_open!(path(temp_path, "new2.gz"), "ax", false);
     test_open!(path(temp_path, "new3.gz"), "ax", true);
+
+    // "+" (read plus write) mode isn't supported
+    test_open!(path(temp_path, "new4.gz"), "+", false);
 }

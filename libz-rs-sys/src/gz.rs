@@ -131,6 +131,11 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
                 b'r' => state.mode = GzMode::GZ_READ,
                 b'w' => state.mode = GzMode::GZ_WRITE,
                 b'a' => state.mode = GzMode::GZ_APPEND,
+                b'+' => {
+                    // Read+Write mode isn't supported
+                    free_state(state);
+                    return ptr::null_mut();
+                }
                 b'b' => {} // binary mode is the default
                 #[cfg(target_os = "linux")]
                 b'e' => cloexec = true,
@@ -206,10 +211,11 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
             free_state(state);
             return ptr::null_mut();
         }
-        if state.mode == GzMode::GZ_APPEND {
-            libc::lseek(state.fd, 0, SEEK_END);
-            state.mode = GzMode::GZ_WRITE;
-        }
+    }
+
+    if state.mode == GzMode::GZ_APPEND {
+        libc::lseek(state.fd, 0, SEEK_END);
+        state.mode = GzMode::GZ_WRITE;
     }
 
     if state.mode == GzMode::GZ_READ {
