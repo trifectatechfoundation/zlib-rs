@@ -280,8 +280,10 @@ unsafe fn free_state(state: &mut GzState) {
 ///
 /// # Safety
 ///
-/// - The file handle must have been obtained from a function in this library, such as [`gzopen`].
-/// - This function may be called at most once for any file handle.
+/// `file` must be one of the following:
+/// - A file handle must have been obtained from a function in this library, such as [`gzopen`].
+/// - A null pointer.
+/// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
