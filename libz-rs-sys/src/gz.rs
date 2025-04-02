@@ -1,3 +1,5 @@
+#![warn(unsafe_op_in_unsafe_fn)]
+
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
@@ -94,14 +96,14 @@ compile_error!("Either rust-allocator or c-allocator feature is required");
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzopen))]
 pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char) -> gzFile {
-    gzopen_help(path, -1, mode)
+    unsafe { gzopen_help(path, -1, mode) }
 }
 
 /// Internal implementation shared by gzopen and gzdopen.
 ///
 /// # Safety
 /// The caller must ensure that path and mode are NULL or point to valid C strings.
-fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
+unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
     if path.is_null() || mode.is_null() {
         return ptr::null_mut();
     }
@@ -140,9 +142,7 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
                     // Safety: we know state is a valid pointer because it was allocated earlier
                     // in this function, and it is not used after the free because we return
                     // immediately afterward.
-                    unsafe {
-                        free_state(state);
-                    }
+                    unsafe { free_state(state) };
                     return ptr::null_mut();
                 }
                 b'b' => {} // binary mode is the default
@@ -163,9 +163,7 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
     if state.mode == GzMode::GZ_NONE {
         // Safety: we know state is a valid pointer because it was allocated earlier in this
         // function, and it is not used after the free because we return immediately afterward.
-        unsafe {
-            free_state(state);
-        }
+        unsafe { free_state(state) };
         return ptr::null_mut();
     }
 
@@ -174,9 +172,7 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
         if state.direct {
             // Safety: we know state is a valid pointer because it was allocated earlier in this
             // function, and it is not used after the free because we return immediately afterward.
-            unsafe {
-                free_state(state);
-            }
+            unsafe { free_state(state) };
             return ptr::null_mut();
         }
         state.direct = true;  // Assume an empty file for now. Later, we'll check for a gzip header.
@@ -190,17 +186,13 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
     let Some(path_copy) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
         // Safety: we know state is a valid pointer because it was allocated earlier in this
         // function, and it is not used after the free because we return immediately afterward.
-        unsafe {
-            free_state(state);
-        }
+        unsafe { free_state(state) };
         return ptr::null_mut();
     };
     let path_copy = path_copy.as_ptr().cast::<c_char>();
     // Safety: The allocation of path_copy is checked above. The caller is responsible for
     // ensuring that path points to a valid C string.
-    unsafe {
-        libc::strncpy(path_copy, path, len);
-    }
+    unsafe { libc::strncpy(path_copy, path, len); }
     state.path = path_copy;
 
     // Open the file unless the caller passed a file descriptor.
@@ -238,25 +230,19 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
         if state.fd == -1 {
             // Safety: we know state is a valid pointer because it was allocated earlier in this
             // function, and it is not used after the free because we return immediately afterward.
-            unsafe {
-                free_state(state);
-            }
+            unsafe { free_state(state) };
             return ptr::null_mut();
         }
     }
 
     if state.mode == GzMode::GZ_APPEND {
-        unsafe {
-            libc::lseek(state.fd, 0, SEEK_END);  // so gzoffset() is correct
-        }
+        unsafe { libc::lseek(state.fd, 0, SEEK_END) };  // so gzoffset() is correct
         state.mode = GzMode::GZ_WRITE;       // simplify later checks
     }
 
     if state.mode == GzMode::GZ_READ {
         // Save the current position for rewinding
-        unsafe {
-            state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _;
-        }
+        unsafe { state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _ };
         if state.start == -1 {
             state.start = 0;
         }
@@ -274,10 +260,12 @@ fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
 //
 // The caller must not use the state after passing it to this function.
 unsafe fn free_state(state: &mut GzState) {
-    if !state.path.is_null() {
-        ALLOCATOR.deallocate::<c_char>(state.path.cast_mut(), libc::strlen(state.path) + 1);
+    unsafe {
+        if !state.path.is_null() {
+            ALLOCATOR.deallocate::<c_char>(state.path.cast_mut(), libc::strlen(state.path) + 1);
+        }
+        ALLOCATOR.deallocate::<GzState>(state, 1);
     }
-    ALLOCATOR.deallocate::<GzState>(state, 1);
 }
 
 /// Close an open gzip file and free the internal data structures referenced by the file handle.
@@ -289,17 +277,18 @@ unsafe fn free_state(state: &mut GzState) {
 ///
 /// # Safety
 ///
-/// This function may be called at most once for any file handle.
+/// This function may be called at most once for any file handle. The caller is responsible
+/// for ensuring that the file handle either points to a GzState object or is null.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
-    let Some(state) = file.cast::<GzState>().as_mut() else {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return Z_STREAM_ERROR;
     };
 
     // FIXME: once read/write support is added, clean up internal buffers
 
-    let err = libc::close(state.fd);
-    free_state(state);
+    let err = unsafe { libc::close(state.fd) };
+    unsafe { free_state(state) };
     if err == 0 {
         Z_OK
     } else {
