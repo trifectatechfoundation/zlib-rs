@@ -14,13 +14,11 @@ macro_rules! crate_path {
 
 // Generate a file path relative to a specified directory prefix
 macro_rules! path {
-    ($prefix:expr, $str:expr) => {
-        {
-            let mut path_buf = $prefix.to_path_buf();
-            path_buf.push($str);
-            path_buf.as_path().to_str().unwrap().to_owned()
-        }
-    };
+    ($prefix:expr, $str:expr) => {{
+        let mut path_buf = $prefix.to_path_buf();
+        path_buf.push($str);
+        path_buf.as_path().to_str().unwrap().to_owned()
+    }};
 }
 
 macro_rules! test_open {
@@ -32,7 +30,7 @@ macro_rules! test_open {
         if !handle.is_null() {
             assert_eq!(unsafe { gzclose(handle) }, Z_OK);
         }
-    }
+    };
 }
 
 #[test]
@@ -61,9 +59,13 @@ fn open_close() {
 fn create() {
     // Create a temporary directory that will be automatically removed when
     // temp_dir goes out of scope.
-    let Ok(temp_dir) = tempfile::tempdir() else {
-        panic!("Could not create temporary directory.");
+    let temp_dir_path = if cfg!(target_os = "wasi") {
+        std::path::PathBuf::from("/tmp/")
+    } else {
+        std::env::temp_dir()
     };
+
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
     let temp_path = temp_dir.path();
 
     // Creation of a new file should work
