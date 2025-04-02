@@ -72,17 +72,17 @@ fn create() {
     test_open!(path(temp_path, "new.gz"), "w", true);
 
     // File creation should fail with "x" (exclusive) flag if the file already exists
-    test_open!(path(&temp_path, "new.gz"), "wx", false);
-    test_open!(path(&temp_path, "different_file.gz"), "wx", true);
+    test_open!(path(temp_path, "new.gz"), "wx", false);
+    test_open!(path(temp_path, "different_file.gz"), "wx", true);
 
     // "e" flag should open for writing with O_CLOEXEC (close file descriptor on exec)
     // on compatible systems and should be silently ignored on other systems.
-    test_open!(path(&temp_path, "new.gz"), "ew", true);
+    test_open!(path(temp_path, "new.gz"), "ew", true);
 
     // Append mode should create a new file if needed
     test_open!(path(temp_path, "new2.gz"), "a", true);
 
     // "x" flag should work for append mode, too
-    test_open!(path(&temp_path, "new2.gz"), "ax", false);
-    test_open!(path(&temp_path, "new3.gz"), "ax", true);
+    test_open!(path(temp_path, "new2.gz"), "ax", false);
+    test_open!(path(temp_path, "new3.gz"), "ax", true);
 }
