@@ -117,19 +117,21 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     state.level = crate::Z_DEFAULT_COMPRESSION as i8;
     state.strategy = Strategy::Default;
     state.direct = false;
-
+    #[cfg(target_os = "linux")]
     let mut exclusive = false;
+    let mut cloexec = false;
     let mode = CStr::from_ptr(mode);
     for &ch in mode.to_bytes() {
         if ch.is_ascii_digit() {
             state.level = (ch - b'0') as i8;
         } else {
-            // FIXME implement the 'e' flag on platforms where O_CLOEXEC is supported
             match ch {
                 b'r' => state.mode = GzMode::GZ_READ,
                 b'w' => state.mode = GzMode::GZ_WRITE,
                 b'a' => state.mode = GzMode::GZ_APPEND,
                 b'b' => {} // binary mode is the default
+                #[cfg(target_os = "linux")]
+                b'e' => cloexec = true,
                 b'x' => exclusive = true,
                 b'f' => state.strategy = Strategy::Filtered,
                 b'h' => state.strategy = Strategy::HuffmanOnly,
@@ -171,7 +173,17 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     if fd > -1 {
         state.fd = fd;
     } else {
-        let mut oflag: c_int = 0;
+        let mut oflag: c_int = if cfg!(target_os = "linux") {
+            libc::O_LARGEFILE
+        } else {
+            0
+        };
+
+        #[cfg(target_os = "linux")]
+        if cloexec {
+            oflag |= libc::O_CLOEXEC;
+        }
+
         if state.mode == GzMode::GZ_READ {
             oflag |= O_RDONLY;
         } else {
