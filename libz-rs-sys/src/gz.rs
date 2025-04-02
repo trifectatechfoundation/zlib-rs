@@ -101,7 +101,7 @@ pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char)
 ///
 /// # Safety
 /// The caller must ensure that path and mode are NULL or point to valid C strings.
-unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
+fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gzFile {
     if path.is_null() || mode.is_null() {
         return ptr::null_mut();
     }
@@ -109,7 +109,9 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     let Some(state) = ALLOCATOR.allocate_zeroed_raw::<GzState>() else {
         return ptr::null_mut();
     };
-    let state = state.cast::<GzState>().as_mut();
+    // Safety: the allocate_zeroed_raw call above ensures that the allocated block
+    // has the right size and alignment to be used as a GzState.
+    let state = unsafe { state.cast::<GzState>().as_mut() };
     state.size = 0;
     state.want = GZBUFSIZE;
     state.msg = ptr::null();
@@ -122,7 +124,9 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
     let mut exclusive = false;
     #[cfg(target_os = "linux")]
     let mut cloexec = false;
-    let mode = CStr::from_ptr(mode);
+    // Safety: We checked that mode is non-null earlier. The caller is responsible for
+    // ensuring that it points to a valid C string.
+    let mode = unsafe { CStr::from_ptr(mode) };
     for &ch in mode.to_bytes() {
         if ch.is_ascii_digit() {
             state.level = (ch - b'0') as i8;
@@ -133,7 +137,12 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
                 b'a' => state.mode = GzMode::GZ_APPEND,
                 b'+' => {
                     // Read+Write mode isn't supported
-                    free_state(state);
+                    // Safety: we know state is a valid pointer because it was allocated earlier
+                    // in this function, and it is not used after the free because we return
+                    // immediately afterward.
+                    unsafe {
+                        free_state(state);
+                    }
                     return ptr::null_mut();
                 }
                 b'b' => {} // binary mode is the default
@@ -152,28 +161,46 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
 
     // Must specify read, write, or append
     if state.mode == GzMode::GZ_NONE {
-        free_state(state);
+        // Safety: we know state is a valid pointer because it was allocated earlier in this
+        // function, and it is not used after the free because we return immediately afterward.
+        unsafe {
+            free_state(state);
+        }
         return ptr::null_mut();
     }
 
     // Can't force transparent read
     if state.mode == GzMode::GZ_READ {
         if state.direct {
-            free_state(state);
+            // Safety: we know state is a valid pointer because it was allocated earlier in this
+            // function, and it is not used after the free because we return immediately afterward.
+            unsafe {
+                free_state(state);
+            }
             return ptr::null_mut();
         }
-        state.direct = true;
+        state.direct = true;  // Assume an empty file for now. Later, we'll check for a gzip header.
     }
 
     // Save the path name for error messages
     // FIXME: support Windows wide characters for compatibility with zlib-ng
-    let len = libc::strlen(path) + 1;
+    // Safety: The caller is reponsible for ensuring that path points to a valid C string.
+    // We also checked it for null at the start of this function.
+    let len = unsafe { libc::strlen(path) } + 1;
     let Some(path_copy) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
-        free_state(state);
+        // Safety: we know state is a valid pointer because it was allocated earlier in this
+        // function, and it is not used after the free because we return immediately afterward.
+        unsafe {
+            free_state(state);
+        }
         return ptr::null_mut();
     };
     let path_copy = path_copy.as_ptr().cast::<c_char>();
-    libc::strncpy(path_copy, path, len);
+    // Safety: The allocation of path_copy is checked above. The caller is responsible for
+    // ensuring that path points to a valid C string.
+    unsafe {
+        libc::strncpy(path_copy, path, len);
+    }
     state.path = path_copy;
 
     // Open the file unless the caller passed a file descriptor.
@@ -206,21 +233,30 @@ unsafe fn gzopen_help(path: *const c_char, fd: c_int, mode: *const c_char) -> gz
             }
         }
         // FIXME: support _wopen for WIN32
-        state.fd = libc::open(state.path, oflag, 0o666);
+        // Safety: We constructed state.path as a valid C string above.
+        state.fd = unsafe { libc::open(state.path, oflag, 0o666) };
         if state.fd == -1 {
-            free_state(state);
+            // Safety: we know state is a valid pointer because it was allocated earlier in this
+            // function, and it is not used after the free because we return immediately afterward.
+            unsafe {
+                free_state(state);
+            }
             return ptr::null_mut();
         }
     }
 
     if state.mode == GzMode::GZ_APPEND {
-        libc::lseek(state.fd, 0, SEEK_END);
-        state.mode = GzMode::GZ_WRITE;
+        unsafe {
+            libc::lseek(state.fd, 0, SEEK_END);  // so gzoffset() is correct
+        }
+        state.mode = GzMode::GZ_WRITE;       // simplify later checks
     }
 
     if state.mode == GzMode::GZ_READ {
         // Save the current position for rewinding
-        state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _;
+        unsafe {
+            state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _;
+        }
         if state.start == -1 {
             state.start = 0;
         }
