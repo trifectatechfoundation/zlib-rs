@@ -2,7 +2,6 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{gzFile_s, gzclose, gzdopen, gzerror, gzopen};
 
-use libc;
 use std::ffi::{c_char, c_int, CString};
 use std::path::Path;
 use std::ptr;
