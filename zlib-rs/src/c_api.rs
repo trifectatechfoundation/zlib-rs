@@ -46,7 +46,7 @@ pub type voidpf = *mut c_void;
 /// to be safe:
 ///
 /// - a call `zalloc(opaque, n, m)` must return a pointer `p` to `n * m` bytes of memory, or
-///     `NULL` if out of memory
+///   `NULL` if out of memory
 /// - a call `zfree(opaque, p)` must free that memory
 ///
 /// The `strm.opaque` value is passed to as the first argument to all calls to `zalloc`
