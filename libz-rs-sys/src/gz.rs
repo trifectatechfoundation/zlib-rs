@@ -358,7 +358,6 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
     state.msg = unsafe { gz_strdup(err_msg.as_ptr().cast::<c_char>()) };
     if state.msg.is_null() {
         state.err = Z_MEM_ERROR;
-        return;
     }
 }
 
