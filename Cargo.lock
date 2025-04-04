@@ -277,6 +277,7 @@ version = "0.5.0"
 dependencies = [
  "crc32fast",
  "dynamic-libz-sys",
+ "libc",
  "libloading",
  "libz-rs-sys",
  "libz-sys",

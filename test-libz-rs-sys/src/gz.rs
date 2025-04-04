@@ -1,8 +1,9 @@
 use zlib_rs::c_api::*;
 
-use libz_rs_sys::gzclose;
-use libz_rs_sys::gzopen;
-use std::ffi::CString;
+use libz_rs_sys::{gzFile_s, gzclose, gzdopen, gzerror, gzopen};
+
+use libc;
+use std::ffi::{c_char, c_int, CString};
 use std::path::Path;
 use std::ptr;
 
@@ -33,6 +34,17 @@ macro_rules! test_open {
     };
 }
 
+// Variant of `test_open` that takes a file descriptor
+macro_rules! test_fdopen {
+    ($fd:expr, $mode:expr, $should_succeed:expr) => {
+        let cmode = CString::new($mode).unwrap();
+        let handle = unsafe { gzdopen($fd, cmode.as_ptr()) };
+        assert_eq!($should_succeed, !handle.is_null(), "gzdopen({}, {})", $fd, $mode);
+        if !handle.is_null() {
+            assert_eq!(unsafe { gzclose(handle) }, Z_OK, "gzclose({}) error", $fd);
+        }
+    };
+}
 #[test]
 fn open_close() {
     // Open a valid file for reading
@@ -56,6 +68,12 @@ fn open_close() {
 
     // Closing a null file handle should return an error instead of crashing
     assert_eq!(unsafe { gzclose(ptr::null_mut()) }, Z_STREAM_ERROR);
+
+    // Initialize a gzip stream for reading using an open file descriptor
+    let cpath = CString::new(crate_path("src/test-data/issue-109.gz")).unwrap();
+    let fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDONLY) };
+    assert_ne!(fd, -1);
+    test_fdopen!(fd, "r", true);
 }
 
 #[test]
@@ -91,4 +109,28 @@ fn create() {
 
     // "+" (read plus write) mode isn't supported
     test_open!(path(temp_path, "new4.gz"), "+", false);
+}
+
+#[test]
+fn gz_error_access() {
+    const UNSET_ERRNO: c_int = -12345;
+
+    // gz_error should return null when given a null file handle
+    assert!(unsafe { gzerror(ptr::null_mut::<gzFile_s>(), ptr::null_mut()).is_null() });
+
+    // When the file handle is null, gz_error should not modify the errno
+    let mut gz_errno: c_int = UNSET_ERRNO;
+    assert!(unsafe { gzerror(ptr::null_mut::<gzFile_s>(), &mut gz_errno as *mut c_int).is_null() });
+    assert_eq!(gz_errno, UNSET_ERRNO);
+
+    // Open a valid gzip file; the error should be an empty string
+    let path = CString::new(crate_path("src/test-data/issue-109.gz")).unwrap();
+    let mode = CString::new("r").unwrap();
+    let handle = unsafe { gzopen(path.as_ptr(), mode.as_ptr()) };
+    assert!(!handle.is_null());
+    let mut gz_errno: c_int = UNSET_ERRNO;
+    let err = unsafe { gzerror(handle, &mut gz_errno as *mut c_int) };
+    assert!(!err.is_null());
+    assert_eq!(unsafe { *err }, 0 as c_char);
+    assert_eq!(unsafe { gzclose(handle) }, Z_OK);
 }
