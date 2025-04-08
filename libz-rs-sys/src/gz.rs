@@ -431,7 +431,9 @@ unsafe fn free_state(state: *mut GzState) {
 //
 // # Safety
 //
-// `s` must be either null or a null-terminated C string that was allocated with `ALLOCATOR`.
+// * `s` must be either null or a null-terminated C string that was allocated with `ALLOCATOR`.
+// * If `s` is not null, the length of the string (including the null terminator byte) must
+//   exactly match the allocation size.
 unsafe fn deallocate_cstr(s: *mut c_char) {
     if s.is_null() {
         return;
