@@ -296,72 +296,49 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
 }
 
 // Format a fake file path corresponding to an fd, for use in error messages.
-//
-// # Returns
-//
-// * A pointer to a null-terminated C string that the caller now owns.
-// * Or a null pointer if an error occurs.
-//
-// # Safety
-//
-// The return value, if non-null, must be freed using only `ALLOCATOR`.
-unsafe fn fd_path(fd: c_int) -> *const c_char {
-    // This is equivalent to `format!("<fd:{}>\0", fd)`, but without the dependency on std::format.
+fn fd_path(buf: &mut [u8; 17], fd: c_int) -> &CStr {
+    // This is equivalent to `format!("<fd:{}>\0", fd)`, but without the dependency on std
 
-    // Compute the number of bytes needed to print the number.
-    let mut num_len: usize = 1;
-    let mut tmp_num = fd / 10;
-    if fd < 0 {
-        // POSIX file descriptors are nonnegative, but the caller might have tried
-        // to pass in something like -1, so add space for a minus sign if needed.
-        num_len += 1;
-    }
-    while tmp_num != 0 {
-        num_len += 1;
-        tmp_num /= 10;
+    #[cfg(feature = "std")]
+    debug_assert!(format!("<fd:{fd}>\0").len() <= buf.len());
+
+    let mut it = buf.iter_mut().rev();
+
+    for c in b">\0".iter().rev() {
+        if let Some(r) = it.next() {
+            *r = *c;
+        }
     }
 
-    const PREFIX: &[u8] = b"<fd:";
-    const SUFFIX: &[u8] = b">\0";
+    if fd == 0 {
+        if let Some(r) = it.next() {
+            *r = b'0';
+        }
+    } else {
+        let mut tmp = (fd as i64).unsigned_abs();
+        while tmp != 0 {
+            if let Some(r) = it.next() {
+                *r = b'0' + (tmp % 10) as u8;
+                tmp /= 10;
+            }
+        }
 
-    // Allocate exactly the number of bytes needed for the string. This will enable
-    // the caller to free it with `ALLOCATOR.deallocate(strlen(s) + 1)`.
-    let len = PREFIX.len() + num_len + SUFFIX.len();
-    let Some(buf) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
-        return ptr::null_mut();
-    };
-
-    // Format the string.
-    let start = buf.as_ptr().cast::<u8>();
-    unsafe {
-        ptr::copy_nonoverlapping(PREFIX.as_ptr(), start, PREFIX.len());
-    };
-    unsafe {
-        ptr::copy_nonoverlapping(
-            SUFFIX.as_ptr(),
-            start.add(PREFIX.len() + num_len),
-            SUFFIX.len(),
-        );
-    }
-    let mut tmp_num = fd;
-
-    // Add a minus sign if the number is negative.
-    if tmp_num < 0 {
-        unsafe { *(start.add(PREFIX.len())) = b'-' };
-        tmp_num = -tmp_num;
+        if fd < 0 {
+            if let Some(r) = it.next() {
+                *r = b'-';
+            }
+        }
     }
 
-    // Fill in the digits of the number, from back to front.
-    let mut dst = unsafe { start.add(PREFIX.len() + num_len - 1) };
-    unsafe { *dst = b'0' + (tmp_num % 10) as u8 };
-    tmp_num /= 10;
-    while tmp_num != 0 {
-        dst = unsafe { dst.sub(1) };
-        unsafe { *dst = b'0' + (tmp_num % 10) as u8 };
-        tmp_num /= 10;
+    for c in b"<fd:".iter().rev() {
+        if let Some(r) = it.next() {
+            *r = *c;
+        }
     }
 
-    buf.as_ptr()
+    // SAFETY: the buffer ends in a NULL character
+    let remaining = it.count();
+    unsafe { CStr::from_ptr(buf[remaining..].as_ptr().cast()) }
 }
 
 // Reset the internal state of an open gzip stream according to
@@ -422,13 +399,13 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
     // Safety: `gzopen` and `gzdopen` ensure that `state.path` is a non-null C string,
     //          the caller of this function is reponsible for ensuring that `msg` is a C string,
     //          and we exit this function above if `msg` is null.
+    let sep = b": \0".as_ptr().cast::<c_char>();
+    let buf = &mut [0u8; 17];
     state.msg = match state.source {
-        Source::Path(path) => unsafe { gz_strcat(&[path, b": \0".as_ptr().cast::<c_char>(), msg]) },
-        Source::Fd(fd) => {
-            let path = unsafe { fd_path(fd) };
-            unsafe { gz_strcat(&[path, b": \0".as_ptr().cast::<c_char>(), msg]) }
-        }
+        Source::Path(path) => unsafe { gz_strcat(&[path, sep, msg]) },
+        Source::Fd(fd) => unsafe { gz_strcat(&[fd_path(buf, fd).as_ptr(), sep, msg]) },
     };
+
     if state.msg.is_null() {
         state.err = Z_MEM_ERROR;
     }
@@ -668,25 +645,14 @@ mod tests {
 
     #[test]
     fn test_fd_path() {
-        let path = unsafe { fd_path(0) };
-        assert!(!path.is_null());
-        assert_eq!(unsafe { libc::strcmp(path, c!(b"<fd:0>\0")) }, 0);
-        unsafe { ALLOCATOR.deallocate(path.cast_mut(), libc::strlen(path) + 1) };
-
-        let path = unsafe { fd_path(9) };
-        assert!(!path.is_null());
-        assert_eq!(unsafe { libc::strcmp(path, c!(b"<fd:9>\0")) }, 0);
-        unsafe { ALLOCATOR.deallocate(path.cast_mut(), libc::strlen(path) + 1) };
-
-        let path = unsafe { fd_path(12345) };
-        assert!(!path.is_null());
-        assert_eq!(unsafe { libc::strcmp(path, c!(b"<fd:12345>\0")) }, 0);
-        unsafe { ALLOCATOR.deallocate(path.cast_mut(), libc::strlen(path) + 1) };
-
-        let path = unsafe { fd_path(-67890) };
-        assert!(!path.is_null());
-        assert_eq!(unsafe { libc::strcmp(path, c!(b"<fd:-67890>\0")) }, 0);
-        unsafe { ALLOCATOR.deallocate(path.cast_mut(), libc::strlen(path) + 1) };
+        let mut buf = [0u8; 17];
+        assert_eq!(fd_path(&mut buf, 0).to_bytes(), b"<fd:0>");
+        assert_eq!(fd_path(&mut buf, 9).to_bytes(), b"<fd:9>");
+        assert_eq!(fd_path(&mut buf, -1).to_bytes(), b"<fd:-1>");
+        assert_eq!(
+            fd_path(&mut buf, i32::MIN).to_bytes(),
+            format!("<fd:{}>", i32::MIN).as_bytes(),
+        );
     }
 
     #[test]
