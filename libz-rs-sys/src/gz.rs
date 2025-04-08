@@ -36,7 +36,7 @@ struct GzState {
     // Fields used for both reading and writing
     mode: GzMode,
     fd: c_int, // file descriptor
-    path: *const c_char,
+    source: Source,
     size: usize,        // buffer size; can be 0 if not yet allocated
     want: usize,        // requested buffer size
     input: *mut Bytef,  // input buffer
@@ -100,8 +100,8 @@ const ALLOCATOR: &Allocator = &Allocator::C;
 compile_error!("Either rust-allocator or c-allocator feature is required");
 
 // The different ways to specify the source for gzopen_help
-enum Source<'a> {
-    Path(&'a CStr),
+enum Source {
+    Path(*const c_char),
     Fd(c_int),
 }
 
@@ -121,8 +121,8 @@ pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char)
     if path.is_null() {
         return ptr::null_mut();
     }
-    let source = Source::Path(unsafe { CStr::from_ptr(path) });
-    unsafe { gzopen_help(&source, mode) }
+    let source = Source::Path(path);
+    unsafe { gzopen_help(source, mode) }
 }
 
 /// Given an open file descriptor, prepare to read or write a gzip file.
@@ -141,7 +141,7 @@ pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char)
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzdopen))]
 pub unsafe extern "C-unwind" fn gzdopen(fd: c_int, mode: *const c_char) -> gzFile {
     // Safety: the caller is responsible for `mode` being a non-null C string.
-    unsafe { gzopen_help(&Source::Fd(fd), mode) }
+    unsafe { gzopen_help(Source::Fd(fd), mode) }
 }
 
 /// Internal implementation shared by gzopen and gzdopen.
@@ -149,7 +149,7 @@ pub unsafe extern "C-unwind" fn gzdopen(fd: c_int, mode: *const c_char) -> gzFil
 /// # Safety
 ///
 /// The caller must ensure that mode points to a valid C string.
-unsafe fn gzopen_help(source: &Source, mode: *const c_char) -> gzFile {
+unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
     if mode.is_null() {
         return ptr::null_mut();
     }
@@ -226,23 +226,20 @@ unsafe fn gzopen_help(source: &Source, mode: *const c_char) -> gzFile {
     }
 
     // Open the file unless the caller passed a file descriptor.
-    match *source {
+    match source {
         Source::Fd(fd) => {
             state.fd = fd;
-            state.path = unsafe { fd_path(fd) };
-            if state.path.is_null() {
-                unsafe { free_state(state) };
-                return ptr::null_mut();
-            }
+            state.source = Source::Fd(fd);
         }
         Source::Path(path) => {
             // Save the path name for error messages
             // FIXME: support Windows wide characters for compatibility with zlib-ng
-            state.path = unsafe { gz_strdup(path.as_ptr()) };
-            if state.path.is_null() {
+            let cloned_path = unsafe { gz_strdup(path) };
+            if cloned_path.is_null() {
                 unsafe { free_state(state) };
                 return ptr::null_mut();
             }
+            state.source = Source::Path(cloned_path);
             let mut oflag = 0;
 
             #[cfg(target_os = "linux")]
@@ -268,7 +265,7 @@ unsafe fn gzopen_help(source: &Source, mode: *const c_char) -> gzFile {
             }
             // FIXME: support _wopen for WIN32
             // Safety: We constructed state.path as a valid C string above.
-            state.fd = unsafe { libc::open(state.path, oflag, 0o666) };
+            state.fd = unsafe { libc::open(cloned_path, oflag, 0o666) };
             if state.fd == -1 {
                 // Safety: we know state is a valid pointer because it was allocated earlier in this
                 // function, and it is not used after the free because we return immediately afterward.
@@ -425,7 +422,13 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
     // Safety: `gzopen` and `gzdopen` ensure that `state.path` is a non-null C string,
     //          the caller of this function is reponsible for ensuring that `msg` is a C string,
     //          and we exit this function above if `msg` is null.
-    state.msg = unsafe { gz_strcat(&[state.path, b": \0".as_ptr().cast::<c_char>(), msg]) };
+    state.msg = match state.source {
+        Source::Path(path) => unsafe { gz_strcat(&[path, b": \0".as_ptr().cast::<c_char>(), msg]) },
+        Source::Fd(fd) => {
+            let path = unsafe { fd_path(fd) };
+            unsafe { gz_strcat(&[path, b": \0".as_ptr().cast::<c_char>(), msg]) }
+        }
+    };
     if state.msg.is_null() {
         state.err = Z_MEM_ERROR;
     }
@@ -442,7 +445,10 @@ unsafe fn free_state(state: &mut GzState) {
     // Safety: `deallocate_cstr` accepts null pointers or C strings, and in this
     // module we use only `ALLOCATOR` to allocate strings assigned to these fields.
     unsafe {
-        deallocate_cstr(state.path.cast_mut());
+        match state.source {
+            Source::Path(path) => deallocate_cstr(path.cast_mut()),
+            Source::Fd(_) => { /* fd is owned by the caller */ }
+        }
         deallocate_cstr(state.msg.cast_mut());
     }
     // Safety: The caller has ensured that `state` was allocated using `ALLOCATOR`.
