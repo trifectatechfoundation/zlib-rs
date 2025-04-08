@@ -297,17 +297,20 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
 }
 
 // Format a fake file path corresponding to an fd, for use in error messages.
-fn fd_path(buf: &mut [u8; 17], fd: c_int) -> &CStr {
-    // This is equivalent to `format!("<fd:{}>\0", fd)`, but without the dependency on std
+fn fd_path(buf: &mut [u8; 27], fd: c_int) -> &CStr {
+    // This is equivalent to `format!("<fd:{}>\0", fd)`, but without the dependency on std.
 
     use core::fmt::Write;
 
-    // the array size is chosen so that any file descriptor value will fit
+    // The array size is chosen so that any file descriptor value will fit. We need space for 6
+    // characters, plus space for the largest decimal value for the `c_int` type. On some systems
+    // the c_int type can actually be 64 bits. The `i64::MIN` value has 20 digits, and the minus
+    // sign, for a total of 6 + 20 + 1 = 27.
     #[cfg(feature = "std")]
-    debug_assert!(format!("<fd:{}>\0", i32::MIN).len() <= buf.len());
+    debug_assert!(format!("<fd:{}>\0", i64::MIN).len() <= buf.len());
 
     struct Writer<'a> {
-        buf: &'a mut [u8; 17],
+        buf: &'a mut [u8; 27],
         len: usize,
     }
 
@@ -390,7 +393,7 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
     //          the caller of this function is reponsible for ensuring that `msg` is a C string,
     //          and we exit this function above if `msg` is null.
     let sep = b": \0".as_ptr().cast::<c_char>();
-    let buf = &mut [0u8; 17];
+    let buf = &mut [0u8; 27];
     state.msg = match state.source {
         Source::Path(path) => unsafe { gz_strcat(&[path, sep, msg]) },
         Source::Fd(fd) => unsafe { gz_strcat(&[fd_path(buf, fd).as_ptr(), sep, msg]) },
@@ -649,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_fd_path() {
-        let mut buf = [0u8; 17];
+        let mut buf = [0u8; 27];
         assert_eq!(fd_path(&mut buf, 0).to_bytes(), b"<fd:0>");
         assert_eq!(fd_path(&mut buf, 9).to_bytes(), b"<fd:9>");
         assert_eq!(fd_path(&mut buf, -1).to_bytes(), b"<fd:-1>");
