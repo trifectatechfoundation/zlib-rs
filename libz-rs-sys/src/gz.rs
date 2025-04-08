@@ -300,46 +300,35 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
 fn fd_path(buf: &mut [u8; 17], fd: c_int) -> &CStr {
     // This is equivalent to `format!("<fd:{}>\0", fd)`, but without the dependency on std
 
+    use core::fmt::Write;
+
+    // the array size is chosen so that any file descriptor value will fit
     #[cfg(feature = "std")]
-    debug_assert!(format!("<fd:{fd}>\0").len() <= buf.len());
+    debug_assert!(format!("<fd:{}>\0", i32::MIN).len() <= buf.len());
 
-    let mut it = buf.iter_mut().rev();
+    struct Writer<'a> {
+        buf: &'a mut [u8; 17],
+        len: usize,
+    }
 
-    for c in b">\0".iter().rev() {
-        if let Some(r) = it.next() {
-            *r = *c;
+    impl Write for Writer<'_> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let Some(dst) = self.buf.get_mut(self.len..self.len + s.len()) else {
+                return Err(core::fmt::Error);
+            };
+
+            dst.copy_from_slice(s.as_bytes());
+            self.len += s.len();
+
+            Ok(())
         }
     }
 
-    if fd == 0 {
-        if let Some(r) = it.next() {
-            *r = b'0';
-        }
-    } else {
-        let mut tmp = (fd as i64).unsigned_abs();
-        while tmp != 0 {
-            if let Some(r) = it.next() {
-                *r = b'0' + (tmp % 10) as u8;
-                tmp /= 10;
-            }
-        }
+    let mut w = Writer { buf, len: 0 };
 
-        if fd < 0 {
-            if let Some(r) = it.next() {
-                *r = b'-';
-            }
-        }
-    }
+    write!(w, "<fd:{fd}>\0").unwrap();
 
-    for c in b"<fd:".iter().rev() {
-        if let Some(r) = it.next() {
-            *r = *c;
-        }
-    }
-
-    // SAFETY: the buffer ends in a NULL character
-    let remaining = it.count();
-    unsafe { CStr::from_ptr(buf[remaining..].as_ptr().cast()) }
+    unsafe { CStr::from_ptr(w.buf[..w.len].as_ptr().cast()) }
 }
 
 // Reset the internal state of an open gzip stream according to
