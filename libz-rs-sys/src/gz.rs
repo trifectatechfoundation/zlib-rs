@@ -418,15 +418,15 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
 // - The `state` object and all heap-allocated fields within it must have been obtained
 //   using `ALLOCATOR`.
 // - The caller must not use the `state` after passing it to this function.
-unsafe fn free_state(state: &mut GzState) {
+unsafe fn free_state(state: *mut GzState) {
     // Safety: `deallocate_cstr` accepts null pointers or C strings, and in this
     // module we use only `ALLOCATOR` to allocate strings assigned to these fields.
     unsafe {
-        match state.source {
+        match (*state).source {
             Source::Path(path) => deallocate_cstr(path.cast_mut()),
             Source::Fd(_) => { /* fd is owned by the caller */ }
         }
-        deallocate_cstr(state.msg.cast_mut());
+        deallocate_cstr((*state).msg.cast_mut());
     }
     // Safety: The caller has ensured that `state` was allocated using `ALLOCATOR`.
     unsafe {
@@ -541,22 +541,24 @@ pub unsafe extern "C-unwind" fn gzerror(file: gzFile, errnum: *mut c_int) -> *co
 // # Safety
 //
 // The caller must ensure that s is either null or a pointer to a null-terminated C string.
-unsafe fn gz_strdup(s: *const c_char) -> *mut c_char {
-    if s.is_null() {
+unsafe fn gz_strdup(src: *const c_char) -> *mut c_char {
+    if src.is_null() {
         return ptr::null_mut();
     }
-    // Safety
-    let len = unsafe { libc::strlen(s) } + 1;
-    let Some(buf) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
+
+    // SAFETY: the caller must ensure this is a valid C string
+    let src = unsafe { CStr::from_ptr(src) };
+
+    let len = src.to_bytes_with_nul().len();
+    let Some(dst) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
         return ptr::null_mut();
     };
-    let s_copy = buf.as_ptr().cast::<c_char>();
-    // Safety: The allocation of s_copy is checked above. The caller is responsible for
-    // ensuring that path points to a valid C string.
-    unsafe {
-        libc::strncpy(s_copy, s, len);
-    }
-    s_copy
+
+    // SAFETY: src and dst don't overlap, because dst was just allocated. src is valid for a read
+    // of len bytes, and dst is valid for a write of len bytes.
+    unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), dst.as_ptr(), len) };
+
+    dst.as_ptr()
 }
 
 // Create a new C string, allocated using `ALLOCATOR`, that contains the
@@ -603,22 +605,23 @@ mod tests {
             $s.as_ptr().cast::<c_char>()
         };
     }
+
     #[test]
     fn test_gz_strdup() {
         let src = ptr::null();
         let dup = unsafe { gz_strdup(src) };
         assert!(dup.is_null());
 
-        let src = c!(b"\0");
-        let dup = unsafe { gz_strdup(src) };
+        let src = b"\0";
+        let dup = unsafe { gz_strdup(src.as_ptr().cast::<c_char>()) };
         assert!(!dup.is_null());
-        assert_eq!(unsafe { libc::strcmp(src, dup) }, 0);
+        assert_eq!(unsafe { CStr::from_ptr(dup) }.to_bytes_with_nul(), src);
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
 
-        let src = c!(b"example\0");
-        let dup = unsafe { gz_strdup(src) };
+        let src = b"example\0";
+        let dup = unsafe { gz_strdup(src.as_ptr().cast::<c_char>()) };
         assert!(!dup.is_null());
-        assert_eq!(unsafe { libc::strcmp(src, dup) }, 0);
+        assert_eq!(unsafe { CStr::from_ptr(dup) }.to_bytes_with_nul(), src);
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
     }
 
@@ -633,13 +636,19 @@ mod tests {
         let src = [c!(b"example\0")];
         let dup = unsafe { gz_strcat(&src) };
         assert!(!dup.is_null());
-        assert_eq!(unsafe { libc::strcmp(c!(b"example\0"), dup) }, 0);
+        assert_eq!(
+            unsafe { CStr::from_ptr(dup) }.to_bytes_with_nul(),
+            b"example\0"
+        );
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
 
         let src = [c!(b"hello\0"), c!(b"\0"), c!(b",\0"), c!("world\0")];
         let dup = unsafe { gz_strcat(&src) };
         assert!(!dup.is_null());
-        assert_eq!(unsafe { libc::strcmp(c!(b"hello,world\0"), dup) }, 0);
+        assert_eq!(
+            unsafe { CStr::from_ptr(dup) }.to_bytes_with_nul(),
+            b"hello,world\0"
+        );
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
     }
 
@@ -656,54 +665,60 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
     fn test_gz_error() {
         // Open a gzip stream with an invalid file handle. Initially, no error
         // status should be set.
         let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
         assert!(!handle.is_null());
-        let Some(state) = (unsafe { handle.cast::<GzState>().as_mut() }) else {
-            panic!("cast of gzdopen result failed");
-        };
+
+        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
         assert_eq!(state.err, Z_OK);
         assert!(state.msg.is_null());
         let mut err = Z_ERRNO;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
-        assert_eq!(unsafe { libc::strcmp(msg, c!(b"\0")) }, 0);
+        assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(), b"\0");
         assert_eq!(err, Z_OK);
 
         // When an error is set, the path should be prepended to the error message automatically.
+        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
         unsafe { gz_error(state, Z_ERRNO, c!("example error\0")) };
         assert_eq!(state.err, Z_ERRNO);
         assert_eq!(
-            unsafe { libc::strcmp(state.msg, c!(b"<fd:-2>: example error\0")) },
-            0
+            unsafe { CStr::from_ptr(state.msg) }.to_bytes_with_nul(),
+            b"<fd:-2>: example error\0"
         );
         let mut err = Z_OK;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
         assert_eq!(
-            unsafe { libc::strcmp(msg, c!(b"<fd:-2>: example error\0")) },
-            0
+            unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(),
+            b"<fd:-2>: example error\0"
         );
         assert_eq!(err, Z_ERRNO);
 
         // Setting the error message to null should clear the old error message.
+        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
         unsafe { gz_error(state, Z_OK, ptr::null()) };
         assert_eq!(state.err, Z_OK);
         assert!(state.msg.is_null());
         let mut err = Z_ERRNO;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
-        assert_eq!(unsafe { libc::strcmp(msg, c!(b"\0")) }, 0);
+        assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(), b"\0");
         assert_eq!(err, Z_OK);
 
         // Setting the error code to Z_MEM_ERROR should clear the internal error message
         // (because gz_error doesn't try to allocate space for a copy of the message if
         // the reason for the error is that allocations are failing).
+        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
         unsafe { gz_error(state, Z_MEM_ERROR, c!("should be ignored\0")) };
         assert_eq!(state.err, Z_MEM_ERROR);
         assert!(state.msg.is_null());
         let mut err = Z_OK;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
-        assert_eq!(unsafe { libc::strcmp(msg, c!(b"out of memory\0")) }, 0);
+        assert_eq!(
+            unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(),
+            b"out of memory\0"
+        );
         assert_eq!(err, Z_MEM_ERROR);
 
         // gzclose should return an error because the fd is invalid.
