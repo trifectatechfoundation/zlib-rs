@@ -266,13 +266,14 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
             // FIXME: support _wopen for WIN32
             // Safety: We constructed state.path as a valid C string above.
             state.fd = unsafe { libc::open(cloned_path, oflag, 0o666) };
-            if state.fd == -1 {
-                // Safety: we know state is a valid pointer because it was allocated earlier in this
-                // function, and it is not used after the free because we return immediately afterward.
-                unsafe { free_state(state) };
-                return ptr::null_mut();
-            }
         }
+    }
+
+    if state.fd == -1 {
+        // Safety: we know state is a valid pointer because it was allocated earlier in this
+        // function, and it is not used after the free because we return immediately afterward.
+        unsafe { free_state(state) };
+        return ptr::null_mut();
     }
 
     if state.mode == GzMode::GZ_APPEND {
@@ -604,6 +605,11 @@ mod tests {
         ($s:literal) => {
             $s.as_ptr().cast::<c_char>()
         };
+    }
+
+    #[test]
+    fn gzdopen_invalid_fd() {
+        assert_eq!(unsafe { gzdopen(-1, c!(b"r\0")) }, core::ptr::null_mut())
     }
 
     #[test]
