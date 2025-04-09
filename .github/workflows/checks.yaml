@@ -71,14 +71,10 @@ jobs:
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
         if: matrix.os != 'windows-2022'
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+      - name: Install cargo-llvm-cov & cargo-nextest
+        uses: taiki-e/install-action@a48a50298f98c47e46a957ae6f82c44cc4878e42
         with:
-          tool: cargo-llvm-cov
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
-        with:
-          tool: cargo-nextest
+          tool: cargo-llvm-cov,cargo-nextest
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
       - name: cargo nextest # reports segfaults in a helpful way
@@ -92,12 +88,14 @@ jobs:
         if: matrix.os != 'windows-2022'
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
-        if: matrix.os != 'windows-2022'
+        if: matrix.os != 'windows-2022' && matrix.rust == 'stable'
         with:
-          files: lcov.info
+          files: ./lcov.info
           fail_ci_if_error: false
+          flags: test-${{matrix.target}}
           token: ${{ secrets.CODECOV_TOKEN }}
-          slug: codecov/codecov-demo
+          name: test-${{matrix.target}}
+          verbose: true
 
   build-qemu:
     name: QEMU build & test
