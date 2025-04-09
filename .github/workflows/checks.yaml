@@ -254,6 +254,52 @@ jobs:
             RUST_BACKTRACE=1 cargo fuzz run --no-default-features --features="$features" $target -- -max_total_time=10
           done
 
+  fuzz-decompression:
+    name: Fuzz decompression with a custom corpus
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - 'default'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: nightly
+          components: llvm-tools-preview
+      - name: Install cargo fuzz & rustfilt
+        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        with:
+          tool: cargo-fuzz,rustfilt
+      - name: Fuzz decompression with custom corpus
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          ~/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-cov show --help
+          wget https://github.com/folkertdev/compression-corpus/releases/download/2025-04-09-154431/gzip-files.zip
+          unzip gzip-files.zip -d gzip-files
+          cargo fuzz run --no-default-features --features="disable-checksum" uncompress2 gzip-files/compressed -- -max_total_time=10
+      - name: Fuzz codecov
+        run: |
+          cargo fuzz coverage --no-default-features --features="disable-checksum" uncompress2 gzip-files/compressed
+          ~/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-cov export -Xdemangler=rustfilt \
+              target/x86_64-unknown-linux-gnu/coverage/x86_64-unknown-linux-gnu/release/uncompress2 \
+              -instr-profile=fuzz/coverage/uncompress2/coverage.profdata \
+              --format=lcov \
+              -ignore-filename-regex="\.cargo|\.rustup" > lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: ./lcov.info
+          fail_ci_if_error: false
+          flags: fuzz-decompress
+          token: ${{ secrets.CODECOV_TOKEN }}
+          name: fuzz 
+
   link-c-dynamic-library:
     name: vanilla dynamic library
     strategy:
