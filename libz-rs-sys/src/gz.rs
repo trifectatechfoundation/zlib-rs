@@ -250,7 +250,10 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
             #[cfg(target_os = "linux")]
             {
                 oflag |= libc::O_LARGEFILE;
-                if cloexec {
+            }
+            if cloexec {
+                #[cfg(target_os = "linux")]
+                {
                     oflag |= libc::O_CLOEXEC;
                 }
             }
@@ -508,9 +511,6 @@ pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzerror))]
 pub unsafe extern "C-unwind" fn gzerror(file: gzFile, errnum: *mut c_int) -> *const c_char {
     // Get internal structure and check integrity
-    if file.is_null() {
-        return ptr::null();
-    }
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
         return ptr::null();
     };
@@ -532,6 +532,70 @@ pub unsafe extern "C-unwind" fn gzerror(file: gzFile, errnum: *mut c_int) -> *co
         b"\0".as_ptr().cast::<c_char>()
     } else {
         state.msg
+    }
+}
+
+/// Clear the error and end-of-file state for `file`.
+///
+/// # Arguments
+///
+/// * `file` - A gzip file handle, or null
+///
+/// # Safety
+///
+/// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclearerr))]
+pub unsafe extern "C-unwind" fn gzclearerr(file: gzFile) {
+    // Get internal structure and check integrity
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return;
+    };
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        return;
+    }
+
+    // Clear error and EOF
+    if state.mode == GzMode::GZ_READ {
+        state.eof = false;
+        state.past = false;
+    }
+
+    // Safety: we've checked state, and gz_error supports a null message argument.
+    unsafe { gz_error(state, Z_OK, ptr::null()) };
+}
+
+/// Check whether a read operation has tried to read beyond the end of `file`.
+///
+/// # Returns
+///
+/// * 1 if the end-of-file indicator is set. Note that this indicator is set only
+///   if a read tries to go past the end of the input. If the last read request
+///   attempted to read exactly the number of bytes remaining in the file, the
+///   end-of-file indicator will not be set.
+/// * 0 the end-of-file indicator is not set or `file` is null
+///
+/// # Arguments
+///
+/// * `file` - A gzip file handle, or null
+///
+/// # Safety
+///
+/// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzeof))]
+pub unsafe extern "C-unwind" fn gzeof(file: gzFile) -> c_int {
+    // Get internal structure and check integrity
+    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
+        return 0;
+    };
+    if state.mode != GzMode::GZ_READ {
+        return 0;
+    }
+
+    // Per the semantics described in the function comments above, the return value
+    // is based on state.past, rather than state.eof.
+    match state.past {
+        true => 1,
+        false => 0,
     }
 }
 
@@ -778,6 +842,49 @@ mod tests {
             b"out of memory\0"
         );
         assert_eq!(err, Z_MEM_ERROR);
+
+        // gzclose should return an error because the fd is invalid.
+        assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+    }
+
+    #[test]
+    fn test_gzclearerr_and_gzeof() {
+        // gzclearerr on a null file handle should return quietly.
+        unsafe { gzclearerr(ptr::null_mut()) };
+
+        // gzeof on a null file handle should return false.
+        assert_eq!(unsafe { gzeof(ptr::null_mut()) }, 0);
+
+        // Open a gzip stream with an invalid file handle. Initially, no error
+        // status should be set.
+        let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
+        assert!(!handle.is_null());
+        assert_eq!(unsafe { gzeof(handle) }, 0);
+
+        // gzclearerr should reset the eof and past flags.
+        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
+        state.eof = true;
+        assert_eq!(unsafe { gzeof(handle) }, 0);
+        state.past = true;
+        assert_eq!(unsafe { gzeof(handle) }, 1);
+        unsafe { gzclearerr(handle) };
+        assert!(!state.eof);
+        assert!(!state.past);
+        assert_eq!(unsafe { gzeof(handle) }, 0);
+
+        // Set an error flag and message.
+        unsafe { gz_error(state, Z_STREAM_ERROR, c!(b"example error\0")) };
+        let mut err = Z_OK;
+        let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
+        assert_eq!(err, Z_STREAM_ERROR);
+        assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(),
+                   b"<fd:-2>: example error\0");
+
+        // gzclearerr should clear the error flag and message.
+        unsafe { gzclearerr(handle) };
+        let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
+        assert_eq!(err, Z_OK);
+        assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(), b"\0");
 
         // gzclose should return an error because the fd is invalid.
         assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
