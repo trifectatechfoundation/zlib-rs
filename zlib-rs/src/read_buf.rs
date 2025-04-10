@@ -53,6 +53,8 @@ impl<'a> ReadBuf<'a> {
     #[inline(always)]
     pub fn push_lit(&mut self, byte: u8) {
         // NOTE: we rely on the buffer being zeroed here!
+        assert_eq!(&self.buf.as_slice()[self.filled..][..3], &[0, 0, 0]);
+
         self.buf.as_mut_slice()[self.filled + 2] = byte;
 
         self.filled += 3;
@@ -60,6 +62,9 @@ impl<'a> ReadBuf<'a> {
 
     #[inline(always)]
     pub fn push_dist(&mut self, dist: u16, len: u8) {
+        // we expect the buffer to be zeroed (though it does not matter for correctness)
+        debug_assert_eq!(&self.buf.as_slice()[self.filled..][..3], &[0, 0, 0]);
+
         let buf = &mut self.buf.as_mut_slice()[self.filled..][..3];
         let [dist1, dist2] = dist.to_le_bytes();
 
