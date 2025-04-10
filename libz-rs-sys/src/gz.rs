@@ -65,9 +65,43 @@ struct GzState {
                 // FIXME: add the zstream field when read/write support is implemented
 }
 
+impl GzState {
+    fn configure(&mut self, mode: &[u8]) -> Result<(bool, bool), ()> {
+        let mut exclusive = false;
+        let mut cloexec = false;
+
+        for &ch in mode {
+            if ch.is_ascii_digit() {
+                self.level = (ch - b'0') as i8;
+            } else {
+                match ch {
+                    b'r' => self.mode = GzMode::GZ_READ,
+                    b'w' => self.mode = GzMode::GZ_WRITE,
+                    b'a' => self.mode = GzMode::GZ_APPEND,
+                    b'+' => {
+                        // Read+Write mode isn't supported
+                        return Err(());
+                    }
+                    b'b' => {} // binary mode is the default
+                    b'e' => cloexec = true,
+                    b'x' => exclusive = true,
+                    b'f' => self.strategy = Strategy::Filtered,
+                    b'h' => self.strategy = Strategy::HuffmanOnly,
+                    b'R' => self.strategy = Strategy::Rle,
+                    b'F' => self.strategy = Strategy::Fixed,
+                    b'T' => self.direct = true,
+                    _ => {} // for compatibility with zlib-ng, ignore unexpected characters in the mode
+                }
+            }
+        }
+
+        Ok((exclusive, cloexec))
+    }
+}
+
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum GzMode {
     GZ_NONE = 0,
     GZ_READ = 7247,
@@ -170,41 +204,12 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
     state.strategy = Strategy::Default;
     state.direct = false;
 
-    let mut exclusive = false;
-    #[cfg(target_os = "linux")]
-    let mut cloexec = false;
-    // Safety: We checked that mode is non-null earlier. The caller is responsible for
-    // ensuring that it points to a valid C string.
     let mode = unsafe { CStr::from_ptr(mode) };
-    for &ch in mode.to_bytes() {
-        if ch.is_ascii_digit() {
-            state.level = (ch - b'0') as i8;
-        } else {
-            match ch {
-                b'r' => state.mode = GzMode::GZ_READ,
-                b'w' => state.mode = GzMode::GZ_WRITE,
-                b'a' => state.mode = GzMode::GZ_APPEND,
-                b'+' => {
-                    // Read+Write mode isn't supported
-                    // Safety: we know state is a valid pointer because it was allocated earlier
-                    // in this function, and it is not used after the free because we return
-                    // immediately afterward.
-                    unsafe { free_state(state) };
-                    return ptr::null_mut();
-                }
-                b'b' => {} // binary mode is the default
-                #[cfg(target_os = "linux")]
-                b'e' => cloexec = true,
-                b'x' => exclusive = true,
-                b'f' => state.strategy = Strategy::Filtered,
-                b'h' => state.strategy = Strategy::HuffmanOnly,
-                b'R' => state.strategy = Strategy::Rle,
-                b'F' => state.strategy = Strategy::Fixed,
-                b'T' => state.direct = true,
-                _ => {} // for compatibility with zlib-ng, ignore unexpected characters in the mode
-            }
-        }
-    }
+    let Ok((exclusive, cloexec)) = state.configure(mode.to_bytes()) else {
+        // Safety: state is a valid pointer allocated in this function and not used after freeing
+        unsafe { free_state(state) };
+        return ptr::null_mut();
+    };
 
     // Must specify read, write, or append
     if state.mode == GzMode::GZ_NONE {
@@ -592,12 +597,50 @@ unsafe fn gz_strcat(strings: &[*const c_char]) -> *mut c_char {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_configure() {
+        let mut state = core::mem::MaybeUninit::<GzState>::zeroed();
+        let state = unsafe { state.assume_init_mut() };
+
+        state.configure(b"r").unwrap();
+        assert_eq!(state.mode, GzMode::GZ_READ);
+        state.configure(b"rw").unwrap();
+        assert_eq!(state.mode, GzMode::GZ_WRITE);
+        state.configure(b"wr").unwrap();
+        assert_eq!(state.mode, GzMode::GZ_READ);
+
+        state.configure(b"4").unwrap();
+        assert_eq!(state.level, 4);
+        state.configure(b"64").unwrap();
+        assert_eq!(state.level, 4);
+
+        state.configure(b"f").unwrap();
+        assert_eq!(state.strategy, Strategy::Filtered);
+        state.configure(b"h").unwrap();
+        assert_eq!(state.strategy, Strategy::HuffmanOnly);
+        state.configure(b"R").unwrap();
+        assert_eq!(state.strategy, Strategy::Rle);
+        state.configure(b"F").unwrap();
+        assert_eq!(state.strategy, Strategy::Fixed);
+
+        // Unknown characters are ignored.
+        state.configure(b"xqz").unwrap();
+
+        // Plus errors (read + write mode is not supported)
+        state.configure(b"123+").unwrap_err();
+
+        assert_eq!(state.configure(b""), Ok((false, false)));
+        assert_eq!(state.configure(b"x"), Ok((true, false)));
+        assert_eq!(state.configure(b"e"), Ok((false, true)));
+        assert_eq!(state.configure(b"xe"), Ok((true, true)));
+    }
+
     // Map a byte string literal to a C string
     // FIXME: switch to c"example" format once MSRV >= 1.77
     macro_rules! c {
-        ($s:literal) => {
+        ($s:literal) => {{
             $s.as_ptr().cast::<c_char>()
-        };
+        }};
     }
 
     #[test]
