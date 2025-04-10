@@ -467,10 +467,9 @@ pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
 
     let err = unsafe { libc::close(state.fd) };
     unsafe { free_state(state) };
-    if err == 0 {
-        Z_OK
-    } else {
-        Z_ERRNO
+    match err {
+        0 => Z_OK,
+        _ => Z_ERRNO,
     }
 }
 
@@ -604,6 +603,22 @@ mod tests {
     #[test]
     fn gzdopen_invalid_fd() {
         assert_eq!(unsafe { gzdopen(-1, c!(b"r\0")) }, core::ptr::null_mut())
+    }
+
+    #[test]
+    fn gzopen_path_null() {
+        assert_eq!(
+            unsafe { gzopen(core::ptr::null(), c!(b"r\0")) },
+            core::ptr::null_mut()
+        )
+    }
+
+    #[test]
+    fn gzopen_mode_null() {
+        assert_eq!(
+            unsafe { gzopen(c!(b"/foo/bar\0"), core::ptr::null(),) },
+            core::ptr::null_mut()
+        )
     }
 
     #[test]
