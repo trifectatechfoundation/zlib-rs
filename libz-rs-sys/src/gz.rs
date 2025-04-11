@@ -593,10 +593,7 @@ pub unsafe extern "C-unwind" fn gzeof(file: gzFile) -> c_int {
 
     // Per the semantics described in the function comments above, the return value
     // is based on state.past, rather than state.eof.
-    match state.past {
-        true => 1,
-        false => 0,
-    }
+    state.past as _
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`
@@ -848,32 +845,26 @@ mod tests {
     }
 
     #[test]
-    fn test_gzclearerr_and_gzeof() {
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
+    fn test_gzclearerr() {
         // gzclearerr on a null file handle should return quietly.
         unsafe { gzclearerr(ptr::null_mut()) };
-
-        // gzeof on a null file handle should return false.
-        assert_eq!(unsafe { gzeof(ptr::null_mut()) }, 0);
 
         // Open a gzip stream with an invalid file handle. Initially, no error
         // status should be set.
         let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
         assert!(!handle.is_null());
-        assert_eq!(unsafe { gzeof(handle) }, 0);
 
         // gzclearerr should reset the eof and past flags.
-        let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
-        state.eof = true;
-        assert_eq!(unsafe { gzeof(handle) }, 0);
-        state.past = true;
-        assert_eq!(unsafe { gzeof(handle) }, 1);
+        unsafe { handle.cast::<GzState>().as_mut().unwrap().eof = true };
+        unsafe { handle.cast::<GzState>().as_mut().unwrap().past= true };
         unsafe { gzclearerr(handle) };
-        assert!(!state.eof);
-        assert!(!state.past);
-        assert_eq!(unsafe { gzeof(handle) }, 0);
+        assert!(! unsafe { handle.cast::<GzState>().as_ref().unwrap().eof });
+        assert!(! unsafe { handle.cast::<GzState>().as_ref().unwrap().past });
 
         // Set an error flag and message.
-        unsafe { gz_error(state, Z_STREAM_ERROR, c!(b"example error\0")) };
+        unsafe { gz_error(handle.cast::<GzState>().as_mut().unwrap(),
+                          Z_STREAM_ERROR, c!(b"example error\0")) };
         let mut err = Z_OK;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
         assert_eq!(err, Z_STREAM_ERROR);
@@ -885,6 +876,27 @@ mod tests {
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
         assert_eq!(err, Z_OK);
         assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(), b"\0");
+
+        // gzclose should return an error because the fd is invalid.
+        assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
+    fn test_gzeof() {
+        // gzeof on a null file handle should return false.
+        assert_eq!(unsafe { gzeof(ptr::null_mut()) }, 0);
+
+        // Open a gzip stream with an invalid file handle. gzeof should return 0.
+        let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
+        assert!(!handle.is_null());
+        assert_eq!(unsafe { gzeof(handle) }, 0);
+
+        // gzeof should return 1 only if there was a read attempt past the end of the stream.
+        unsafe { handle.cast::<GzState>().as_mut().unwrap().eof = true };
+        assert_eq!(unsafe { gzeof(handle) }, 0);
+        unsafe { handle.cast::<GzState>().as_mut().unwrap().past = true };
+        assert_eq!(unsafe { gzeof(handle) }, 1);
 
         // gzclose should return an error because the fd is invalid.
         assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
