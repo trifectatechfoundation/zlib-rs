@@ -355,7 +355,7 @@ fn gz_reset(state: &mut GzState) {
     }
     state.seek = false; // no seek request pending
                         // Safety: It is valid to pass a null msg pointer to `gz_error`.
-    unsafe { gz_error(state, Z_OK, ptr::null_mut()) }; // clear error status
+    unsafe { gz_error(state, None) }; // clear error status
     state.pos = 0; // no uncompressed data yet
                    // FIXME add once the deflate state is implemented:
                    // state->strm.avail_in = 0;       /* no input data yet */
@@ -364,12 +364,17 @@ fn gz_reset(state: &mut GzState) {
 // Set the error message for a gzip stream, and deallocate any
 // previously set error message.
 //
+// # Arguments
+//
+// * `state` - An initialized stream state.
+// * `err_msg` - `None` or `Some(err, msg)`. In the latter case, this function will
+//   make a deep copy of the `msg` string, so `msg` need not remain in scope after the
+//   call to this function.
+//
 // # Safety
 //
 // - `state` must be a properly constructed `GzState`, e.g. as produced by [`gzopen`]
-// - `msg` must be null or a valid C string. If `msg` is non-null, this function will
-//   make a copy if it, and the caller will retain ownership of the original.
-unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
+unsafe fn gz_error(state: &mut GzState, err_msg: Option<(c_int, &str)>) {
     if !state.msg.is_null() {
         // NOTE: zlib-ng has a special case here: it skips the deallocation if
         // state.err == Z_MEM_ERROR. However, we always set state.msg to null
@@ -379,36 +384,42 @@ unsafe fn gz_error(state: &mut GzState, err: c_int, msg: *const c_char) {
         state.msg = ptr::null_mut();
     }
 
-    // On error, set state.have to 0 so that the `gzgetc()` C macro fails
-    if err != Z_OK && err != Z_BUF_ERROR {
-        state.have = 0;
-    }
+    match err_msg {
+        None => {
+            state.err = Z_OK;
+        }
+        Some((err, msg)) => {
+            // On error, set state.have to 0 so that the `gzgetc()` C macro fails
+            if err != Z_OK && err != Z_BUF_ERROR {
+                state.have = 0;
+            }
 
-    // Set the error code, and if no message, then done
-    state.err = err;
-    if msg.is_null() {
-        return;
-    }
+            // Set the error code
+            state.err = err;
 
-    // For an out of memory error, don't bother trying to allocate space for an error string.
-    // ([`gzerror`] will provide literal string as a special case for OOM errors.)
-    if err == Z_MEM_ERROR {
-        return;
-    }
+            // For an out of memory error, don't bother trying to allocate space for an error string.
+            // ([`gzerror`] will provide literal string as a special case for OOM errors.)
+            if err == Z_MEM_ERROR {
+                return;
+            }
 
-    // Format the error string to include the file path.
-    // Safety: `gzopen` and `gzdopen` ensure that `state.path` is a non-null C string,
-    //          the caller of this function is reponsible for ensuring that `msg` is a C string,
-    //          and we exit this function above if `msg` is null.
-    let sep = b": \0".as_ptr().cast::<c_char>();
-    let buf = &mut [0u8; 27];
-    state.msg = match state.source {
-        Source::Path(path) => unsafe { gz_strcat(&[path, sep, msg]) },
-        Source::Fd(fd) => unsafe { gz_strcat(&[fd_path(buf, fd).as_ptr(), sep, msg]) },
-    };
+            // Format the error string to include the file path.
+            // Safety: `gzopen` and `gzdopen` ensure that `state.path` is a non-null C string
+            let sep = ": ";
+            let buf = &mut [0u8; 27];
+            state.msg = match state.source {
+                Source::Path(path) => unsafe {
+                    gz_strcat(&[CStr::from_ptr(path).to_str().unwrap(), sep, msg])
+                },
+                Source::Fd(fd) => unsafe {
+                    gz_strcat(&[fd_path(buf, fd).to_str().unwrap(), sep, msg])
+                },
+            };
 
-    if state.msg.is_null() {
-        state.err = Z_MEM_ERROR;
+            if state.msg.is_null() {
+                state.err = Z_MEM_ERROR;
+            }
+        }
     }
 }
 
@@ -561,7 +572,7 @@ pub unsafe extern "C-unwind" fn gzclearerr(file: gzFile) {
     }
 
     // Safety: we've checked state, and gz_error supports a null message argument.
-    unsafe { gz_error(state, Z_OK, ptr::null()) };
+    unsafe { gz_error(state, None) };
 }
 
 /// Check whether a read operation has tried to read beyond the end of `file`.
@@ -631,22 +642,21 @@ unsafe fn gz_strdup(src: *const c_char) -> *mut c_char {
 //
 // # Safety
 //
-// * All the elements in `strings` must be non-null pointers to null-terminated C strings.
 // * The return value, if non-null, must be freed using `ALLOCATOR`.
-unsafe fn gz_strcat(strings: &[*const c_char]) -> *mut c_char {
+unsafe fn gz_strcat(strings: &[&str]) -> *mut c_char {
     let mut len = 1; // 1 for null terminator
     for src in strings {
-        len += unsafe { libc::strlen(*src) };
+        len += src.len();
     }
     let Some(buf) = ALLOCATOR.allocate_slice_raw::<c_char>(len) else {
         return ptr::null_mut();
     };
     let start = buf.as_ptr().cast::<c_char>();
-    let mut dst = start;
+    let mut dst = start.cast::<u8>();
     for src in strings {
-        let size = unsafe { libc::strlen(*src) };
+        let size = src.len();
         unsafe {
-            ptr::copy_nonoverlapping(*src, dst, size);
+            ptr::copy_nonoverlapping(src.as_ptr(), dst, size);
         };
         dst = unsafe { dst.add(size) };
     }
@@ -752,7 +762,7 @@ mod tests {
         assert_eq!(unsafe { libc::strlen(dup) }, 0);
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
 
-        let src = [c!(b"example\0")];
+        let src = ["example"];
         let dup = unsafe { gz_strcat(&src) };
         assert!(!dup.is_null());
         assert_eq!(
@@ -761,7 +771,7 @@ mod tests {
         );
         unsafe { ALLOCATOR.deallocate(dup, libc::strlen(dup) + 1) };
 
-        let src = [c!(b"hello\0"), c!(b"\0"), c!(b",\0"), c!("world\0")];
+        let src = ["hello", "", ",", "world"];
         let dup = unsafe { gz_strcat(&src) };
         assert!(!dup.is_null());
         assert_eq!(
@@ -801,7 +811,7 @@ mod tests {
 
         // When an error is set, the path should be prepended to the error message automatically.
         let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
-        unsafe { gz_error(state, Z_ERRNO, c!("example error\0")) };
+        unsafe { gz_error(state, Some((Z_ERRNO, "example error"))) };
         assert_eq!(state.err, Z_ERRNO);
         assert_eq!(
             unsafe { CStr::from_ptr(state.msg) }.to_bytes_with_nul(),
@@ -817,7 +827,7 @@ mod tests {
 
         // Setting the error message to null should clear the old error message.
         let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
-        unsafe { gz_error(state, Z_OK, ptr::null()) };
+        unsafe { gz_error(state, None) };
         assert_eq!(state.err, Z_OK);
         assert!(state.msg.is_null());
         let mut err = Z_ERRNO;
@@ -829,7 +839,7 @@ mod tests {
         // (because gz_error doesn't try to allocate space for a copy of the message if
         // the reason for the error is that allocations are failing).
         let state = (unsafe { handle.cast::<GzState>().as_mut() }).unwrap();
-        unsafe { gz_error(state, Z_MEM_ERROR, c!("should be ignored\0")) };
+        unsafe { gz_error(state, Some((Z_MEM_ERROR, "should be ignored"))) };
         assert_eq!(state.err, Z_MEM_ERROR);
         assert!(state.msg.is_null());
         let mut err = Z_OK;
@@ -857,19 +867,25 @@ mod tests {
 
         // gzclearerr should reset the eof and past flags.
         unsafe { handle.cast::<GzState>().as_mut().unwrap().eof = true };
-        unsafe { handle.cast::<GzState>().as_mut().unwrap().past= true };
+        unsafe { handle.cast::<GzState>().as_mut().unwrap().past = true };
         unsafe { gzclearerr(handle) };
-        assert!(! unsafe { handle.cast::<GzState>().as_ref().unwrap().eof });
-        assert!(! unsafe { handle.cast::<GzState>().as_ref().unwrap().past });
+        assert!(!unsafe { handle.cast::<GzState>().as_ref().unwrap().eof });
+        assert!(!unsafe { handle.cast::<GzState>().as_ref().unwrap().past });
 
         // Set an error flag and message.
-        unsafe { gz_error(handle.cast::<GzState>().as_mut().unwrap(),
-                          Z_STREAM_ERROR, c!(b"example error\0")) };
+        unsafe {
+            gz_error(
+                handle.cast::<GzState>().as_mut().unwrap(),
+                Some((Z_STREAM_ERROR, "example error")),
+            )
+        };
         let mut err = Z_OK;
         let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
         assert_eq!(err, Z_STREAM_ERROR);
-        assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(),
-                   b"<fd:-2>: example error\0");
+        assert_eq!(
+            unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(),
+            b"<fd:-2>: example error\0"
+        );
 
         // gzclearerr should clear the error flag and message.
         unsafe { gzclearerr(handle) };
@@ -879,6 +895,38 @@ mod tests {
 
         // gzclose should return an error because the fd is invalid.
         assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+
+        // Test the write and append modes, where gzclearerr should not clear eof or past.
+        for mode in [c!(b"w\0"), c!(b"a\0")] {
+            // Open a gzip stream for write with an invalid file handle. gzeof should return 0.
+            let handle = unsafe { gzdopen(-2, mode) };
+            assert!(!handle.is_null());
+            assert_eq!(unsafe { gzeof(handle) }, 0);
+
+            // gzclearerr should not reset the eof and past flags in write or append mode.
+            unsafe { handle.cast::<GzState>().as_mut().unwrap().eof = true };
+            unsafe { handle.cast::<GzState>().as_mut().unwrap().past = true };
+            unsafe { gzclearerr(handle) };
+            assert!(unsafe { handle.cast::<GzState>().as_ref().unwrap().eof });
+            assert!(unsafe { handle.cast::<GzState>().as_ref().unwrap().past });
+
+            // Set an error flag and message.
+            unsafe {
+                gz_error(
+                    handle.cast::<GzState>().as_mut().unwrap(),
+                    Some((Z_STREAM_ERROR, "example error")),
+                )
+            };
+
+            // gzclearerr should clear the error flag and message.
+            unsafe { gzclearerr(handle) };
+            let msg = unsafe { gzerror(handle, &mut err as *mut c_int) };
+            assert_eq!(err, Z_OK);
+            assert_eq!(unsafe { CStr::from_ptr(msg) }.to_bytes_with_nul(), b"\0");
+
+            // gzclose should return an error because the fd is invalid.
+            assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+        }
     }
 
     #[test]
@@ -887,7 +935,7 @@ mod tests {
         // gzeof on a null file handle should return false.
         assert_eq!(unsafe { gzeof(ptr::null_mut()) }, 0);
 
-        // Open a gzip stream with an invalid file handle. gzeof should return 0.
+        // Open a gzip stream for read with an invalid file handle. gzeof should return 0.
         let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
         assert!(!handle.is_null());
         assert_eq!(unsafe { gzeof(handle) }, 0);
@@ -900,5 +948,20 @@ mod tests {
 
         // gzclose should return an error because the fd is invalid.
         assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+
+        // Test the write and append modes, where gzeof should always return 0.
+        for mode in [c!(b"w\0"), c!(b"a\0")] {
+            // Open a gzip stream for write with an invalid file handle. gzeof should return 0.
+            let handle = unsafe { gzdopen(-2, mode) };
+            assert!(!handle.is_null());
+            assert_eq!(unsafe { gzeof(handle) }, 0);
+
+            // Even with the past flag set, gzeof should still return 0 in write or append mode.
+            unsafe { handle.cast::<GzState>().as_mut().unwrap().past = true };
+            assert_eq!(unsafe { gzeof(handle) }, 0);
+
+            // gzclose should return an error because the fd is invalid.
+            assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
+        }
     }
 }
