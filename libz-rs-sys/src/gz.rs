@@ -3,10 +3,12 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
+use crate::{deflateEnd, inflateEnd, inflateInit2, inflateReset};
 use core::ffi::{c_char, c_int, c_uint, CStr};
 use core::ptr;
-use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use libc::{size_t, O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
+use zlib_rs::MAX_WBITS;
 
 /// In the zlib C API, this structure exposes just enough of the internal state
 /// of an open gzFile to support the gzgetc() C macro. Since Rust code won't be
@@ -37,11 +39,12 @@ struct GzState {
     mode: GzMode,
     fd: c_int, // file descriptor
     source: Source,
-    size: usize,        // buffer size; can be 0 if not yet allocated
-    want: usize,        // requested buffer size
-    input: *mut Bytef,  // input buffer
-    output: *mut Bytef, // output buffer
-    direct: bool,       // true in pass-through mode, false if processing gzip data
+    want: usize,     // requested buffer size, default is GZBUFSIZE
+    input: *mut u8,  // input buffer (double-sized when writing)
+    in_size: usize,  // size of *input
+    output: *mut u8, // output buffer (double-sized when reading)
+    out_size: usize, // size of *output
+    direct: bool,    // true in pass-through mode, false if processing gzip data
 
     // Fields used just for reading
     how: How,
@@ -59,10 +62,11 @@ struct GzState {
     seek: bool, // whether a seek request is pending
 
     // Error information
-    err: c_int, // last error (0 if no error)
+    err: c_int,         // last error (0 if no error)
     msg: *const c_char, // error message from last error (NULL if none)
 
-                // FIXME: add the zstream field when read/write support is implemented
+    // zlib inflate or deflate stream
+    stream: z_stream,
 }
 
 impl GzState {
@@ -111,12 +115,10 @@ enum GzMode {
 
 // gzip read strategies
 // NOTE: These values match what zlib-ng uses.
+#[derive(Debug, PartialEq, Eq)]
 enum How {
     Look = 0, // look for a gzip header
-    // FIXME Remove "allow(dead_code)" when code using COPY & GZIP is added.
-    #[allow(dead_code)]
     Copy = 1, // copy input directly
-    #[allow(dead_code)]
     Gzip = 2, // decompress a gzip stream
 }
 
@@ -195,7 +197,8 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
     // has the right size and alignment to be used as a GzState. And because the
     // allocator zeroes the allocated space, all the GzState fields are initialized.
     let state = unsafe { state.cast::<GzState>().as_mut() };
-    state.size = 0;
+    state.in_size = 0;
+    state.out_size = 0;
     state.want = GZBUFSIZE;
     state.msg = ptr::null();
 
@@ -203,6 +206,11 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
     state.level = crate::Z_DEFAULT_COMPRESSION as i8;
     state.strategy = Strategy::Default;
     state.direct = false;
+
+    state.stream = z_stream::default();
+    state.stream.zalloc = Some(ALLOCATOR.zalloc);
+    state.stream.zfree = Some(ALLOCATOR.zfree);
+    state.stream.opaque = ALLOCATOR.opaque;
 
     let mode = unsafe { CStr::from_ptr(mode) };
     let Ok((exclusive, cloexec)) = state.configure(mode.to_bytes()) else {
@@ -357,8 +365,7 @@ fn gz_reset(state: &mut GzState) {
                         // Safety: It is valid to pass a null msg pointer to `gz_error`.
     unsafe { gz_error(state, None) }; // clear error status
     state.pos = 0; // no uncompressed data yet
-                   // FIXME add once the deflate state is implemented:
-                   // state->strm.avail_in = 0;       /* no input data yet */
+    state.stream.avail_in = 0; // no input data yet
 }
 
 // Set the error message for a gzip stream, and deallocate any
@@ -431,6 +438,9 @@ unsafe fn gz_error(state: &mut GzState, err_msg: Option<(c_int, &str)>) {
 //   using `ALLOCATOR`.
 // - The caller must not use the `state` after passing it to this function.
 unsafe fn free_state(state: *mut GzState) {
+    if state.is_null() {
+        return;
+    }
     // Safety: `deallocate_cstr` accepts null pointers or C strings, and in this
     // module we use only `ALLOCATOR` to allocate strings assigned to these fields.
     unsafe {
@@ -440,10 +450,34 @@ unsafe fn free_state(state: *mut GzState) {
         }
         deallocate_cstr((*state).msg.cast_mut());
     }
+    // Safety: state is a valid GzState, and free_buffers checks for null
+    // input and output pointers internally.
+    unsafe { free_buffers(state.as_mut().unwrap()) };
+
     // Safety: The caller has ensured that `state` was allocated using `ALLOCATOR`.
-    unsafe {
-        ALLOCATOR.deallocate::<GzState>(state, 1);
+    unsafe { ALLOCATOR.deallocate(state, 1) };
+}
+
+// Deallocate the input and output buffers in a GzState.
+//
+// # Safety
+//
+// * `state` must have been obtained from [`gzopen`] or [`gzdopen`].
+unsafe fn free_buffers(state: &mut GzState) {
+    if !state.input.is_null() {
+        // Safety: state.input is always allocated using ALLOCATOR, and
+        // its allocation size is stored in state.in_size.
+        unsafe { ALLOCATOR.deallocate(state.input, state.in_size) };
+        state.input = ptr::null_mut();
     }
+    state.in_size = 0;
+    if !state.output.is_null() {
+        // Safety: state.input is always allocated using ALLOCATOR, and
+        // its allocation size is stored in state.in_size.
+        unsafe { ALLOCATOR.deallocate(state.output, state.out_size) };
+        state.output = ptr::null_mut();
+    }
+    state.out_size = 0;
 }
 
 // Free a string that was allocated with `ALLOCATOR`
@@ -478,18 +512,84 @@ unsafe fn deallocate_cstr(s: *mut c_char) {
 /// This function may be called at most once for any file handle.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
-    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
-        return Z_STREAM_ERROR;
+    let ret = match unsafe { file.cast::<GzState>().as_mut() } {
+        Some(state) => match state.mode {
+            GzMode::GZ_READ => unsafe { gzclose_r(state) },
+            _ => gzclose_w(state),
+        },
+        None => Z_STREAM_ERROR,
     };
 
-    // FIXME: once read/write support is added, clean up internal buffers
+    unsafe { free_state(file.cast::<GzState>()) };
 
-    let err = unsafe { libc::close(state.fd) };
-    unsafe { free_state(state) };
-    match err {
-        0 => Z_OK,
+    ret
+}
+
+// Close a gzip file that was opened for reading.
+//
+// # Returns
+//
+// * Z_OK if `state` has no outstanding error and the file is closed successfully.
+// * A Z_ error code if the `state` is null or the file close operation fails.
+//
+// # Safety
+//
+// `state` must have been properly initialized, e.g. by [`gzopen_help`].
+unsafe fn gzclose_r(state: &mut GzState) -> c_int {
+    if state.mode != GzMode::GZ_READ {
+        return Z_STREAM_ERROR;
+    }
+
+    // Free buffers and close the file
+    if state.in_size != 0 {
+        // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
+        unsafe { inflateEnd(&mut state.stream as *mut z_stream) };
+    }
+    let err = match state.err {
+        Z_BUF_ERROR => Z_BUF_ERROR,
+        _ => Z_OK,
+    };
+    match unsafe { libc::close(state.fd) } {
+        0 => err,
         _ => Z_ERRNO,
     }
+}
+
+// Close a gzip file that was opened for writing.
+//
+// # Returns
+//
+// * Z_OK if `state` has no outstanding error and the file is closed successfully.
+// * A Z_ error code if the `state` is null or the file close operation fails.
+//
+// # Safety
+//
+// `state` must have been properly initialized, e.g. by [`gzopen`] or [`gzdopen`].
+fn gzclose_w(state: &mut GzState) -> c_int {
+    if state.mode != GzMode::GZ_WRITE {
+        return Z_STREAM_ERROR;
+    }
+
+    let mut ret = Z_OK;
+
+    // Check for a pending seek request
+    if state.seek {
+        state.seek = false;
+        // FIXME add a call to gz_zero(state, state.skip) when write support is implemented.
+        ret = state.err;
+    }
+
+    // FIXME add a call go gz_comp(state, Z_FINISH) when write support is implemented.
+
+    if state.in_size != 0 && !state.direct {
+        // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
+        unsafe { deflateEnd(&mut state.stream as *mut z_stream) };
+    }
+    if unsafe { libc::close(state.fd) } == -1 {
+        ret = Z_ERRNO;
+    }
+
+    ret
 }
 
 /// Retrieve the zlib error code and a human-readable string description of
@@ -605,6 +705,212 @@ pub unsafe extern "C-unwind" fn gzeof(file: gzFile) -> c_int {
     // Per the semantics described in the function comments above, the return value
     // is based on state.past, rather than state.eof.
     state.past as _
+}
+
+/// Check whether `file` is in direct mode (reading or writing literal bytes without compression).
+///
+/// NOTE: If `gzdirect` is called immediately after [`gzopen`] or [`gzdopen`], it may allocate
+/// buffers internally to read the file header and determine whether the content is a gzip file.
+/// If [`gzbuffer`] is used, it should be called before `gzdirect`.
+///
+/// # Returns
+///
+/// 0 if `file` is null.
+///
+/// If `file` is being read,
+/// * 1 if the contents are being read directly, without decompression.
+/// * 0 if the contents are being decompressed when read.
+///
+/// If `file` is being written,
+/// * 1 if transparent mode was requested upon open (with the `"wT"` mode flag for [`gzopen`]).
+/// * 0 otherwise.
+///
+/// # Arguments
+///
+/// * `file` - A gzip file handle, or null
+///
+/// # Safety
+///
+/// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzdirect))]
+pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return 0;
+    };
+
+    // In write mode, the direct flag was set in `gzopen_help`. In read mode, the
+    // direct status is determined lazily on the first read operation. If the first
+    // read hasn't happened yet, we can look at the header now to determine if the
+    // file is in gzip format.
+    if state.mode == GzMode::GZ_READ && state.how == How::Look && state.have == 0 {
+        _ = unsafe { gz_look(state) };
+    }
+
+    state.direct as _
+}
+
+// Given a gzip file opened for reading, check for a gzip header, and set
+// `state.direct` accordingly.
+//
+// # Returns
+//
+// * 0 on success
+// * -1 on failure
+//
+// # Safety
+//
+// `state` must have been properly initialized, e.g. by [`gzopen_help`].
+unsafe fn gz_look(state: &mut GzState) -> c_int {
+    // Allocate buffers if needed.
+    if state.input.is_null() {
+        state.in_size = state.want;
+        let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
+            // Safety:
+            unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+            return -1;
+        };
+        state.input = input.as_ptr();
+    }
+    if state.output.is_null() {
+        state.out_size = state.want * 2;
+        let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
+            // Safety: The caller confirmed the validity of state, and free_buffers checks
+            // for null input and output pointers internally.
+            unsafe { free_buffers(state) };
+            // Safety: The caller confirmed the validity of state.
+            unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+            return -1;
+        };
+        state.output = output.as_ptr();
+    }
+
+    // Allocate memory for inflate.
+    state.stream.avail_in = 0;
+    state.stream.next_in = ptr::null_mut();
+    // Safety: `gzopen_help` initialized `state.stream`'s `zalloc`, `zfree`, and
+    // `opaque` fields as needed by `inflateInit2`.
+    if unsafe { inflateInit2(&mut state.stream as *mut z_stream, MAX_WBITS + 16) } != Z_OK {
+        // Safety: The caller confirmed the validity of `state`, and `free_buffers` checks
+        // for null input and output pointers internally.
+        unsafe { free_buffers(state) };
+        // Safety: The caller confirmed the validity of `state`.
+        unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+        return -1;
+    }
+
+    // Get at least the magic bytes in the input buffer.
+    if state.stream.avail_in < 2 {
+        // Safety: The caller confirmed the validity of `state`.
+        if unsafe { gz_avail(state) } == -1 {
+            return -1;
+        }
+        if state.stream.avail_in == 0 {
+            return 0;
+        }
+    }
+
+    // Look for gzip magic bytes.
+    // Safety: `gz_avail` ensures that `next_in` points to at least `avail_in` readable bytes.
+    if state.stream.avail_in > 1
+        && unsafe { *state.stream.next_in } == 31
+        && unsafe { *state.stream.next_in.add(1) } == 139
+    {
+        // Safety: We initialized `state.stream` with `inflateInit2` above.
+        unsafe { inflateReset(&mut state.stream as *mut z_stream) };
+        state.how = How::Gzip;
+        state.direct = false;
+        return 0;
+    }
+
+    // No gzip header. If we were decoding gzip before, the remaining bytes
+    // are trailing garbage that can be ignored.
+    if !state.direct {
+        state.stream.avail_in = 0;
+        state.eof = true;
+        state.have = 0;
+        return 0;
+    }
+
+    // The file is not in gzip format, so enable direct mode, and copy all
+    // buffered input to the output.
+    // Safety:
+    // * `state.output` was allocated above.
+    // * `gz_avail` ensures that `next_in` points to at least `avail_in` readable bytes.
+    unsafe {
+        ptr::copy_nonoverlapping(
+            state.stream.next_in,
+            state.output,
+            state.stream.avail_in as usize,
+        )
+    };
+    state.next = state.output;
+    state.have = state.stream.avail_in;
+    state.stream.avail_in = 0;
+    state.how = How::Copy;
+    state.direct = true;
+
+    0
+}
+
+// Load data into the input buffer and set the eof flag if the last of the data has been
+// loaded.
+//
+// # Returns
+//
+// * -1 if an error occurs.
+// * 0 otherwise.
+//
+// # Safety
+//
+// `state` must have been properly initialized, e.g. by [`gzopen_help`].
+unsafe fn gz_avail(state: &mut GzState) -> c_int {
+    if state.err != Z_OK && state.err != Z_BUF_ERROR {
+        return -1;
+    }
+    if !state.eof {
+        if state.stream.avail_in != 0 {
+            // Copy any remaining input to the start.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    state.stream.next_in,
+                    state.input,
+                    state.stream.avail_in as usize,
+                )
+            };
+        }
+        let Ok(got) = (unsafe {
+            gz_load(
+                state,
+                state.input.add(state.stream.avail_in as usize),
+                state.in_size - state.stream.avail_in as usize,
+            )
+        }) else {
+            return -1;
+        };
+        state.stream.avail_in += got as uInt;
+        state.stream.next_in = state.input;
+    }
+    0
+}
+
+unsafe fn gz_load(state: &mut GzState, buf: *mut u8, len: size_t) -> Result<size_t, ()> {
+    let mut have = 0;
+    let mut ret = 0;
+    while have < len {
+        ret = unsafe { libc::read(state.fd, buf.add(have).cast::<_>(), (len - have) as _) };
+        if ret <= 0 {
+            break;
+        }
+        have += ret as size_t;
+    }
+    if ret < 0 {
+        unsafe { gz_error(state, Some((Z_ERRNO, "read error"))) }; // FIXME implement `zstrerror`
+        return Err(());
+    }
+    if ret == 0 {
+        state.eof = true;
+    }
+    Ok(have)
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`
