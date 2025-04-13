@@ -120,6 +120,8 @@ impl<'a> BitReader<'a> {
         // SAFETY: assertion above ensures we have 8 bytes to read for a u64.
         let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) }.to_le();
         self.bit_buffer |= read << self.bits_used;
+        // this xor was previously a subtraction but was changed for performance reasons.
+        // for bits_used between 0 and 63 (inclusive), it will always have the same behavior.
         let increment = (63 ^ self.bits_used) >> 3;
         self.ptr = self.ptr.wrapping_add(increment as usize);
         self.bits_used |= 56;
