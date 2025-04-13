@@ -1,6 +1,6 @@
 use zlib_rs::c_api::*;
 
-use libz_rs_sys::{gzFile_s, gzclose, gzdopen, gzerror, gzopen};
+use libz_rs_sys::{gzFile_s, gzclose, gzdirect, gzdopen, gzerror, gzopen};
 
 use std::ffi::{c_char, c_int, CString};
 use std::path::Path;
@@ -26,7 +26,13 @@ macro_rules! test_open {
         let cpath = CString::new($path).unwrap();
         let cmode = CString::new($mode).unwrap();
         let handle = unsafe { gzopen(cpath.as_ptr(), cmode.as_ptr()) };
-        assert_eq!($should_succeed, !handle.is_null(), "gzopen({}, {})", $path, $mode);
+        assert_eq!(
+            $should_succeed,
+            !handle.is_null(),
+            "gzopen({}, {})",
+            $path,
+            $mode
+        );
         if !handle.is_null() {
             assert_eq!(unsafe { gzclose(handle) }, Z_OK, "gzclose({}) error", $path);
         }
@@ -38,7 +44,13 @@ macro_rules! test_fdopen {
     ($fd:expr, $mode:expr, $should_succeed:expr) => {
         let cmode = CString::new($mode).unwrap();
         let handle = unsafe { gzdopen($fd, cmode.as_ptr()) };
-        assert_eq!($should_succeed, !handle.is_null(), "gzdopen({}, {})", $fd, $mode);
+        assert_eq!(
+            $should_succeed,
+            !handle.is_null(),
+            "gzdopen({}, {})",
+            $fd,
+            $mode
+        );
         if !handle.is_null() {
             assert_eq!(unsafe { gzclose(handle) }, Z_OK, "gzclose({}) error", $fd);
         }
@@ -132,4 +144,57 @@ fn gz_error_access() {
     assert!(!err.is_null());
     assert_eq!(unsafe { *err }, 0 as c_char);
     assert_eq!(unsafe { gzclose(handle) }, Z_OK);
+}
+
+#[test]
+fn gz_direct_write() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = if cfg!(target_os = "wasi") {
+        std::path::PathBuf::from("/tmp/")
+    } else {
+        std::env::temp_dir()
+    };
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Test write and append modes, where direct mode is specified by the call to `gzopen`.
+    for mode in ["w", "a"] {
+        // Open a new file without the "T" mode flag. It should be in non-direct mode.
+        let file = unsafe {
+            gzopen(
+                CString::new(path(temp_path, "compressed.gz")).unwrap().as_ptr(),
+                CString::new(mode).unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 0);
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Open a new file with the "T" mode flag. It should be in direct mode.
+        let file = unsafe {
+            gzopen(
+                CString::new(path(temp_path, "direct.gz")).unwrap().as_ptr(),
+                CString::new("T".to_owned() + mode).unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 1);
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+}
+
+#[test]
+fn gz_direct_read() {
+    // Open a gzip file for reading. gzdirect should return 0.
+    let file = unsafe { gzopen(CString::new(crate_path("src/test-data/issue-109.gz")).unwrap().as_ptr(), CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzdirect(file) }, 0);
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Open a non-gzip file for reading. gzdirect should return 1.
+    let file = unsafe { gzopen(CString::new(crate_path("src/test-data/issue-169.js")).unwrap().as_ptr(), CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzdirect(file) }, 1);
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
