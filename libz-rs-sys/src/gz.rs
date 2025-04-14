@@ -6,7 +6,7 @@ pub use zlib_rs::c_api::*;
 use crate::{deflateEnd, inflateEnd, inflateInit2, inflateReset};
 use core::ffi::{c_char, c_int, c_uint, CStr};
 use core::ptr;
-use libc::{size_t, O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use zlib_rs::deflate::Strategy;
 use zlib_rs::MAX_WBITS;
 
@@ -754,20 +754,20 @@ pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
 //
 // # Returns
 //
-// * 0 on success
-// * -1 on failure
+// * `Ok` on success
+// * `Err` on failure
 //
 // # Safety
 //
 // `state` must have been properly initialized, e.g. by [`gzopen_help`].
-unsafe fn gz_look(state: &mut GzState) -> c_int {
+unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
     // Allocate buffers if needed.
     if state.input.is_null() {
         state.in_size = state.want;
         let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
             // Safety:
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
-            return -1;
+            return Err(());
         };
         state.input = input.as_ptr();
     }
@@ -779,7 +779,7 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
             unsafe { free_buffers(state) };
             // Safety: The caller confirmed the validity of state.
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
-            return -1;
+            return Err(());
         };
         state.output = output.as_ptr();
     }
@@ -795,17 +795,17 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
         unsafe { free_buffers(state) };
         // Safety: The caller confirmed the validity of `state`.
         unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
-        return -1;
+        return Err(());
     }
 
     // Get at least the magic bytes in the input buffer.
     if state.stream.avail_in < 2 {
         // Safety: The caller confirmed the validity of `state`.
-        if unsafe { gz_avail(state) } == -1 {
-            return -1;
-        }
+        let Ok(_) = (unsafe { gz_avail(state) }) else {
+            return Err(());
+        };
         if state.stream.avail_in == 0 {
-            return 0;
+            return Ok(());
         }
     }
 
@@ -819,16 +819,17 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
         unsafe { inflateReset(&mut state.stream as *mut z_stream) };
         state.how = How::Gzip;
         state.direct = false;
-        return 0;
+        return Ok(());
     }
 
     // No gzip header. If we were decoding gzip before, the remaining bytes
     // are trailing garbage that can be ignored.
+    // FIXME: Add test coverage for this case (which may require the remaining decompression logic).
     if !state.direct {
         state.stream.avail_in = 0;
         state.eof = true;
         state.have = 0;
-        return 0;
+        return Ok(());
     }
 
     // The file is not in gzip format, so enable direct mode, and copy all
@@ -837,7 +838,7 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
     // * `state.output` was allocated above.
     // * `gz_avail` ensures that `next_in` points to at least `avail_in` readable bytes.
     unsafe {
-        ptr::copy_nonoverlapping(
+        ptr::copy(
             state.stream.next_in,
             state.output,
             state.stream.avail_in as usize,
@@ -849,7 +850,7 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
     state.how = How::Copy;
     state.direct = true;
 
-    0
+    Ok(())
 }
 
 // Load data into the input buffer and set the eof flag if the last of the data has been
@@ -857,43 +858,58 @@ unsafe fn gz_look(state: &mut GzState) -> c_int {
 //
 // # Returns
 //
-// * -1 if an error occurs.
-// * 0 otherwise.
+// * `Ok(n)` on success, where `n` is the number of bytes available (`state.stream.avail_in`)
+// * `Err` on error
 //
 // # Safety
 //
 // `state` must have been properly initialized, e.g. by [`gzopen_help`].
-unsafe fn gz_avail(state: &mut GzState) -> c_int {
+unsafe fn gz_avail(state: &mut GzState) -> Result<usize, ()> {
     if state.err != Z_OK && state.err != Z_BUF_ERROR {
-        return -1;
+        return Err(());
     }
     if !state.eof {
         if state.stream.avail_in != 0 {
             // Copy any remaining input to the start.
             unsafe {
-                ptr::copy_nonoverlapping(
+                ptr::copy(
                     state.stream.next_in,
                     state.input,
                     state.stream.avail_in as usize,
                 )
             };
         }
-        let Ok(got) = (unsafe {
+        let got = unsafe {
             gz_load(
                 state,
                 state.input.add(state.stream.avail_in as usize),
                 state.in_size - state.stream.avail_in as usize,
             )
-        }) else {
-            return -1;
-        };
+        }?;
         state.stream.avail_in += got as uInt;
         state.stream.next_in = state.input;
     }
-    0
+    Ok(state.stream.avail_in as usize)
 }
 
-unsafe fn gz_load(state: &mut GzState, buf: *mut u8, len: size_t) -> Result<size_t, ()> {
+// Read data from `state`'s underlying file descriptor into a buffer.
+//
+// # Returns
+//
+// * `Ok(n)` on success, where `n` is the number of bytes read.
+// * `Err` on error
+//
+// # Arguments
+//
+// * `state` - gzip file handle.
+// * `buf` - address at which the data read from the file should be stored.
+// * `size` - number of bytes to read
+//
+// # Safety
+//
+// * `state` must have been properly initialized, e.g. by [`gzopen_help`].
+// * `buf` mut point to a writable block of at least `len` bytes.
+unsafe fn gz_load(state: &mut GzState, buf: *mut u8, len: usize) -> Result<usize, ()> {
     let mut have = 0;
     let mut ret = 0;
     while have < len {
@@ -901,7 +917,7 @@ unsafe fn gz_load(state: &mut GzState, buf: *mut u8, len: size_t) -> Result<size
         if ret <= 0 {
             break;
         }
-        have += ret as size_t;
+        have += ret as usize;
     }
     if ret < 0 {
         unsafe { gz_error(state, Some((Z_ERRNO, "read error"))) }; // FIXME implement `zstrerror`
@@ -973,6 +989,19 @@ unsafe fn gz_strcat(strings: &[&str]) -> *mut c_char {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+    use std::path::Path;
+
+    // Generate a file path relative to the project's root
+    fn crate_path(file: &str) -> String {
+        path(Path::new(env!("CARGO_MANIFEST_DIR")), file)
+    }
+
+    fn path(prefix: &Path, file: &str) -> String {
+        let mut path_buf = prefix.to_path_buf();
+        path_buf.push(file);
+        path_buf.as_path().to_str().unwrap().to_owned()
+    }
 
     #[test]
     fn test_configure() {
@@ -1102,6 +1131,9 @@ mod tests {
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
     fn test_gz_error() {
+        // gzerror(null) should return null.
+        assert!(unsafe { gzerror(ptr::null_mut(), ptr::null_mut()) }.is_null());
+
         // Open a gzip stream with an invalid file handle. Initially, no error
         // status should be set.
         let handle = unsafe { gzdopen(-2, c!(b"r\0")) };
@@ -1269,5 +1301,113 @@ mod tests {
             // gzclose should return an error because the fd is invalid.
             assert_eq!(unsafe { gzclose(handle) }, Z_ERRNO);
         }
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
+    fn test_gzdirect() {
+        // gzdirect(null) should return 0.
+        assert_eq!(unsafe { gzdirect(ptr::null_mut()) }, 0);
+
+        // Open a gzip stream from an invalid file descriptor. gzdirect should return 1, but
+        // it should cause an error condition to be set within the stream.
+        let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 1);
+        let mut err = Z_OK;
+        let msg = unsafe { gzerror(file, &mut err as *mut c_int) };
+        assert!(!msg.is_null());
+        assert_eq!(err, Z_ERRNO);
+        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+        // Open a gzip file for reading. gzdirect should return 0.
+        let file = unsafe {
+            gzopen(
+                CString::new(crate_path("src/test-data/example.gz"))
+                    .unwrap()
+                    .as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        // Set a smaller read batch size to exercise the buffer management code paths.
+        const FILE_SIZE: usize = 48; // size of test-data/example.gz
+        const BLOCK_SIZE: usize = 40;
+        unsafe { file.cast::<GzState>().as_mut().unwrap().want = BLOCK_SIZE };
+        assert_eq!(unsafe { gzdirect(file) }, 0);
+        // gzdirect should have pulled the first `BLOCK_SIZE` bytes of the file into `file`'s internal input buffer.
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().have }, 0);
+        assert_eq!(
+            unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
+            BLOCK_SIZE as uInt
+        );
+        // Consume some of the buffered input and call gz_avail. It should move the remaining
+        // input to the front of the input buffer.
+        unsafe {
+            let state = file.cast::<GzState>().as_mut().unwrap();
+            const CONSUME: usize = 10;
+            state.stream.next_in = state.stream.next_in.add(CONSUME);
+            state.stream.avail_in -= CONSUME as uInt;
+            let expected_avail = BLOCK_SIZE - CONSUME + (FILE_SIZE - BLOCK_SIZE);
+            assert_eq!(gz_avail(state), Ok(expected_avail));
+            assert_eq!(state.stream.avail_in as usize, expected_avail);
+        };
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Open a non-gzip file for reading. gzdirect should return 1.
+        let file = unsafe {
+            gzopen(
+                CString::new(crate_path("src/test-data/example.txt"))
+                    .unwrap()
+                    .as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 1);
+        // gzdirect should have pulled the entire contents of the file (which is smaller than
+        // GZBUFSIZE) into `file`'s internal output buffer.
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().have }, 20);
+        assert_eq!(
+            unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
+            0
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Open a file containing only the gzip magic number. gzdirect should return 0.
+        let file = unsafe {
+            gzopen(
+                CString::new(crate_path("src/test-data/magic-only.gz"))
+                    .unwrap()
+                    .as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 0);
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().have }, 0);
+        assert_eq!(
+            unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
+            2
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Open a file containing only the first byte of the gzip magic number. gzdirect should return 1.
+        let file = unsafe {
+            gzopen(
+                CString::new(crate_path("src/test-data/incomplete-magic.gz"))
+                    .unwrap()
+                    .as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzdirect(file) }, 1);
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().have }, 1);
+        assert_eq!(
+            unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
+            0
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
     }
 }

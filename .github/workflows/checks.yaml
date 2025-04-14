@@ -483,7 +483,7 @@ jobs:
       - name: Test gz logic with miri
         run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz"
         env:
-          MIRIFLAGS: "-Zmiri-tree-borrows"
+          MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
 
   run-flate2-test-suite:
     name: run flate2 test suite
