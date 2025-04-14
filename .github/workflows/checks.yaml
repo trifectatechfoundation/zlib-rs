@@ -79,7 +79,7 @@ jobs:
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
       - name: cargo llvm-cov nextest
         if: matrix.os != 'windows-2022'
-        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
         env:
           RUST_BACKTRACE: 1
       - name: cargo nextest
