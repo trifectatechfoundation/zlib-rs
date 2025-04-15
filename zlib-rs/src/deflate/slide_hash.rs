@@ -22,7 +22,8 @@ fn slide_hash_chain(table: &mut [u16], wsize: u16) {
 
     #[cfg(target_arch = "wasm32")]
     if crate::cpu_features::is_enabled_simd128() {
-        return wasm::slide_hash_chain(table, wsize);
+        // SAFETY: the simd128 target feature is enabled.
+        return unsafe { wasm::slide_hash_chain(table, wsize) };
     }
 
     rust::slide_hash_chain(table, wsize);
@@ -51,7 +52,7 @@ mod rust {
 mod avx2 {
     /// # Safety
     ///
-    /// Behavior is undefined if the `avx` target feature is not enabled
+    /// Behavior is undefined if the `avx2` target feature is not enabled
     #[target_feature(enable = "avx2")]
     pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         // 64 means that 4 256-bit values can be processed per iteration.
@@ -112,31 +113,15 @@ mod neon {
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use core::arch::wasm32::{u16x8_splat, u16x8_sub_sat, v128, v128_load, v128_store};
-
-    pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-        assert_eq!(table.len() % 8, 0);
-        slide_hash_chain_internal(table, wsize)
-    }
-
+    /// # Safety
+    ///
+    /// Behavior is undefined if the `simd128` target feature is not enabled
     #[target_feature(enable = "simd128")]
-    fn slide_hash_chain_internal(table: &mut [u16], wsize: u16) {
-        let wsize_v128 = u16x8_splat(wsize);
-
-        for chunk in table.chunks_exact_mut(8) {
-            let chunk_ptr = chunk.as_mut_ptr() as *mut v128;
-
-            // Load the 128-bit value.
-            // SAFETY: the pointer we get from chunks_exact_mut() is valid.
-            let value = unsafe { v128_load(chunk_ptr) };
-
-            // Perform saturating subtraction
-            let result = u16x8_sub_sat(value, wsize_v128);
-
-            // Store the result back.
-            // SAFETY: the pointer we get from chunks_exact_mut() is valid.
-            unsafe { v128_store(chunk_ptr, result) };
-        }
+    pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        // 32 means that 4 128-bit values can be processed per iteration. That appear to be the
+        // optimal amount on x86_64 (SSE) and aarch64 (NEON), which is what this will ultimately
+        // compile down to.
+        super::generic_slide_hash_chain::<32>(table, wsize);
     }
 }
 
@@ -193,11 +178,11 @@ mod tests {
 
     #[test]
     #[cfg(target_arch = "wasm32")]
-    fn test_slide_hash_neon() {
+    fn test_slide_hash_wasm() {
         if crate::cpu_features::is_enabled_simd128() {
             let mut input = INPUT;
 
-            wasm::slide_hash_chain(&mut input, WSIZE);
+            unsafe { wasm::slide_hash_chain(&mut input, WSIZE) };
 
             assert_eq!(input, OUTPUT);
         }
