@@ -515,11 +515,15 @@ pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
     let ret = match unsafe { file.cast::<GzState>().as_mut() } {
         Some(state) => match state.mode {
             GzMode::GZ_READ => unsafe { gzclose_r(state) },
-            _ => gzclose_w(state),
+            GzMode::GZ_WRITE | GzMode::GZ_APPEND | GzMode::GZ_NONE => gzclose_w(state),
         },
         None => Z_STREAM_ERROR,
     };
 
+    // Note: In zlib-ng, the gzclose_r and gzclose_w functions deallocate the state
+    // object themselves. Here, since those functions take references to the state, the
+    // deallocation cannot safely happen until the references are out of scope. Therefore
+    // the free_state call handles the deallocation using the raw pointer to the state.
     unsafe { free_state(file.cast::<GzState>()) };
 
     ret
@@ -743,7 +747,7 @@ pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
     // read hasn't happened yet, we can look at the header now to determine if the
     // file is in gzip format.
     if state.mode == GzMode::GZ_READ && state.how == How::Look && state.have == 0 {
-        _ = unsafe { gz_look(state) };
+        let _ = unsafe { gz_look(state) };
     }
 
     state.direct as _
@@ -800,16 +804,22 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
 
     // Get at least the magic bytes in the input buffer.
     if state.stream.avail_in < 2 {
+        // `gz_avail` attempts to read as much data as available from the underlying file
+        // into the input buffer. This will hopefully give us enough bytes to check for a
+        // gzip file header.
         // Safety: The caller confirmed the validity of `state`.
-        let Ok(_) = (unsafe { gz_avail(state) }) else {
-            return Err(());
-        };
-        if state.stream.avail_in == 0 {
+        if unsafe { gz_avail(state) }? == 0 {
             return Ok(());
         }
     }
 
     // Look for gzip magic bytes.
+    // Note: If we are reading a partially written gzip file, and all that is available to read is
+    // the first byte of the gzip magic number, we cannot tell whether what follows will be the
+    // rest of the gzip magic. For simplicity, we assume that the writer of a gzip file will
+    // write the header (or at least the magic number at the start of the header) atomically,
+    // so if our initial read found a single byte it is a sufficient indication that the file
+    // is not in gzip format.
     // Safety: `gz_avail` ensures that `next_in` points to at least `avail_in` readable bytes.
     if state.stream.avail_in > 1
         && unsafe { *state.stream.next_in } == 31
@@ -838,7 +848,7 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
     // * `state.output` was allocated above.
     // * `gz_avail` ensures that `next_in` points to at least `avail_in` readable bytes.
     unsafe {
-        ptr::copy(
+        ptr::copy_nonoverlapping(
             state.stream.next_in,
             state.output,
             state.stream.avail_in as usize,
@@ -870,7 +880,8 @@ unsafe fn gz_avail(state: &mut GzState) -> Result<usize, ()> {
     }
     if !state.eof {
         if state.stream.avail_in != 0 {
-            // Copy any remaining input to the start.
+            // Copy any remaining input to the start. Note: The source and destination are
+            // within the same buffer, so this may be an overlapping copy.
             unsafe {
                 ptr::copy(
                     state.stream.next_in,
@@ -1305,22 +1316,8 @@ mod tests {
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
-    fn test_gzdirect() {
-        // gzdirect(null) should return 0.
-        assert_eq!(unsafe { gzdirect(ptr::null_mut()) }, 0);
-
-        // Open a gzip stream from an invalid file descriptor. gzdirect should return 1, but
-        // it should cause an error condition to be set within the stream.
-        let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
-        assert!(!file.is_null());
-        assert_eq!(unsafe { gzdirect(file) }, 1);
-        let mut err = Z_OK;
-        let msg = unsafe { gzerror(file, &mut err as *mut c_int) };
-        assert!(!msg.is_null());
-        assert_eq!(err, Z_ERRNO);
-        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
-
-        // Open a gzip file for reading. gzdirect should return 0.
+    // Open a gzip file for reading. gzdirect should return 0.
+    fn test_gzdirect_gzip_file() {
         let file = unsafe {
             gzopen(
                 CString::new(crate_path("src/test-data/example.gz"))
@@ -1353,8 +1350,12 @@ mod tests {
             assert_eq!(state.stream.avail_in as usize, expected_avail);
         };
         assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
 
-        // Open a non-gzip file for reading. gzdirect should return 1.
+    // Open a non-gzip file for reading. gzdirect should return 1.
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
+    fn test_gzdirect_non_gzip_file() {
         let file = unsafe {
             gzopen(
                 CString::new(crate_path("src/test-data/example.txt"))

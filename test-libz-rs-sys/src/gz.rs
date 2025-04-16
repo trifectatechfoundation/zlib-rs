@@ -163,7 +163,9 @@ fn gz_direct_write() {
         // Open a new file without the "T" mode flag. It should be in non-direct mode.
         let file = unsafe {
             gzopen(
-                CString::new(path(temp_path, "compressed.gz")).unwrap().as_ptr(),
+                CString::new(path(temp_path, "compressed.gz"))
+                    .unwrap()
+                    .as_ptr(),
                 CString::new(mode).unwrap().as_ptr(),
             )
         };
@@ -186,15 +188,43 @@ fn gz_direct_write() {
 
 #[test]
 fn gz_direct_read() {
+    // gzdirect(null) should return 0.
+    assert_eq!(unsafe { gzdirect(ptr::null_mut()) }, 0);
+
     // Open a gzip file for reading. gzdirect should return 0.
-    let file = unsafe { gzopen(CString::new(crate_path("src/test-data/issue-109.gz")).unwrap().as_ptr(), CString::new("r").unwrap().as_ptr()) };
+    let file = unsafe {
+        gzopen(
+            CString::new(crate_path("src/test-data/issue-109.gz"))
+                .unwrap()
+                .as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
     assert!(!file.is_null());
     assert_eq!(unsafe { gzdirect(file) }, 0);
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
     // Open a non-gzip file for reading. gzdirect should return 1.
-    let file = unsafe { gzopen(CString::new(crate_path("src/test-data/issue-169.js")).unwrap().as_ptr(), CString::new("r").unwrap().as_ptr()) };
+    let file = unsafe {
+        gzopen(
+            CString::new(crate_path("src/test-data/issue-169.js"))
+                .unwrap()
+                .as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
     assert!(!file.is_null());
     assert_eq!(unsafe { gzdirect(file) }, 1);
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Open a gzip stream from an invalid file descriptor. gzdirect should return 1, but
+    // it should cause an error condition to be set within the stream.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzdirect(file) }, 1);
+    let mut err = Z_OK;
+    let msg = unsafe { gzerror(file, &mut err as *mut c_int) };
+    assert!(!msg.is_null());
+    assert_eq!(err, Z_ERRNO);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
