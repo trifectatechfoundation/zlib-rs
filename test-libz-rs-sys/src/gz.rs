@@ -1,8 +1,10 @@
 use zlib_rs::c_api::*;
 
-use libz_rs_sys::{gzFile_s, gzclose, gzdirect, gzdopen, gzerror, gzopen};
+use libz_rs_sys::{
+    gzFile_s, gzbuffer, gzclearerr, gzclose, gzdirect, gzdopen, gzerror, gzopen, gzread,
+};
 
-use std::ffi::{c_char, c_int, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CString};
 use std::path::Path;
 use std::ptr;
 
@@ -227,4 +229,191 @@ fn gz_direct_read() {
     assert!(!msg.is_null());
     assert_eq!(err, Z_ERRNO);
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzread_special_cases() {
+    let mut buf = [0u8; 10];
+
+    // gzread on an null file handle should return -1.
+    assert_eq!(
+        unsafe {
+            gzread(
+                ptr::null_mut(),
+                buf.as_mut_ptr().cast::<c_void>(),
+                buf.len() as c_uint,
+            )
+        },
+        -1
+    );
+
+    // Open a gzip file for writing. gzread should return -1.
+    for mode in ["w", "a"] {
+        // The fd here is invalid, but it's enough to construct a gzFile so we can exercise
+        // the code path in gzread that checks for read mode.
+        let file = unsafe { gzdopen(-2, CString::new(mode).unwrap().as_ptr()) };
+        assert!(!file.is_null());
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as c_uint) },
+            -1
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+    }
+}
+
+#[test]
+fn gread_gzip() {
+    const BUF_SIZE: usize = 128;
+    const MAX_READ_SIZE: usize = 256;
+    let mut buf = [0u8; MAX_READ_SIZE];
+
+    // Open a valid gzip file for reading.
+    let file = unsafe {
+        gzopen(
+            CString::new(crate_path("src/test-data/issue-109.gz"))
+                .unwrap()
+                .as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // Set a small buffer size to help exercise the various buffer-refilling code paths.
+    assert_eq!(unsafe { gzbuffer(file, BUF_SIZE as c_uint) }, 0);
+    // Try to read more bytes than can be represented by a c_int. gzread should return -1.
+    let len = c_int::MAX as c_uint + 1;
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), len as c_uint) },
+        -1
+    );
+    let mut err = Z_OK;
+    assert!(!unsafe { gzerror(file, &mut err as *mut c_int) }.is_null());
+    assert_eq!(err, Z_STREAM_ERROR);
+    // Try a read of a more reasonable number of bytes. This should fail because the last
+    // gzread set the file handle's internal error status.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 1) },
+        -1
+    );
+    // Clear the error state an retry the read. This time the read should succeed.
+    unsafe { gzclearerr(file) };
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 10) },
+        10
+    );
+    assert_eq!(&buf[..10], b"#mtree\n/se");
+    // Read until we hit the end of the file. The number of bytes obtained by gz_read should match the decompressed file size.
+    let mut bytes_read: usize = 10;
+    loop {
+        // Do large reads, compared to the file handle's internal buffer size, to exercise the
+        // optimized code paths that bypass the intermediate buffer.
+        let ret = unsafe {
+            gzread(
+                file,
+                buf.as_mut_ptr().cast::<c_void>(),
+                MAX_READ_SIZE as c_uint,
+            )
+        };
+        assert!(ret >= 0);
+        if ret == 0 {
+            break;
+        }
+        bytes_read += ret as usize;
+    }
+    assert_eq!(bytes_read, 126094);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzread_direct() {
+    const BUF_SIZE: usize = 24;
+    const MAX_READ_SIZE: usize = 256;
+    let mut buf = [0u8; MAX_READ_SIZE];
+
+    // Open a non-gzip file for reading.
+    let path = crate_path("src/test-data/issue-169.js");
+    let file = unsafe {
+        gzopen(
+            CString::new(path.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // Set a small buffer size to help exercise the various buffer-refilling code paths.
+    assert_eq!(unsafe { gzbuffer(file, BUF_SIZE as c_uint) }, 0);
+    // gzread should fetch the specified number of bytes from the start of the file.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 20 as c_uint) },
+        20 as c_int
+    );
+    assert_eq!(&buf[..20], b"// This file was pro");
+    // A zero-byte gzread should return zero.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 0) },
+        0
+    );
+    // Do a small read to get more of the data in the file handle's output buffer.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 2 as c_uint) },
+        2 as c_int
+    );
+    assert_eq!(&buf[..2], b"ce");
+    // Do another read. This should be satisfied partially by the bytes remaining in the file
+    // handle's output buffer, with the remaining bytes being read from the file.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 20 as c_uint) },
+        20 as c_int
+    );
+    assert_eq!(&buf[..20], b"durally generated fr");
+    // Read until we hit the end of the file. The number of bytes obtained by gz_read should match the file size.
+    let mut bytes_read: usize = 20 + 2 + 20;
+    loop {
+        // Do large reads, compared to the file handle's internal buffer size, to exercise the
+        // optimized code paths that bypass the intermediate buffer.
+        let ret = unsafe {
+            gzread(
+                file,
+                buf.as_mut_ptr().cast::<c_void>(),
+                MAX_READ_SIZE as c_uint,
+            )
+        };
+        assert!(ret >= 0);
+        if ret == 0 {
+            break;
+        }
+        bytes_read += ret as usize;
+    }
+    let Ok(size) = file_size(path.as_str()) else {
+        panic!("Could not find size of file {}", path);
+    };
+    assert_eq!(bytes_read, size);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+// Get the size in bytes of a file.
+//
+// # Returns
+//
+// - `Ok(size)` on success.
+// - `Err` on error.
+fn file_size(path: &str) -> Result<usize, ()> {
+    let mut result = Err(());
+    let stat_ptr = unsafe { libc::calloc(1, core::mem::size_of::<libc::stat>() as _) };
+    if stat_ptr.is_null() {
+        return result;
+    }
+    let ret = unsafe {
+        libc::stat(
+            CString::new(path).unwrap().as_ptr(),
+            stat_ptr.cast::<libc::stat>(),
+        )
+    };
+    if ret == 0 {
+        if let Some(stat_info) = unsafe { stat_ptr.cast::<libc::stat>().as_ref() } {
+            result = Ok(stat_info.st_size as usize);
+        }
+    }
+    unsafe { libc::free(stat_ptr) };
+    result
 }
