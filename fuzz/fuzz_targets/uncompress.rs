@@ -95,7 +95,18 @@ fn run(input: &[u8]) -> Corpus {
             }
             _ => {
                 unsafe { inflateEnd(&mut stream) };
-                return Corpus::Reject;
+
+                // For code coverage (on CI), we want to keep inputs that triggered the error
+                // branches, to get an accurate picture of what error paths we actually hit.
+                //
+                // It helps that on CI we start with a corpus of valid files: a mutation of such an
+                // input is not a sequence of random bytes, but rather quite close to correct and
+                // hence likely to hit interesting error conditions.
+                if cfg!(feature = "keep-invalid-in-corpus") {
+                    return Corpus::Keep;
+                } else {
+                    return Corpus::Reject;
+                }
             }
         }
     }
@@ -103,7 +114,13 @@ fn run(input: &[u8]) -> Corpus {
     let err = unsafe { inflateEnd(&mut stream) };
     match ReturnCode::from(err) {
         ReturnCode::Ok => Corpus::Keep,
-        _ => Corpus::Reject,
+        _ => {
+            if cfg!(feature = "keep-invalid-in-corpus") {
+                return Corpus::Keep;
+            } else {
+                return Corpus::Reject;
+            }
+        }
     }
 }
 
