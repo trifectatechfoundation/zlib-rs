@@ -295,15 +295,15 @@ impl<'a> Writer<'a> {
 ///
 /// Must be valid to read a `[u8; N]` value from `from` with an unaligned read.
 #[inline(always)]
-unsafe fn load_chunk<const N: usize>(from: *const MaybeUninit<u8>) -> [u8; N] {
-    core::ptr::read_unaligned(from.cast::<[u8; N]>())
+unsafe fn load_chunk<const N: usize>(from: *const MaybeUninit<u8>) -> [MaybeUninit<u8>; N] {
+    core::ptr::read_unaligned(from.cast::<[MaybeUninit<u8>; N]>())
 }
 
 /// # Safety
 ///
 /// Must be valid to write a `[u8; N]` value to `out` with an unaligned write.
 #[inline(always)]
-unsafe fn store_chunk<const N: usize>(out: *mut MaybeUninit<u8>, chunk: [u8; N]) {
+unsafe fn store_chunk<const N: usize>(out: *mut MaybeUninit<u8>, chunk: [MaybeUninit<u8>; N]) {
     core::ptr::write_unaligned(out.cast(), chunk)
 }
 
