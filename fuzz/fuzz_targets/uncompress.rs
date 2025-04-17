@@ -77,7 +77,21 @@ fn run(input: &[u8]) -> Corpus {
     stream.next_out = output.as_mut_ptr();
     stream.avail_out = output.len().try_into().unwrap();
 
+    // Small enough to hit interesting cases, but large enough to hit the fast path
     let chunk_size = 64;
+
+    // For code coverage (on CI), we want to keep inputs that triggered the error
+    // branches, to get an accurate picture of what error paths we actually hit.
+    //
+    // It helps that on CI we start with a corpus of valid files: a mutation of such an
+    // input is not a sequence of random bytes, but rather quite close to correct and
+    // hence likely to hit interesting error conditions.
+    let invalid_input = if cfg!(feature = "keep-invalid-in-corpus") {
+        Corpus::Keep
+    } else {
+        Corpus::Reject
+    };
+
     for chunk in input.chunks(chunk_size) {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
@@ -100,18 +114,7 @@ fn run(input: &[u8]) -> Corpus {
             }
             _ => {
                 unsafe { inflateEnd(&mut stream) };
-
-                // For code coverage (on CI), we want to keep inputs that triggered the error
-                // branches, to get an accurate picture of what error paths we actually hit.
-                //
-                // It helps that on CI we start with a corpus of valid files: a mutation of such an
-                // input is not a sequence of random bytes, but rather quite close to correct and
-                // hence likely to hit interesting error conditions.
-                if cfg!(feature = "keep-invalid-in-corpus") {
-                    return Corpus::Keep;
-                } else {
-                    return Corpus::Reject;
-                }
+                return invalid_input;
             }
         }
     }
@@ -119,13 +122,7 @@ fn run(input: &[u8]) -> Corpus {
     let err = unsafe { inflateEnd(&mut stream) };
     match ReturnCode::from(err) {
         ReturnCode::Ok => Corpus::Keep,
-        _ => {
-            if cfg!(feature = "keep-invalid-in-corpus") {
-                return Corpus::Keep;
-            } else {
-                return Corpus::Reject;
-            }
-        }
+        _ => invalid_input,
     }
 }
 
