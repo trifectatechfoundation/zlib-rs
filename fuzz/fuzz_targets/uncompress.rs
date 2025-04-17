@@ -76,16 +76,21 @@ fn run(input: &[u8]) -> Corpus {
     let input_len: u64 = input.len().try_into().unwrap();
     stream.next_out = output.as_mut_ptr();
     stream.avail_out = output.len().try_into().unwrap();
-    stream.next_in = input.as_ptr();
-    stream.avail_in = input.len().try_into().unwrap();
 
-    while input_len.checked_sub(stream.total_in).unwrap() > 0 {
-        let err = unsafe { inflate(&mut stream, InflateFlush::Finish as _) };
+    let chunk_size = 64;
+    for chunk in input.chunks(chunk_size) {
+        stream.next_in = chunk.as_ptr() as *mut u8;
+        stream.avail_in = chunk.len() as _;
+
+        let err = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
         match ReturnCode::from(err) {
             ReturnCode::StreamEnd => {
                 break;
             }
-            ReturnCode::BufError | ReturnCode::Ok => {
+            ReturnCode::Ok => {
+                continue;
+            }
+            ReturnCode::BufError => {
                 let add_space: u32 = Ord::max(1024, output.len().try_into().unwrap());
                 output.resize(output.len() + add_space as usize, 0);
 
