@@ -290,6 +290,8 @@ jobs:
       - name: Run `cargo fuzz`
         env:
           RUST_BACKTRACE: "1"
+          # prevents `cargo fuzz coverage` from rebuilding everything
+          RUSTFLAGS: "-C instrument-coverage"
         run: |
           cargo fuzz run ${{matrix.features}} ${{matrix.fuzz_target}} ${{matrix.corpus}} -- -max_total_time=10
       - name: Fuzz codecov
