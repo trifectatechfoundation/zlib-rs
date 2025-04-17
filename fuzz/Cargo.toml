@@ -47,12 +47,6 @@ members = ["."]
 [[bin]]
 name = "uncompress"
 path = "fuzz_targets/uncompress.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "uncompress2"
-path = "fuzz_targets/uncompress2.rs"
 test = true
 doc = false
 required-features = ["disable-checksum"]

@@ -211,7 +211,7 @@ jobs:
         run: |
           cargo fuzz build --no-default-features --features="${{ matrix.features }}"
           for target in $(cargo fuzz list); do
-            if [ "$target" = "uncompress2" ]; then
+            if [ "$target" = "uncompress" ]; then
               features="${{ matrix.features }} disable-checksum"
             else
               features="${{ matrix.features }}"
@@ -246,7 +246,7 @@ jobs:
         run: |
           cargo fuzz build --no-default-features --features="${{ matrix.features }}"
           for target in $(cargo fuzz list); do
-            if [ "$target" = "uncompress2" ]; then
+            if [ "$target" = "uncompress" ]; then
               features="${{ matrix.features }} disable-checksum"
             else
               features="${{ matrix.features }}"
@@ -260,7 +260,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - fuzz_target: uncompress2
+          - fuzz_target: uncompress
             corpus: "gzip-files/compressed"
             features: '--no-default-features --features="disable-checksum"'
             flags: fuzz-decompress
