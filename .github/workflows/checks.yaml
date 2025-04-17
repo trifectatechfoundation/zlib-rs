@@ -262,7 +262,7 @@ jobs:
         include:
           - fuzz_target: uncompress
             corpus: "gzip-files/compressed"
-            features: '--no-default-features --features="disable-checksum"'
+            features: '--no-default-features --features="disable-checksum,keep-invalid-in-corpus"'
             flags: fuzz-decompress
           - fuzz_target: compress
             corpus: ""

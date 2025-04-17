@@ -16,6 +16,7 @@ default = ["rust-allocator", "libz-rs-sys/testing-prefix"]
 c-allocator = ["libz-rs-sys/c-allocator", "test-libz-rs-sys/c-allocator", "libz-rs-sys/std"]
 rust-allocator = ["libz-rs-sys/rust-allocator",  "test-libz-rs-sys/rust-allocator", "libz-rs-sys/std"]
 disable-checksum = ["zlib-rs/__internal-fuzz-disable-checksum"]
+keep-invalid-in-corpus = [] # For code coverage (on CI), we want to keep inputs that triggered the error branches
 
 [dependencies.libfuzzer-sys]
 version = "0.4"
