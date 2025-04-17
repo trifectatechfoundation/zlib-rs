@@ -1382,6 +1382,46 @@ fn gzip_header_fields_insufficient_space() {
 }
 
 #[test]
+fn inflate_with_uninitialized_output_buffer() {
+    let input = include_bytes!("test-data/issue-109.gz");
+
+    let config = InflateConfig::default();
+
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        const VERSION: *const c_char = libz_rs_sys::zlibVersion();
+        const STREAM_SIZE: c_int = core::mem::size_of::<z_stream>() as c_int;
+
+        let err = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                16 + config.window_bits,
+                VERSION,
+                STREAM_SIZE,
+            )
+        };
+        assert_eq!(err, 0);
+
+        let stream = unsafe { stream.assume_init_mut() };
+
+        let mut output = [MaybeUninit::<u8>::uninit(); 256];
+        stream.next_out = output.as_mut_ptr().cast();
+        stream.avail_out = output.len() as _;
+
+        let chunk = &input[..128];
+        stream.next_in = chunk.as_ptr().cast_mut();
+        stream.avail_in = chunk.len() as _;
+
+        let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
+        assert_eq!(err, ReturnCode::Ok as i32);
+
+        let err = unsafe { inflateEnd(stream) };
+        assert_eq!(err, ReturnCode::Ok as i32);
+    });
+}
+
+#[test]
 fn gzip_chunked_1_byte() {
     gzip_chunked(1);
 }
