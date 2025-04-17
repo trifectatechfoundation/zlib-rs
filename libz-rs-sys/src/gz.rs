@@ -3,10 +3,11 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
-use crate::{deflateEnd, inflateEnd, inflateInit2, inflateReset};
-use core::ffi::{c_char, c_int, c_uint, CStr};
+use crate::{deflateEnd, inflate, inflateEnd, inflateInit2, inflateReset};
+use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use std::cmp;
 use zlib_rs::deflate::Strategy;
 use zlib_rs::MAX_WBITS;
 
@@ -258,6 +259,10 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
             #[cfg(target_os = "linux")]
             {
                 oflag |= libc::O_LARGEFILE;
+            }
+            #[cfg(target_os = "windows")]
+            {
+                oflag |= libc::O_BINARY;
             }
             if cloexec {
                 #[cfg(target_os = "linux")]
@@ -596,6 +601,60 @@ fn gzclose_w(state: &mut GzState) -> c_int {
     ret
 }
 
+/// Set the internal buffer size used by this library's functions for `file` to
+/// `size`.  The default buffer size is 128 KB.  This function must be called
+/// after [`gzopen`] or [`gzdopen`], but before any other calls that read or write
+/// the file (including [`gzdirect`]).  The buffer memory allocation is always
+/// deferred to the first read or write.  Three times `size` in buffer space is
+/// allocated.
+///
+/// # Returns
+///
+/// * `0` on success.
+/// * `-1` on failure.
+///
+/// # Arguments
+///
+/// * `file` - file handle.
+/// * `size` - requested buffer size in bytes.
+///
+/// # Safety
+///
+/// `file` must be one of the following:
+/// - A file handle must have been obtained from a function in this library, such as [`gzopen`].
+/// - A null pointer.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzbuffer))]
+pub unsafe extern "C-unwind" fn gzbuffer(file: gzFile, size: c_uint) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        return -1;
+    }
+
+    // Make sure we haven't already allocated memory.
+    if state.in_size != 0 {
+        return -1;
+    }
+
+    // Check and set requested size.
+    let size = size as usize;
+    if size.checked_mul(2).is_none() {
+        // We must be able to double the requested size, because one of the two
+        // buffers (state.input in write mode, state.output in read mode) will be
+        // allocated as twice the requested size. Note: Because the C API specifies `size`
+        // is an unsigned int, but we use usize to represent the buffer sizes internally,
+        // this error condition is impossible to trigger in the common case where int
+        // is 32 bits and usize is 64 bits.
+        return -1;
+    }
+
+    // Use a minimum buffer size of 8 to work with flush semantics elsewhere in the implementation.
+    state.want = cmp::max(size, 8);
+
+    0
+}
+
 /// Retrieve the zlib error code and a human-readable string description of
 /// the most recent error on a gzip file stream.
 ///
@@ -753,6 +812,186 @@ pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
     state.direct as _
 }
 
+/// Read and decompress up to `len` uncompressed bytes from `file` into `buf`.  If
+/// the input file is not in gzip format, `gzread` copies up to `len` bytes into
+/// the buffer directly from the file.
+///
+/// After reaching the end of a gzip stream in the input, `gzread` will continue
+/// to read, looking for another gzip stream.  Any number of gzip streams may be
+/// concatenated in the input file, and will all be decompressed by `gzread()`.
+/// If something other than a gzip stream is encountered after a gzip stream,
+/// `gzread` ignores that remaining trailing garbage (and no error is returned).
+///
+/// `gzread` can be used to read a gzip file that is being concurrently written.
+/// Upon reaching the end of the input, `gzread` will return with the available
+/// data.  If the error code returned by [`gzerror`] is `Z_OK` or `Z_BUF_ERROR`,
+/// then [`gzclearerr`] can be used to clear the end of file indicator in order
+/// to permit `gzread` to be tried again.  `Z_OK` indicates that a gzip stream
+/// was completed on the last `gzread`.  `Z_BUF_ERROR` indicates that the input
+/// file ended in the middle of a gzip stream.  Note that `gzread` does not return
+/// `-1` in the event of an incomplete gzip stream.  This error is deferred until
+/// [`gzclose`], which will return `Z_BUF_ERROR` if the last gzread ended in the
+/// middle of a gzip stream.  Alternatively, `gzerror` can be used before `gzclose`
+/// to detect this case.
+///
+/// If the unsigned value `len` is too large to fit in the signed return type
+/// `c_int`, then nothing is read, `-1` is returned, and the error state is set to
+/// `Z_STREAM_ERROR`.
+///
+/// # Returns
+///
+/// * The number of uncompressed bytes read from the file into `buf`, which may
+///   be smaller than `len` if there is insufficient data in the file.
+/// * `-1` on error.
+///
+/// # Arguments
+///
+/// * `file` - A gzip file handle, or null.
+/// * `buf` - Buffer where the read data should be stored. The caller retains ownership of this buffer.
+/// * `len` - Number of bytes to attempt to read into `buf`.
+///
+/// # Safety
+///
+/// The caller must ensure that `buf` points to at least `len` writable bytes.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzread))]
+pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_uint) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    // Check that we're reading and that there's no (serious) error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return -1;
+    }
+
+    // Check that the requested number of bytes can be represented by the return type.
+    if c_int::try_from(len).is_err() {
+        // Safety: we confirmed above that state is valid.
+        unsafe {
+            gz_error(
+                state,
+                Some((Z_STREAM_ERROR, "request does not fit in an int")),
+            )
+        };
+        return -1;
+    }
+
+    // With the initial checks passed, try the actual read.
+    // Safety: The caller is responsible for ensuring that `buf` points to >= `len` writable bytes.
+    let got = unsafe { gz_read(state, buf.cast::<u8>(), len as usize) };
+
+    // Check for an error
+    if got == 0 && state.err != Z_OK && state.err != Z_BUF_ERROR {
+        -1
+    } else {
+        got as _
+    }
+}
+
+// Attempt to read enough bytes from the input to fill the supplied `buf`.
+//
+// # Returns
+//
+// The number of bytes read into `buf`. Note: A return value of zero means either end-of-file
+// or an error. `state.err` must be consulted to determine which.
+//
+// # Safety
+//
+// * `state` must have been properly initialized, e.g. by [`gzopen_help`].
+// * `buf` must point to at least `len` bytes of writable memory.
+unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+
+    /* FIXME: Uncomment this when seek support is added:
+
+    // process a skip request
+    if state.seek {
+        state.seek = false;
+        if gz_skip(state, state.skip) == -1 {
+            return 0;
+        }
+    }
+     */
+
+    // Loop until we get enough bytes or reach the end of the file.
+    let mut got = 0;
+    loop {
+        // Set n to the maximum amount of len that fits in an unsigned int.
+        let mut n = cmp::min(len, c_uint::MAX as usize);
+
+        // First just try copying data from the output buffer. Note: The output
+        // buffer contains bytes that have been decompressed by `state.stream` and
+        // are waiting to be consumed - or, in direct mode, it contains bytes read
+        // directly from the underlying file descriptor.
+        if state.have != 0 {
+            n = cmp::min(n, state.have as usize);
+            // Safety:
+            // * n <= state.have, and there are `state.have` readable bytes starting
+            //   at `state.next`.
+            // * n <= len, and the caller is responsible for ensuring that `buf`
+            //   points to at least `len` writable bytes.
+            // * `state.next` points into an internal buffer not visible outside the
+            //   `GzState`, and `buf` is supplied by the caller, so the source and
+            //   destination are guaranteed not to overlap.
+            unsafe { ptr::copy_nonoverlapping(state.next, buf, n) };
+            state.next = unsafe { state.next.add(n) };
+            state.have -= n as c_uint;
+        } else if state.eof && state.stream.avail_in == 0 {
+            // The output buffer is empty, and we're at the end of the file.
+            state.past = true; // Tried to read past end
+            break;
+        } else if state.how == How::Look || n < state.in_size * 2 {
+            // For small len or a new stream, load more data from the file descriptor into
+            // the output buffer. Note: If we haven't scanned the file header yet, gz_fetch
+            // will read the header and determine whether to use decompression or direct read.
+            if unsafe { gz_fetch(state) }.is_err() {
+                return 0;
+            }
+            assert_ne!(state.have, 0);
+
+            // Now that we've tried reading, we can try to copy from the output buffer.
+            // The copy above assures that we will leave with space in the output buffer,
+            // allowing at least one gzungetc() to succeed.
+            continue;
+        } else if state.how == How::Copy {
+            // For a large requested read length, in copy mode (meaning that the input
+            // file is not gzip and we're returning its contents directly), bypass the
+            // output buffer and read from the file descriptor directly into buf.
+            // Safety: n <= len, and the caller is responsible for ensuring that `buf`
+            // points to at least `len` writable bytes.
+            let Ok(bytes_read) = (unsafe { gz_load(state, buf, n) }) else {
+                return 0;
+            };
+            n = bytes_read;
+        } else {
+            // We are in gzip mode, and the requested read size is large. Get more data and
+            // decompress it directly into buf, bypassing stream.output.
+            debug_assert_eq!(state.how, How::Gzip);
+            state.stream.avail_out = n as c_uint;
+            state.stream.next_out = buf;
+            if unsafe { gz_decomp(state) }.is_err() {
+                return 0;
+            }
+            n = state.have as usize;
+            state.have = 0;
+        }
+
+        // Update progress
+        len -= n;
+        buf = unsafe { buf.add(n) };
+        got += n;
+        state.pos += n as u64;
+
+        if len == 0 {
+            break;
+        }
+    }
+
+    got
+}
+
 // Given a gzip file opened for reading, check for a gzip header, and set
 // `state.direct` accordingly.
 //
@@ -769,7 +1008,7 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
     if state.input.is_null() {
         state.in_size = state.want;
         let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
-            // Safety:
+            // Safety: The caller confirmed the validity of state.
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
             return Err(());
         };
@@ -938,6 +1177,123 @@ unsafe fn gz_load(state: &mut GzState, buf: *mut u8, len: usize) -> Result<usize
         state.eof = true;
     }
     Ok(have)
+}
+
+// Fetch data and put it in the output buffer, decompressing if needed. If the header has
+// not been read yet, parse it to determine whether the file is in gzip format.
+//
+// # Returns
+//
+// * `Ok` on success.
+// * `Err` on error. Check [`gzerror`] for more information on the error condition.
+//
+// # Safety
+// * `state` must have been properly initialized, e.g. by [`gzopen_help`].
+// * `state.have` must be zero.
+//
+unsafe fn gz_fetch(state: &mut GzState) -> Result<(), ()> {
+    loop {
+        // Process the input, which may cause state transitions among Look/Gzip/Copy.
+        match &state.how {
+            How::Look => {
+                // -> Look, Copy (only if never Gzip), or Gzip
+                unsafe { gz_look(state) }?;
+                if state.how == How::Look {
+                    return Ok(());
+                }
+            }
+            How::Copy => {
+                // -> Copy
+                let bytes_read = unsafe { gz_load(state, state.output, state.out_size) }?;
+                state.next = state.output;
+                state.have += bytes_read as uInt;
+                return Ok(());
+            }
+            How::Gzip => {
+                // -> Gzip or Look (if at end of gzip stream)
+                state.stream.avail_out = state.out_size as c_uint;
+                state.stream.next_out = state.output;
+                unsafe { gz_decomp(state) }?;
+            }
+        }
+
+        // Keep trying until either:
+        // - we have some data in the output buffer (measured by state.have)
+        // - or both the input buffer and the underling file have been fully consumed.
+        if state.have != 0 || (state.eof && state.stream.avail_in == 0) {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+// Decompress from input and put the result in `state`'s output buffer.
+// On return, `state.have` and `state.next` denote the just decompressed
+// data.  If the gzip stream completes, `state.how` is reset to `Look`
+// to look for the next gzip stream or raw data once the data in the output
+// buffer is consumed.
+//
+// # Returns
+//
+// * `Ok` on success.
+// * `Err` on error.
+//
+// # Safety
+//
+// * `state` must have been properly initialized, e.g. by [`gzopen_help`].
+unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
+    // Decompress into the output buffer until we run out of either input data
+    // or space in the output buffer.
+    let had = state.stream.avail_out;
+    loop {
+        // Get more input for inflate().
+        if state.stream.avail_in == 0 && unsafe { gz_avail(state) }.is_err() {
+            return Err(());
+        }
+        if state.stream.avail_in == 0 {
+            unsafe { gz_error(state, Some((Z_BUF_ERROR, "unexpected end of file"))) };
+            break;
+        }
+
+        // Decompress and handle errors.
+        match unsafe { inflate(&mut state.stream, Z_NO_FLUSH) } {
+            Z_STREAM_ERROR | Z_NEED_DICT => {
+                unsafe {
+                    gz_error(
+                        state,
+                        Some((Z_STREAM_ERROR, "internal error: inflate stream corrupt")),
+                    )
+                };
+                return Err(());
+            }
+            Z_MEM_ERROR => {
+                unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+                return Err(());
+            }
+            Z_DATA_ERROR => {
+                // TODO gz_error(state, Z_DATA_ERROR, strm->msg == NULL ? "compressed data error" : strm->msg);
+                unsafe { gz_error(state, Some((Z_DATA_ERROR, "compressed data error"))) };
+                return Err(());
+            }
+            Z_STREAM_END => {
+                // If the gzip stream completed successfully, look for another.
+                state.how = How::Look;
+                break;
+            }
+            _ => {}
+        }
+
+        if state.stream.avail_out == 0 {
+            break;
+        }
+    }
+
+    // Update the size and start of the data in the output buffer.
+    state.have = had - state.stream.avail_out;
+    state.next = unsafe { state.stream.next_out.sub(state.have as usize) };
+
+    Ok(())
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`
@@ -1391,6 +1747,7 @@ mod tests {
             unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
             2
         );
+
         assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
         // Open a file containing only the first byte of the gzip magic number. gzdirect should return 1.
@@ -1409,6 +1766,41 @@ mod tests {
             unsafe { file.cast::<GzState>().as_ref().unwrap().stream.avail_in },
             0
         );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "lseek is not implemented")]
+    fn test_gzbuffer() {
+        // gzbuffer on a null file handle should return -1.
+        assert_eq!(unsafe { gzbuffer(ptr::null_mut(), 1024) }, -1);
+
+        // Open a valid file handle to test the remaining gzbuffer edge cases.
+        let file = unsafe {
+            gzopen(
+                CString::new(crate_path("src/test-data/example.txt"))
+                    .unwrap()
+                    .as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        // Temporarily put the file handle in a stat that isn't read or write. gzbuffer should fail.
+        unsafe { file.cast::<GzState>().as_mut().unwrap().mode = GzMode::GZ_NONE };
+        assert_eq!(unsafe { gzbuffer(file, 1024) }, -1);
+        // Put the file handle back in read mode, and now gzbuffer should work.
+        unsafe { file.cast::<GzState>().as_mut().unwrap().mode = GzMode::GZ_READ };
+        assert_eq!(unsafe { gzbuffer(file, 1024) }, 0);
+        assert_eq!(
+            unsafe { file.cast::<GzState>().as_ref().unwrap().want },
+            1024
+        );
+        // Request a very small buffer size. gzbuffer should instead use the min size, 8 bytes.
+        assert_eq!(unsafe { gzbuffer(file, 5) }, 0);
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().want }, 8);
+        // Call gzdirect to force the allocation of buffers. After that, gzbuffer should fail.
+        assert_eq!(unsafe { gzdirect(file) }, 1);
+        assert_eq!(unsafe { gzbuffer(file, 1024) }, -1);
+        assert_eq!(unsafe { file.cast::<GzState>().as_ref().unwrap().want }, 8);
         assert_eq!(unsafe { gzclose(file) }, Z_OK);
     }
 }
