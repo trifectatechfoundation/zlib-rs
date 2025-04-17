@@ -299,7 +299,7 @@ jobs:
               target/$(rustc --print host-tuple)/coverage/$(rustc --print host-tuple)/release/${{matrix.fuzz_target}} \
               -instr-profile=fuzz/coverage/${{matrix.fuzz_target}}/coverage.profdata \
               --format=lcov \
-              -ignore-filename-regex="\.cargo|\.rustup" > lcov.info
+              -ignore-filename-regex="\.cargo|\.rustup|fuzz_targets" > lcov.info
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
