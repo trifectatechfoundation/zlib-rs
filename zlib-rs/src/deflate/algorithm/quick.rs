@@ -97,20 +97,15 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
-                let str_start = &state.window.filled()[state.strstart..];
-                let match_start = &state.window.filled()[hash_head as usize..];
+                let str_start = &state.window.filled()[state.strstart..][..258];
+                let match_start = &state.window.filled()[hash_head as usize..][..258];
 
-                macro_rules! first_two_bytes {
-                    ($slice:expr, $offset:expr) => {
-                        u16::from_le_bytes($slice[$offset..$offset + 2].try_into().unwrap())
-                    };
-                }
+                let (prefix1, tail1) = str_start.split_at(2);
+                let (prefix2, tail2) = match_start.split_at(2);
 
-                if first_two_bytes!(str_start, 0) == first_two_bytes!(match_start, 0) {
-                    let mut match_len = crate::deflate::compare256::compare256_slice(
-                        &str_start[2..],
-                        &match_start[2..],
-                    ) + 2;
+                if prefix1 == prefix2 {
+                    let mut match_len =
+                        2 + crate::deflate::compare256::compare256_slice(tail1, tail2);
 
                     if match_len >= WANT_MIN_MATCH {
                         match_len = Ord::min(match_len, state.lookahead);
