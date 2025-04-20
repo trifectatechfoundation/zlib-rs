@@ -3,7 +3,11 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
-use crate::{deflateEnd, inflate, inflateEnd, inflateInit2, inflateReset};
+use crate::gz::GzMode::GZ_WRITE;
+use crate::{
+    deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
+    inflateReset, zlibVersion,
+};
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
@@ -588,7 +592,10 @@ fn gzclose_w(state: &mut GzState) -> c_int {
         ret = state.err;
     }
 
-    // FIXME add a call go gz_comp(state, Z_FINISH) when write support is implemented.
+    // Compress (if not in direct mode) and output any data left in the input buffer.
+    if gz_comp(state, Z_FINISH).is_err() {
+        ret = state.err;
+    }
 
     if state.in_size != 0 && !state.direct {
         // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
@@ -866,13 +873,9 @@ pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_ui
 
     // Check that the requested number of bytes can be represented by the return type.
     if c_int::try_from(len).is_err() {
+        const MSG: &str = "request does not fit in an int";
         // Safety: we confirmed above that state is valid.
-        unsafe {
-            gz_error(
-                state,
-                Some((Z_STREAM_ERROR, "request does not fit in an int")),
-            )
-        };
+        unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
         return -1;
     }
 
@@ -949,7 +952,6 @@ unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usiz
             if unsafe { gz_fetch(state) }.is_err() {
                 return 0;
             }
-            assert_ne!(state.have, 0);
 
             // Now that we've tried reading, we can try to copy from the output buffer.
             // The copy above assures that we will leave with space in the output buffer,
@@ -1013,32 +1015,33 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
             return Err(());
         };
         state.input = input.as_ptr();
-    }
-    if state.output.is_null() {
-        state.out_size = state.want * 2;
-        let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
-            // Safety: The caller confirmed the validity of state, and free_buffers checks
+
+        if state.output.is_null() {
+            state.out_size = state.want * 2;
+            let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
+                // Safety: The caller confirmed the validity of state, and free_buffers checks
+                // for null input and output pointers internally.
+                unsafe { free_buffers(state) };
+                // Safety: The caller confirmed the validity of state.
+                unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+                return Err(());
+            };
+            state.output = output.as_ptr();
+        }
+
+        // Allocate memory for inflate.
+        state.stream.avail_in = 0;
+        state.stream.next_in = ptr::null_mut();
+        // Safety: `gzopen_help` initialized `state.stream`'s `zalloc`, `zfree`, and
+        // `opaque` fields as needed by `inflateInit2`.
+        if unsafe { inflateInit2(&mut state.stream as *mut z_stream, MAX_WBITS + 16) } != Z_OK {
+            // Safety: The caller confirmed the validity of `state`, and `free_buffers` checks
             // for null input and output pointers internally.
             unsafe { free_buffers(state) };
-            // Safety: The caller confirmed the validity of state.
+            // Safety: The caller confirmed the validity of `state`.
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
             return Err(());
-        };
-        state.output = output.as_ptr();
-    }
-
-    // Allocate memory for inflate.
-    state.stream.avail_in = 0;
-    state.stream.next_in = ptr::null_mut();
-    // Safety: `gzopen_help` initialized `state.stream`'s `zalloc`, `zfree`, and
-    // `opaque` fields as needed by `inflateInit2`.
-    if unsafe { inflateInit2(&mut state.stream as *mut z_stream, MAX_WBITS + 16) } != Z_OK {
-        // Safety: The caller confirmed the validity of `state`, and `free_buffers` checks
-        // for null input and output pointers internally.
-        unsafe { free_buffers(state) };
-        // Safety: The caller confirmed the validity of `state`.
-        unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
-        return Err(());
+        }
     }
 
     // Get at least the magic bytes in the input buffer.
@@ -1259,12 +1262,8 @@ unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
         // Decompress and handle errors.
         match unsafe { inflate(&mut state.stream, Z_NO_FLUSH) } {
             Z_STREAM_ERROR | Z_NEED_DICT => {
-                unsafe {
-                    gz_error(
-                        state,
-                        Some((Z_STREAM_ERROR, "internal error: inflate stream corrupt")),
-                    )
-                };
+                const MSG: &str = "internal error: inflate stream corrupt";
+                unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
                 return Err(());
             }
             Z_MEM_ERROR => {
@@ -1272,7 +1271,7 @@ unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
                 return Err(());
             }
             Z_DATA_ERROR => {
-                // TODO gz_error(state, Z_DATA_ERROR, strm->msg == NULL ? "compressed data error" : strm->msg);
+                // FIXME gz_error(state, Z_DATA_ERROR, strm->msg == NULL ? "compressed data error" : strm->msg);
                 unsafe { gz_error(state, Some((Z_DATA_ERROR, "compressed data error"))) };
                 return Err(());
             }
@@ -1294,6 +1293,346 @@ unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
     state.next = unsafe { state.stream.next_out.sub(state.have as usize) };
 
     Ok(())
+}
+
+/// Compress and write the len uncompressed bytes at buf to file.
+///
+/// # Returns
+///
+/// - The number of uncompress bytes written, on success.
+/// - Or 0 in case of error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - `buf` must point to at least `len` bytes of readable memory.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzwrite))]
+pub unsafe extern "C-unwind" fn gzwrite(file: gzFile, buf: *const c_void, len: c_uint) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return 0;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GZ_WRITE || state.err != Z_OK {
+        return 0;
+    }
+
+    // Check that the requested number of bytes can be represented by the return type.
+    if c_int::try_from(len).is_err() {
+        const MSG: &str = "requested length does not fit in int";
+        // Safety: we confirmed above that state is valid.
+        unsafe { gz_error(state, Some((Z_DATA_ERROR, MSG))) };
+        return 0;
+    }
+
+    // Also check that the requested number of bytes can be represented by usize,
+    // which gz_write uses internally.
+    let Ok(len) = usize::try_from(len) else {
+        const MSG: &str = "requested length does not fit in usize";
+        // Safety: we confirmed above that state is valid.
+        unsafe { gz_error(state, Some((Z_DATA_ERROR, MSG))) };
+        return 0;
+    };
+
+    // Safety: We validated state above, and the caller is responsible for ensuring
+    // that buf points to at least len bytes of readable memory.
+    unsafe { gz_write(state, buf, len) }
+}
+
+// Internal implementation of `gzwrite`.
+//
+// # Returns
+// - The number of uncompress bytes written, on success.
+// - Or 0 in case of error.
+//
+// # Safety
+//
+/// - `state` must have been properly initialized, e.g. by [`gzopen_help`].
+/// - `buf` must point to at least `len` bytes of readable memory.
+unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) -> c_int {
+    // If len is zero, avoid unnecessary operations.
+    if len == 0 {
+        return 0;
+    }
+
+    // Allocate memory if this is the first time through.
+    if state.input.is_null() && gz_init(state).is_err() {
+        return 0;
+    }
+
+    /* FIXME uncomment once seek support is implemented
+    if state.seek {
+        state.seek = 0;
+        if gz_zero(state, state.skip) == -1 {
+            return 0;
+        }
+    }
+     */
+
+    let put = len as c_int;
+
+    // For small len, copy to input buffer, otherwise compress directly.
+    if len < state.in_size {
+        // Copy to input buffer, compress when full.
+        loop {
+            if state.stream.avail_in == 0 {
+                state.stream.next_in = state.input;
+            }
+            let have = unsafe {
+                state
+                    .stream
+                    .next_in
+                    .add(state.stream.avail_in as usize)
+                    .offset_from(state.input)
+            } as usize;
+            let copy = cmp::min(state.in_size.saturating_sub(have), len);
+            // Safety: The caller is responsible for ensuring that buf points to at least len readable
+            // bytes, and copy is <= len.
+            unsafe { ptr::copy(buf, state.input.add(have).cast::<c_void>(), copy) };
+            state.stream.avail_in += copy as c_uint;
+            state.pos += copy as u64;
+            buf = unsafe { buf.add(copy) };
+            len -= copy;
+            if len != 0 && gz_comp(state, Z_NO_FLUSH).is_err() {
+                return 0;
+            }
+            if len == 0 {
+                break;
+            }
+        }
+    } else {
+        // Consume any data left in the input buffer.
+        if state.stream.avail_in != 0 && gz_comp(state, Z_NO_FLUSH).is_err() {
+            return 0;
+        }
+
+        // Directly compress user buffer to file.
+        state.stream.next_in = buf.cast::<_>();
+        loop {
+            let n = cmp::min(len, c_uint::MAX as usize) as c_uint;
+            state.stream.avail_in = n;
+            state.pos += n as u64;
+            if gz_comp(state, Z_NO_FLUSH).is_err() {
+                return 0;
+            }
+            len -= n as usize;
+            if len == 0 {
+                break;
+            }
+        }
+    }
+
+    // Input was all buffered or compressed.
+    put
+}
+
+// Initialize `state` for writing a gzip file.  Mark initialization by setting
+// `state.input` to non-null.
+//
+// # Returns
+//
+// - `Ok` on success.
+// - `Err` on error.
+fn gz_init(state: &mut GzState) -> Result<(), ()> {
+    // Allocate input buffer (double size for gzprintf).
+    state.in_size = state.want * 2;
+    let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
+        // Safety: The caller confirmed the validity of state.
+        unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+        return Err(());
+    };
+    state.input = input.as_ptr();
+    // Note: zlib-ng fills the input buffer with zeroes here, but it's unneeded.
+
+    // Only need output buffer and deflate state if compressing.
+    if !state.direct {
+        // Allocate output buffer.
+        state.out_size = state.want;
+        let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
+            unsafe { free_buffers(state) };
+            // Safety: The caller confirmed the validity of state.
+            unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+            return Err(());
+        };
+        state.output = output.as_ptr();
+
+        // Allocate deflate memory, set up for gzip compression.
+        state.stream.zalloc = Some(ALLOCATOR.zalloc);
+        state.stream.zfree = Some(ALLOCATOR.zfree);
+        state.stream.opaque = ALLOCATOR.opaque;
+        const DEF_MEM_LEVEL: c_int = 8;
+        if unsafe {
+            deflateInit2_(
+                &mut state.stream,
+                state.level as _,
+                Z_DEFLATED,
+                MAX_WBITS + 16,
+                DEF_MEM_LEVEL,
+                state.strategy as _,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        } != Z_OK
+        {
+            unsafe { free_buffers(state) };
+            // Safety: The caller confirmed the validity of state.
+            unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
+            return Err(());
+        }
+        state.stream.next_in = ptr::null_mut();
+    }
+
+    // Note: zlib-ng sets state.size = state.want here to mark the state as initialized.
+    // We don't have state.size, so gz_write looks for a non-null state.input buffer
+    // (which we allocated above) to tell if the state has been initialized.
+
+    // Initialize write buffer if compressing.
+    if !state.direct {
+        state.stream.avail_out = state.out_size as _;
+        state.stream.next_out = state.output;
+        state.next = state.stream.next_out;
+    }
+
+    Ok(())
+}
+
+// Compress whatever is at avail_in and next_in (unless in direct mode) and write
+// to the output file.
+//
+// # Returns
+//
+// - `Ok` on success.
+// - `Err` on error.
+fn gz_comp(state: &mut GzState, flush: c_int) -> Result<(), ()> {
+    // Allocate memory if this is the first time through
+    if state.input.is_null() && gz_init(state).is_err() {
+        return Err(());
+    }
+
+    // Write directly if requested.
+    if state.direct {
+        let got = unsafe {
+            libc::write(
+                state.fd,
+                state.stream.next_in.cast::<c_void>(),
+                state.stream.avail_in as _,
+            )
+        };
+        if got < 0 || got as c_uint != state.stream.avail_in {
+            // FIXME implement zstrerror and use it instead of a hard-coded error message here.
+            unsafe { gz_error(state, Some((Z_ERRNO, "write error"))) };
+            return Err(());
+        }
+        state.stream.avail_in = 0;
+        return Ok(());
+    }
+
+    // Check for a pending reset.
+    if state.reset {
+        // Don't start a new gzip stream unless there is data to write.
+        if state.stream.avail_in == 0 {
+            return Ok(());
+        }
+        // Safety: `state.reset` is set only in `gz_comp`, which first initializes
+        // `state.stream` using `deflateInit2_`.
+        let _ = unsafe { deflateReset(&mut state.stream) };
+        state.reset = false;
+    }
+
+    // Run deflate on the provided input until it produces no more output.
+    let mut ret = Z_OK;
+    loop {
+        // Write out current buffer contents if full, or if flushing, but if
+        // doing Z_FINISH then don't write until we get to Z_STREAM_END.
+        if state.stream.avail_out == 0
+            || (flush != Z_NO_FLUSH && (flush != Z_FINISH || ret == Z_STREAM_END))
+        {
+            // Safety: Within this gz module, `state.stream.next` and `state.stream.next_out`
+            // always point within the same allocated object, `state.stream.output`.
+            let have = unsafe { state.stream.next_out.offset_from(state.next) };
+            if have < 0 {
+                const MSG: &str = "corrupt internal state in gz_comp";
+                unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
+                return Err(());
+            }
+            if have != 0 {
+                let ret = unsafe { libc::write(state.fd, state.next.cast::<c_void>(), have as _) };
+                if ret != have as _ {
+                    unsafe { gz_error(state, Some((Z_ERRNO, "write error"))) };
+                    return Err(());
+                }
+            }
+            if state.stream.avail_out == 0 {
+                state.stream.avail_out = state.out_size as _;
+                state.stream.next_out = state.output;
+            }
+            state.next = state.stream.next_out;
+        }
+
+        // Compress.
+        let mut have = state.stream.avail_out;
+        ret = unsafe { deflate(&mut state.stream, flush) };
+        if ret == Z_STREAM_ERROR {
+            const MSG: &str = "internal error: deflate stream corrupt";
+            unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
+            return Err(());
+        }
+        have -= state.stream.avail_out;
+
+        if have == 0 {
+            break;
+        }
+    }
+
+    // If that completed a deflate stream, allow another to start.
+    if flush == Z_FINISH {
+        state.reset = true;
+    }
+
+    Ok(())
+}
+
+/// Flush all pending output buffered in `file`. The parameter `flush` is interpreted
+/// the same way as in the [`deflate`] function. The return value is the zlib error
+/// number (see [`gzerror`]). `gzflush` is permitted only when writing.
+///
+/// # Returns
+///
+/// - `Z_OK` on success.
+/// - a `Z_` error code on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzflush))]
+pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return Z_STREAM_ERROR;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GZ_WRITE || state.err != Z_OK {
+        return Z_STREAM_ERROR;
+    }
+
+    // Check flush parameter.
+    if !(0..=Z_FINISH).contains(&flush) {
+        return Z_STREAM_ERROR;
+    }
+
+    /* FIXME: uncomment this when seek support is implemented
+    // Check for seek request.
+    if state.seek {
+        state.seek = false;
+        if gz_zero(state, state.skip) == -1 {
+            return state.err;
+        }
+    }
+     */
+
+    // Compress remaining data with requested flush.
+    let _ = gz_comp(state, flush);
+    state.err
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`

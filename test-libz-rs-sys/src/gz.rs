@@ -1,11 +1,12 @@
 use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
-    gzFile_s, gzbuffer, gzclearerr, gzclose, gzdirect, gzdopen, gzerror, gzopen, gzread,
+    gzFile_s, gzbuffer, gzclearerr, gzclose, gzdirect, gzdopen, gzerror, gzflush, gzopen, gzread,
+    gzwrite,
 };
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 // Generate a file path relative to the project's root
@@ -93,12 +94,7 @@ fn open_close() {
 fn create() {
     // Create a temporary directory that will be automatically removed when
     // temp_dir goes out of scope.
-    let temp_dir_path = if cfg!(target_os = "wasi") {
-        std::path::PathBuf::from("/tmp/")
-    } else {
-        std::env::temp_dir()
-    };
-
+    let temp_dir_path = temp_base();
     let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
     let temp_path = temp_dir.path();
 
@@ -122,6 +118,15 @@ fn create() {
 
     // "+" (read plus write) mode isn't supported
     test_open!(path(temp_path, "new4.gz"), "+", false);
+}
+
+// Return a platform-appropriate temporary directory prefix.
+fn temp_base() -> PathBuf {
+    if cfg!(target_os = "wasi") {
+        std::path::PathBuf::from("/tmp/")
+    } else {
+        std::env::temp_dir()
+    }
 }
 
 #[test]
@@ -389,6 +394,294 @@ fn gzread_direct() {
     assert_eq!(bytes_read, size);
 
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzwrite_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Test both compressed and direct (uncompressed) write modes.
+    for (filename, mode) in [("direct", "wT"), ("compressed", "w")] {
+        // Open a new file for writing.
+        let temp_file = path(temp_path, filename);
+        let file = unsafe {
+            gzopen(
+                CString::new(temp_file.clone()).unwrap().as_ptr(),
+                CString::new(mode).unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+
+        let direct = unsafe { gzdirect(file) } == 1;
+        assert_eq!(direct, mode.contains('T'));
+
+        // Set a small buffer size to help exercise the various buffer-refilling code paths.
+        assert_eq!(unsafe { gzbuffer(file, 20 as c_uint) }, 0);
+
+        const STRING1: &[u8] = b"small write ";
+        const STRING2: &[u8] = b"second write ";
+        const STRING3: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const COPIES: usize = 2;
+        for _ in 0..COPIES {
+            // A zero-byte write should return zero.
+            assert_eq!(
+                unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), 0) },
+                0
+            );
+            // Do a small write that will fit in the input buffer.
+            assert_eq!(
+                unsafe {
+                    gzwrite(
+                        file,
+                        STRING1.as_ptr().cast::<c_void>(),
+                        STRING1.len() as c_uint,
+                    )
+                },
+                STRING1.len() as c_int
+            );
+            // Fill the input buffer.
+            assert_eq!(
+                unsafe {
+                    gzwrite(
+                        file,
+                        STRING2.as_ptr().cast::<c_void>(),
+                        STRING2.len() as c_uint,
+                    )
+                },
+                STRING2.len() as c_int
+            );
+            // Do a large write (bigger than the input buffer).
+            assert_eq!(
+                unsafe {
+                    gzwrite(
+                        file,
+                        STRING3.as_ptr().cast::<c_void>(),
+                        STRING3.len() as c_uint,
+                    )
+                },
+                STRING3.len() as c_int
+            );
+        }
+
+        // Close the file handle to flush any buffered data.
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Verify that the expected data was written to the file.
+        let input_len = (STRING1.len() + STRING2.len() + STRING3.len()) * COPIES;
+        let size = file_size(&temp_file).unwrap();
+        if direct {
+            assert_eq!(size, input_len);
+        } else {
+            // There is enough repetition in the input text to allow for some compression.
+            assert!(size < input_len);
+        }
+        let file = unsafe {
+            gzopen(
+                CString::new(temp_file.clone()).unwrap().as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        let mut buf = [0u8; 1024];
+        for _ in 0..COPIES {
+            for expected in [STRING1, STRING2, STRING3] {
+                assert_eq!(
+                    unsafe {
+                        gzread(
+                            file,
+                            buf.as_mut_ptr().cast::<c_void>(),
+                            expected.len() as c_uint,
+                        )
+                    },
+                    expected.len() as c_int
+                );
+                assert_eq!(buf[..expected.len()], *expected);
+            }
+        }
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 1) },
+            0
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+}
+
+#[test]
+fn gzwrite_error() {
+    const STRING1: &[u8] = b"sample data";
+
+    // gzwrite on a null file handle should return 0.
+    assert_eq!(
+        unsafe {
+            gzwrite(
+                ptr::null_mut(),
+                STRING1.as_ptr().cast::<c_void>(),
+                STRING1.len() as _,
+            )
+        },
+        0
+    );
+
+    // gzwrite on a read-only file should return 0.
+    let file = unsafe {
+        gzopen(
+            CString::new(crate_path("src/test-data/issue-109.gz"))
+                .unwrap()
+                .as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert_eq!(
+        unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+        0
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // gzwrite should return 0 if the requested length does not fit in the return type.
+    let len = c_int::MAX as c_uint + 1;
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(
+        unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), len) },
+        0
+    );
+    let mut err = Z_OK;
+    assert!(!unsafe { gzerror(file, &mut err as *mut c_int) }.is_null());
+    assert_eq!(err, Z_DATA_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzflush_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Test both compressed and direct (uncompressed) write modes.
+    for (filename, mode) in [("direct", "wT"), ("compressed", "w")] {
+        // Open a new file for writing.
+        let temp_file = path(temp_path, filename);
+        let file = unsafe {
+            gzopen(
+                CString::new(temp_file.clone()).unwrap().as_ptr(),
+                CString::new(mode).unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+
+        // Set a buffer size that is large enough to hold all the writes that follow,
+        // so that we can check for changes in the file size to verify whether gzflush worked.
+        assert_eq!(unsafe { gzbuffer(file, 1024) }, 0);
+
+        const STRING1: &[u8] = b"first write ";
+        const STRING2: &[u8] = b"second write ";
+        const STRING3: &[u8] = b"third write";
+        let mut size_before = file_size(&temp_file).unwrap();
+        assert_eq!(size_before, 0);
+        // Do a small gzwrite. It should not cause any file I/O yet.
+        assert_eq!(
+            unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+            STRING1.len() as _
+        );
+        let mut size_after = file_size(&temp_file).unwrap();
+        assert_eq!(size_before, size_after);
+        size_before = size_after;
+
+        // Call gzflush. The buffered data should be written to the file.
+        assert_eq!(unsafe { gzflush(file, Z_SYNC_FLUSH) }, Z_OK);
+        size_after = file_size(&temp_file).unwrap();
+        assert!(size_after > size_before);
+        size_before = size_after;
+
+        // Do another small write. It should be buffered and not yet flushed to the file.
+        assert_eq!(
+            unsafe { gzwrite(file, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
+            STRING2.len() as _
+        );
+        let mut size_after = file_size(&temp_file).unwrap();
+        assert_eq!(size_before, size_after);
+        size_before = size_after;
+
+        // Call gzflush with the Z_FINISH option. The buffered data should be written to the file.
+        assert_eq!(unsafe { gzflush(file, Z_FINISH) }, Z_OK);
+        size_after = file_size(&temp_file).unwrap();
+        assert!(size_after > size_before);
+        size_before = size_after;
+
+        // After the gzflush(Z_FINISH), it should be possible to do additional writes.
+        assert_eq!(
+            unsafe { gzwrite(file, STRING3.as_ptr().cast::<c_void>(), STRING3.len() as _) },
+            STRING3.len() as _
+        );
+        size_after = file_size(&temp_file).unwrap();
+        assert_eq!(size_before, size_after);
+        size_before = size_after;
+
+        // Close the file. This should write out the remaining buffered data.
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+        size_after = file_size(&temp_file).unwrap();
+        assert!(size_after > size_before);
+
+        // Try to read the newly created file. Despite containing two distinct gzip segments
+        // due to the Z_FINISH, it should be readable.
+        let file = unsafe {
+            gzopen(
+                CString::new(temp_file.clone()).unwrap().as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        let mut buf = [0u8; 1024];
+        for expected in [STRING1, STRING2, STRING3] {
+            assert_eq!(
+                unsafe {
+                    gzread(
+                        file,
+                        buf.as_mut_ptr().cast::<c_void>(),
+                        expected.len() as c_uint,
+                    )
+                },
+                expected.len() as c_int
+            );
+            assert_eq!(buf[..expected.len()], *expected);
+        }
+
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+}
+
+#[test]
+fn gzflush_error() {
+    // gzflush on a null file handle should return Z_STREAM_ERROR.
+    assert_eq!(
+        unsafe { gzflush(ptr::null_mut(), Z_NO_FLUSH) },
+        Z_STREAM_ERROR
+    );
+
+    // gzflush on a read-only file should return Z_STREAM_ERROR.
+    let file = unsafe {
+        gzopen(
+            CString::new(crate_path("src/test-data/issue-109.gz"))
+                .unwrap()
+                .as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert_eq!(unsafe { gzflush(file, Z_NO_FLUSH) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // gzflush with an invalid flush type should return Z_STREAM_ERROR;
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzflush(file, -1) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzflush(file, Z_FINISH + 1) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
 
 // Get the size in bytes of a file.
