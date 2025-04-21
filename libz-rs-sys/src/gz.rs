@@ -3,7 +3,6 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
-use crate::gz::GzMode::GZ_WRITE;
 use crate::{
     deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
     inflateReset, zlibVersion,
@@ -110,7 +109,7 @@ impl GzState {
 
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GzMode {
     GZ_NONE = 0,
     GZ_READ = 7247,
@@ -519,84 +518,111 @@ unsafe fn deallocate_cstr(s: *mut c_char) {
 /// - A null pointer.
 ///
 /// This function may be called at most once for any file handle.
+///
+/// `file` must not be used after this call returns, as the memory it references may have
+/// been deallocated.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
-    let ret = match unsafe { file.cast::<GzState>().as_mut() } {
-        Some(state) => match state.mode {
-            GzMode::GZ_READ => unsafe { gzclose_r(state) },
-            GzMode::GZ_WRITE | GzMode::GZ_APPEND | GzMode::GZ_NONE => gzclose_w(state),
-        },
-        None => Z_STREAM_ERROR,
+    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
+        return Z_STREAM_ERROR;
     };
 
-    // Note: In zlib-ng, the gzclose_r and gzclose_w functions deallocate the state
-    // object themselves. Here, since those functions take references to the state, the
-    // deallocation cannot safely happen until the references are out of scope. Therefore
-    // the free_state call handles the deallocation using the raw pointer to the state.
+    match state.mode {
+        GzMode::GZ_READ => unsafe { gzclose_r(file) },
+        GzMode::GZ_WRITE | GzMode::GZ_APPEND | GzMode::GZ_NONE => unsafe { gzclose_w(file) },
+    }
+}
+
+/// Close a gzip file that was opened for reading.
+///
+/// # Returns
+///
+/// * Z_OK if `state` has no outstanding error and the file is closed successfully.
+/// * A Z_ error code if the `state` is null or the file close operation fails.
+///
+/// # Safety
+///
+/// `file` must be one of the following:
+/// - A file handle must have been obtained from a function in this library, such as [`gzopen`].
+/// - A null pointer.
+///
+/// `file` must not be used after this call returns, as the memory it references may have
+/// been deallocated.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose_r))]
+pub unsafe extern "C-unwind" fn gzclose_r(file: gzFile) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return Z_STREAM_ERROR;
+    };
+
+    // Check that we're reading.
+    if state.mode != GzMode::GZ_READ {
+        return Z_STREAM_ERROR;
+    }
+
+    // Process any buffered input.
+    if state.in_size != 0 {
+        // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
+        unsafe { inflateEnd(&mut state.stream as *mut z_stream) };
+    }
+
+    let err = match state.err {
+        Z_BUF_ERROR => Z_BUF_ERROR,
+        _ => Z_OK,
+    };
+
+    let ret = match unsafe { libc::close(state.fd) } {
+        0 => err,
+        _ => Z_ERRNO,
+    };
+
+    // Delete the underlying allocation.
+    // Safety: The `state` reference is not used beyond this point.
     unsafe { free_state(file.cast::<GzState>()) };
 
     ret
 }
 
-// Close a gzip file that was opened for reading.
-//
-// # Returns
-//
-// * Z_OK if `state` has no outstanding error and the file is closed successfully.
-// * A Z_ error code if the `state` is null or the file close operation fails.
-//
-// # Safety
-//
-// `state` must have been properly initialized, e.g. by [`gzopen_help`].
-unsafe fn gzclose_r(state: &mut GzState) -> c_int {
-    if state.mode != GzMode::GZ_READ {
+/// Close a gzip file that was opened for writing.
+///
+/// # Returns
+///
+/// * Z_OK if `state` has no outstanding error and the file is closed successfully.
+/// * A Z_ error code if the `state` is null or the file close operation fails.
+///
+/// # Safety
+///
+/// `file` must be one of the following:
+/// - A file handle must have been obtained from a function in this library, such as [`gzopen`].
+/// - A null pointer.
+///
+/// `file` must not be used after this call returns, as the memory it references may have
+/// been deallocated.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose_w))]
+pub unsafe extern "C-unwind" fn gzclose_w(file: gzFile) -> c_int {
+    let mut ret = Z_OK;
+
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return Z_STREAM_ERROR;
-    }
-
-    // Free buffers and close the file
-    if state.in_size != 0 {
-        // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
-        unsafe { inflateEnd(&mut state.stream as *mut z_stream) };
-    }
-    let err = match state.err {
-        Z_BUF_ERROR => Z_BUF_ERROR,
-        _ => Z_OK,
     };
-    match unsafe { libc::close(state.fd) } {
-        0 => err,
-        _ => Z_ERRNO,
-    }
-}
 
-// Close a gzip file that was opened for writing.
-//
-// # Returns
-//
-// * Z_OK if `state` has no outstanding error and the file is closed successfully.
-// * A Z_ error code if the `state` is null or the file close operation fails.
-//
-// # Safety
-//
-// `state` must have been properly initialized, e.g. by [`gzopen`] or [`gzdopen`].
-fn gzclose_w(state: &mut GzState) -> c_int {
+    // Check that we're writing.
     if state.mode != GzMode::GZ_WRITE {
         return Z_STREAM_ERROR;
     }
 
-    let mut ret = Z_OK;
-
+    /* FIXME Uncomment this when seek support is implemented
     // Check for a pending seek request
     if state.seek {
         state.seek = false;
-        // FIXME add a call to gz_zero(state, state.skip) when write support is implemented.
+        gz_zero(state, state.skip);
         ret = state.err;
     }
+     */
 
     // Compress (if not in direct mode) and output any data left in the input buffer.
     if gz_comp(state, Z_FINISH).is_err() {
         ret = state.err;
     }
-
     if state.in_size != 0 && !state.direct {
         // Safety: state.stream was properly initialized as a z_stream in gzopen_help.
         unsafe { deflateEnd(&mut state.stream as *mut z_stream) };
@@ -604,6 +630,10 @@ fn gzclose_w(state: &mut GzState) -> c_int {
     if unsafe { libc::close(state.fd) } == -1 {
         ret = Z_ERRNO;
     }
+
+    // Delete the underlying allocation.
+    // Safety: The `state` reference is not used beyond this point.
+    unsafe { free_state(file.cast::<GzState>()) };
 
     ret
 }
@@ -1313,7 +1343,7 @@ pub unsafe extern "C-unwind" fn gzwrite(file: gzFile, buf: *const c_void, len: c
     };
 
     // Check that we're writing and that there's no error.
-    if state.mode != GZ_WRITE || state.err != Z_OK {
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
         return 0;
     }
 
@@ -1611,7 +1641,7 @@ pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
     };
 
     // Check that we're writing and that there's no error.
-    if state.mode != GZ_WRITE || state.err != Z_OK {
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
         return Z_STREAM_ERROR;
     }
 
