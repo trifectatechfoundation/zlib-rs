@@ -1,8 +1,8 @@
 use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
-    gzFile_s, gzbuffer, gzclearerr, gzclose, gzdirect, gzdopen, gzerror, gzflush, gzopen, gzread,
-    gzwrite,
+    gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
+    gzflush, gzopen, gzread, gzwrite,
 };
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
@@ -88,6 +88,27 @@ fn open_close() {
     let fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDONLY) };
     assert_ne!(fd, -1);
     test_fdopen!(fd, "r", true);
+}
+
+#[test]
+fn gzclose_error() {
+    // gzclose_r and gzclose_w should return Z_STREAM_ERROR for a null file handle.
+    assert_eq!(unsafe { gzclose_r(ptr::null_mut()) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose_w(ptr::null_mut()) }, Z_STREAM_ERROR);
+
+    // gzclose_r should return Z_STREAM_ERROR when called with a file handle opened for writing.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzclose_r(file) }, Z_STREAM_ERROR);
+    // gzclose_w should return Z_ERRNO for this file handle (because we gave it an invalid fd).
+    assert_eq!(unsafe { gzclose_w(file) }, Z_ERRNO);
+
+    // gzclose_w should return Z_STREAM_ERROR when called with a file handle opened for reading.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzclose_w(file) }, Z_STREAM_ERROR);
+    // gzclose_r should return Z_ERRNO for this file handle (because we gave it an invalid fd).
+    assert_eq!(unsafe { gzclose_r(file) }, Z_ERRNO);
 }
 
 #[test]
@@ -267,7 +288,7 @@ fn gzread_special_cases() {
 }
 
 #[test]
-fn gread_gzip() {
+fn gzread_gzip() {
     const BUF_SIZE: usize = 128;
     const MAX_READ_SIZE: usize = 256;
     let mut buf = [0u8; MAX_READ_SIZE];
