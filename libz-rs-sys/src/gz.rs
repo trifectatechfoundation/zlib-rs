@@ -5,7 +5,7 @@ pub use zlib_rs::c_api::*;
 
 use crate::{
     deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
-    inflateReset, zlibVersion,
+    inflateReset, z_off_t, zlibVersion,
 };
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
@@ -1663,6 +1663,79 @@ pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
     // Compress remaining data with requested flush.
     let _ = gz_comp(state, flush);
     state.err
+}
+
+/// Return the starting position for the next [`gzread`] or [`gzwrite`] on `file`.
+/// This position represents a number of bytes in the uncompressed data stream,
+/// and is zero when starting, even if appending or reading a gzip stream from
+/// the middle of a file using [`gzdopen`].
+///
+/// # Returns
+///
+/// * The number of bytes prior to the current read or write position in the
+///   uncompressed data stream, on success.
+/// * -1 on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gztell))]
+pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
+        return -1;
+    };
+
+    // Check integrity.
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        // Unreachable if `file` was initialized with `gzopen` or `gzdopen`.
+        return -1;
+    }
+
+    // Return position.
+    match state.seek {
+        true => (state.pos + state.skip as u64) as z_off_t,
+        false => state.pos as z_off_t,
+    }
+}
+
+/// Return the current compressed (actual) read or write offset of `file`.  This
+/// offset includes the count of bytes that precede the gzip stream, for example
+/// when appending or when using [`gzdopen`] for reading. When reading, the
+/// offset does not include as yet unused buffered input. This information can
+//  be used for a progress indicator.
+///
+/// # Returns
+///
+/// * The number of bytes prior to the current read or write position in the
+///   compressed data stream, on success.
+/// * -1 on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzoffset))]
+pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
+        return -1;
+    };
+
+    // Check integrity.
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        // Unreachable if `file` was initialized with `gzopen` or `gzdopen`.
+        return -1;
+    }
+
+    /* compute and return effective offset in file */
+    let offset = unsafe { libc::lseek(state.fd, 0, SEEK_CUR) };
+    if offset == -1 {
+        return -1;
+    }
+
+    // When reading, don't count buffered input.
+    match state.mode {
+        GzMode::GZ_READ => offset - state.stream.avail_in as z_off_t,
+        GzMode::GZ_NONE | GzMode::GZ_WRITE | GzMode::GZ_APPEND => offset,
+    }
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`
