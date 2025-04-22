@@ -2,7 +2,7 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzopen, gzread, gzwrite,
+    gzflush, gzoffset, gzopen, gzread, gztell, gzwrite,
 };
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
@@ -703,6 +703,179 @@ fn gzflush_error() {
     assert_eq!(unsafe { gzflush(file, -1) }, Z_STREAM_ERROR);
     assert_eq!(unsafe { gzflush(file, Z_FINISH + 1) }, Z_STREAM_ERROR);
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzoffset_gztell_read() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output.gz");
+
+    // Make a copy of a gzip file with some junk data prepended in front of the gzip
+    // header. This should affect the return values of gzoffset but not gztell.
+    const OFFSET: usize = 123;
+    const PADDING: &[u8] = &[0u8; OFFSET];
+    let mut mode = libc::O_CREAT;
+    mode |= libc::O_WRONLY;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    let fd = unsafe {
+        libc::open(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            mode,
+            0o644,
+        )
+    };
+    assert_ne!(fd, -1);
+    assert_eq!(
+        unsafe { libc::write(fd, PADDING.as_ptr().cast::<c_void>(), OFFSET as _) },
+        OFFSET as _
+    );
+    let source_name = crate_path("src/test-data/issue-109.gz");
+    mode = libc::O_RDONLY;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    let source_fd =
+        unsafe { libc::open(CString::new(source_name.as_str()).unwrap().as_ptr(), mode) };
+    assert_ne!(source_fd, -1);
+    let mut buf = [0u8; 1024];
+    loop {
+        let ret = unsafe { libc::read(source_fd, buf.as_mut_ptr().cast(), buf.len() as _) };
+        assert_ne!(ret, -1);
+        if ret == 0 {
+            break;
+        }
+        assert_eq!(
+            unsafe { libc::write(fd, buf.as_ptr().cast(), ret as _) },
+            ret as _
+        );
+    }
+    assert_eq!(unsafe { libc::close(source_fd) }, 0);
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+    assert_eq!(
+        file_size(&file_name).unwrap(),
+        file_size(&source_name).unwrap() + OFFSET
+    );
+
+    // Open the newly created file, seek past the prepended junk to the gzip header, and
+    // use gzdopen to turn the fd into a gzip file handle.
+    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
+    assert_ne!(fd, -1);
+    assert_eq!(
+        unsafe { libc::lseek(fd, OFFSET as _, libc::SEEK_SET) },
+        OFFSET as _
+    );
+    let file = unsafe { gzdopen(fd, CString::new(b"r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    const BUFFER_SIZE: usize = 2048;
+    assert_eq!(unsafe { gzbuffer(file, BUFFER_SIZE as _) }, 0);
+
+    // With the file just opened for read, gztell should return 0, while gzoffset should return
+    // the offset from the start of the file.
+    assert_eq!(unsafe { gztell(file) }, 0);
+    assert_eq!(unsafe { gzoffset(file) }, OFFSET as _);
+
+    // Consume N bytes of decompressed data. The output of gztell should increase by N.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        buf.len() as _
+    );
+    assert_eq!(unsafe { gztell(file) }, buf.len() as _);
+    // After the read, the output of gzoffset should be OFFSET + BUFFER_SIZE minus the amount
+    // of the compressed input that was consumed to produce the requested amount of decompressed
+    // output. This works out to 1910 bytes, determined by running the C equivalent of these
+    // operations against zlib-ng and original zlib.
+    const EXPECTED: i64 = 1910;
+    assert_eq!(unsafe { gzoffset(file) }, EXPECTED as _);
+
+    // The file should close cleanly, as gztell and gzoffset do not set the internal error state.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzoffset_gztell_write() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output.gz");
+
+    // Open a new gzip file for writing.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("w").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    const BUFFER_SIZE: usize = 2048;
+    assert_eq!(unsafe { gzbuffer(file, BUFFER_SIZE as _) }, 0);
+
+    // With the new file just opened for write, gztell and gzoffset both should return zero.
+    assert_eq!(unsafe { gztell(file) }, 0);
+    assert_eq!(unsafe { gzoffset(file) }, 0);
+
+    // Write some data, but not enough to fill the file handle's internal buffers.
+    let buf = [0u8; 1024];
+    assert_eq!(
+        unsafe { gzwrite(file, buf.as_ptr().cast::<c_void>(), buf.len() as _) },
+        buf.len() as _
+    );
+    // gztell should return the number of bytes written into the file handle.
+    assert_eq!(unsafe { gztell(file) }, buf.len() as _);
+    // gzoffset should return zero because nothing has been written to the file yet.
+    assert_eq!(unsafe { gzoffset(file) }, 0);
+    // Force a write to the file.
+    assert_eq!(unsafe { gzflush(file, Z_SYNC_FLUSH) }, Z_OK);
+    // gztell should still return the number of bytes written into the file handle.
+    assert_eq!(unsafe { gztell(file) }, buf.len() as _);
+    // gzoffset should indicate that some data has been written to the file.
+    assert!(unsafe { gzoffset(file) } > 0);
+
+    let size = file_size(&file_name).unwrap();
+
+    // Close the file and reopen it in append mode.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("a").unwrap().as_ptr(),
+        )
+    };
+
+    // After opening in append mode, gztell should return zero.
+    assert_eq!(unsafe { gztell(file) }, 0);
+    // But gzoffset should return the number of bytes that were already in the file, plus
+    // 10 bytes for a new gzip header.
+    assert_eq!(unsafe { gzoffset(file) }, (size + 10) as _);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzoffset_gztell_error() {
+    // gzoffset(null) should return -1.
+    assert_eq!(unsafe { gzoffset(ptr::null_mut()) }, -1);
+    // gztell(null) should return -1.
+    assert_eq!(unsafe { gztell(ptr::null_mut()) }, -1);
+
+    // Open an invalid file descriptor as a gzip stream. gztell should return zero, but
+    // gzoffset should return -1 because it actually checks the location in the file.
+    for mode in [b"r", b"w", b"a"] {
+        let file = unsafe { gzdopen(-2, CString::new(mode).unwrap().as_ptr()) };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gztell(file) }, 0);
+        assert_eq!(unsafe { gzoffset(file) }, -1);
+        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+    }
 }
 
 // Get the size in bytes of a file.
