@@ -1587,7 +1587,7 @@ impl State<'_> {
                             self.have += 1;
                         }
 
-                        let InflateTable::Success(root) = inflate_table(
+                        let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Codes,
                             &self.lens,
                             19,
@@ -1599,6 +1599,7 @@ impl State<'_> {
                             break 'label self.bad("invalid code lengths set\0");
                         };
 
+                        self.next = used;
                         self.len_table.codes = Codes::Codes;
                         self.len_table.bits = root;
 
@@ -1685,7 +1686,7 @@ impl State<'_> {
 
                         // build code tables
 
-                        let InflateTable::Success(root) = inflate_table(
+                        let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Lens,
                             &self.lens,
                             self.nlen,
@@ -1699,8 +1700,9 @@ impl State<'_> {
 
                         self.len_table.codes = Codes::Len;
                         self.len_table.bits = root;
+                        self.next = used;
 
-                        let InflateTable::Success(root) = inflate_table(
+                        let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Dists,
                             &self.lens[self.nlen..],
                             self.ndist,
@@ -1714,6 +1716,7 @@ impl State<'_> {
 
                         self.dist_table.bits = root;
                         self.dist_table.codes = Codes::Dist;
+                        self.next += used;
 
                         mode = Mode::Len_;
 
@@ -2215,6 +2218,10 @@ pub fn reset_keep(stream: &mut InflateStream) -> ReturnCode {
     state.back = usize::MAX;
 
     ReturnCode::Ok
+}
+
+pub fn codes_used(stream: &InflateStream) -> usize {
+    stream.state.next
 }
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {

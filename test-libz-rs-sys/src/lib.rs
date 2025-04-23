@@ -21,6 +21,12 @@ macro_rules! assert_eq_rs_ng {
         let _ng = unsafe {
             use libz_sys::*;
 
+            // this function is not exposed by `libz_sys`
+            extern "C" {
+                #[allow(unused)]
+                fn inflateCodesUsed(strm: *mut z_stream) -> core::ffi::c_ulong;
+            }
+
             $tt
         };
 
