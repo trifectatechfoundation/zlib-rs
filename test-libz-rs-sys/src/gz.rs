@@ -2,7 +2,7 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzoffset, gzopen, gzread, gztell, gzwrite,
+    gzflush, gzoffset, gzopen, gzputc, gzputs, gzread, gztell, gzwrite,
 };
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
@@ -876,6 +876,150 @@ fn gzoffset_gztell_error() {
         assert_eq!(unsafe { gzoffset(file) }, -1);
         assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
     }
+}
+
+#[test]
+fn gzputc_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output");
+
+    // Open a new gzip file for writing. Use direct (uncompressed) mode to make validation easier.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("wT").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // Set a small buffer size to exercise more internal code paths.
+    assert_eq!(unsafe { gzbuffer(file, 8) }, 0);
+
+    // Write to the file one byte at a time, using gzputc.
+    const CONTENT: &[u8] = b"sample text to test gzputc implementation";
+    for c in CONTENT {
+        assert_eq!(unsafe { gzputc(file, *c as _) }, *c as _);
+    }
+
+    // Close the file to flush any buffered writes.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Validate that the file contains the expected bytes.
+    let mut mode = 0;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    mode |= libc::O_RDONLY;
+    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
+    assert_ne!(fd, -1);
+    // Try to read more than the expected amount of data, to ensure we get everything.
+    let mut buf = [0u8; CONTENT.len() + 1];
+    let bytes_read = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() as _) };
+    assert_ne!(bytes_read, -1);
+    assert_eq!(&buf[..bytes_read as usize], CONTENT);
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+}
+
+#[test]
+fn gzputc_error() {
+    // gzputc on a null file handle should return -1.
+    assert_eq!(unsafe { gzputc(ptr::null_mut(), 1) }, -1);
+
+    // gzputc on a read-only file handle should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzputc(ptr::null_mut(), 1) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Open an invalid file descriptor as a gzip write stream, with a small buffer,
+    // and use gzputc to write enough bytes to overflow the buffer and cause file I/O.
+    // The last gzputc call should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("wT").unwrap().as_ptr()) };
+    const BUF_SIZE: usize = 10;
+    assert_eq!(unsafe { gzbuffer(file, BUF_SIZE as _) }, 0);
+    // In write mode, the internal input buffer is 2x the size specified via gzbuffer.
+    for _ in 0..BUF_SIZE * 2 {
+        assert_eq!(unsafe { gzputc(file, 1) }, 1);
+    }
+    assert_eq!(unsafe { gzputc(file, 1) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzputs_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output");
+
+    // Open a new gzip file for writing. Use direct (uncompressed) mode to make validation easier.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("wT").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // Set a small buffer size to exercise more internal code paths.
+    assert_eq!(unsafe { gzbuffer(file, 8) }, 0);
+
+    // gzputs of a null string should return -1 rather than crashing.
+    assert_eq!(unsafe { gzputs(file, ptr::null()) }, -1);
+
+    // Write some data to the file using gzputs.
+    const CONTENT: [&str; 3] = ["zlib ", "", "string larger than the buffer size"];
+    for s in CONTENT {
+        assert_eq!(
+            unsafe { gzputs(file, CString::new(s).unwrap().as_ptr()) },
+            s.len() as _
+        );
+    }
+
+    // Close the file to flush any buffered writes.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Validate that the file contains the expected bytes.
+    const EXPECTED: &str = "zlib string larger than the buffer size";
+    let mut mode = 0;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    mode |= libc::O_RDONLY;
+    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
+    assert_ne!(fd, -1);
+    // Try to read more than the expected amount of data, to ensure we get everything.
+    let mut buf = [0u8; EXPECTED.len() + 1];
+    let bytes_read = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() as _) };
+    assert_ne!(bytes_read, -1);
+    assert_eq!(&buf[..bytes_read as usize], EXPECTED.as_bytes());
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+}
+
+#[test]
+fn gzputs_error() {
+    const CONTENT: &[u8] = b"example\0";
+
+    // gzputs on a null file handle should return -1.
+    assert_eq!(
+        unsafe { gzputs(ptr::null_mut(), CONTENT.as_ptr().cast::<c_char>()) },
+        -1
+    );
+
+    // gzputs on a read-only file handle should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(
+        unsafe { gzputs(ptr::null_mut(), CONTENT.as_ptr().cast::<c_char>()) },
+        -1
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
 
 // Get the size in bytes of a file.

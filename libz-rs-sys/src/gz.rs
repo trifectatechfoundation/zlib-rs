@@ -11,6 +11,7 @@ use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use std::cmp;
+use std::cmp::Ordering;
 use zlib_rs::deflate::Strategy;
 use zlib_rs::MAX_WBITS;
 
@@ -104,6 +105,34 @@ impl GzState {
         }
 
         Ok((exclusive, cloexec))
+    }
+
+    // Compute the number of bytes of input buffered in `self`.
+    //
+    // # Safety
+    //
+    // Either
+    // - `state.next_in` points into the buffer that starts at `state.input`, or
+    // - `state.input` is null.
+    //
+    // It is almost always the case that one of those two conditions is true
+    // inside this module. The notable exception is in a specific block within
+    // `gz_write`, where we temporarily set `state.next_in` to point to a
+    // caller-supplied bufferto do a zero-copy optimization when compressing
+    // large inputs.
+    unsafe fn input_len(&self) -> usize {
+        if self.input.is_null() {
+            return 0;
+        }
+        // Safety: As long as the caller has verified that `stream.next_in` points inside
+        // the buffer that starts at `input`, `stream.next_in + stream.avail_in` will be within
+        // that buffer too.
+        (unsafe {
+            self.stream
+                .next_in
+                .add(self.stream.avail_in as usize)
+                .offset_from(self.input)
+        }) as _
     }
 }
 
@@ -1408,13 +1437,8 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
             if state.stream.avail_in == 0 {
                 state.stream.next_in = state.input;
             }
-            let have = unsafe {
-                state
-                    .stream
-                    .next_in
-                    .add(state.stream.avail_in as usize)
-                    .offset_from(state.input)
-            } as usize;
+            // Safety: `state.stream.next_in` points into the buffer starting at `state.input`.
+            let have = unsafe { state.input_len() };
             let copy = cmp::min(state.in_size.saturating_sub(have), len);
             // Safety: The caller is responsible for ensuring that buf points to at least len readable
             // bytes, and copy is <= len.
@@ -1437,6 +1461,9 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
         }
 
         // Directly compress user buffer to file.
+        // Note: For this operation, we temporarily break the invariant that
+        // `state.stream.next_in` points to somewhere in the `state.input` buffer.
+        let save_next_in = state.stream.next_in;
         state.stream.next_in = buf.cast::<_>();
         loop {
             let n = cmp::min(len, c_uint::MAX as usize) as c_uint;
@@ -1450,6 +1477,7 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
                 break;
             }
         }
+        state.stream.next_in = save_next_in;
     }
 
     // Input was all buffered or compressed.
@@ -1735,6 +1763,103 @@ pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
     match state.mode {
         GzMode::GZ_READ => offset - state.stream.avail_in as z_off_t,
         GzMode::GZ_NONE | GzMode::GZ_WRITE | GzMode::GZ_APPEND => offset,
+    }
+}
+
+/// Compress and write `c`, converted to an unsigned 8-bit char, into `file`.
+///
+/// # Returns
+///
+///  - The value that was written, on success.
+///  - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
+        return -1;
+    }
+
+    /* FIXME: Uncomment when seek support is implemented.
+    // Check for seek request.
+    if state.seek {
+        state.seek = false;
+        if gz_zero(state, state.skip) == -1 {
+            return -1;
+        }
+    }
+     */
+
+    // Try writing to input buffer for speed (state.input == null if buffer not initialized).
+    if !state.input.is_null() {
+        if state.stream.avail_in == 0 {
+            state.stream.next_in = state.input;
+        }
+        // Safety: `state.stream.next_in` points into the buffer starting at `state.input`.
+        // (This is an invariant maintained throughout this module, except for a specific
+        // block within `gz_write` that does not call any function that might call `gzputc`.)
+        let have = unsafe { state.input_len() };
+        if have < state.in_size {
+            // Safety: `input` has `in_size` bytes, and `have` < `in_size`.
+            unsafe { *state.input.add(have) = c as u8 };
+            state.stream.avail_in += 1;
+            state.pos += 1;
+            return c & 0xff;
+        }
+    }
+
+    // No room in buffer or not initialized, use gz_write.
+    let buf = [c as u8];
+    // Safety: We have confirmed that `state` is valid, and `buf` contains 1 readable byte of data.
+    match unsafe { gz_write(state, buf.as_ptr().cast::<c_void>(), 1) } {
+        1 => c & 0xff,
+        _ => -1,
+    }
+}
+
+/// Compress and write the given null-terminated string `s` to file, excluding
+/// the terminating null character.
+///
+/// # Returns
+///
+/// - the number of characters written, on success.
+/// - `-1` in case of error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - `s` must point to a null-terminated C string.
+pub unsafe extern "C-unwind" fn gzputs(file: gzFile, s: *const c_char) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    if s.is_null() {
+        return -1;
+    }
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
+        return -1;
+    }
+
+    // Write string.
+    let len = unsafe { libc::strlen(s) };
+    if c_int::try_from(len).is_err() {
+        const MSG: &str = "string length does not fit in int";
+        unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
+        return -1;
+    }
+    let put = unsafe { gz_write(state, s.cast::<c_void>(), len) };
+    match put.cmp(&(len as i32)) {
+        Ordering::Less => -1,
+        Ordering::Equal | Ordering::Greater => len as _,
     }
 }
 
