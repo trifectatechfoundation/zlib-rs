@@ -1,7 +1,7 @@
 use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr};
 use core::mem::{ManuallyDrop, MaybeUninit};
 
-use libz_rs_sys::*;
+use zlib_rs::c_api::{Z_DATA_ERROR, Z_ERRNO, Z_NEED_DICT, Z_OK, Z_STREAM_END, Z_STREAM_ERROR};
 use zlib_rs::deflate::{compress_slice, DeflateConfig};
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
@@ -113,7 +113,7 @@ unsafe extern "C" fn mem_free(mem: *mut c_void, ptr: *mut c_void) {
     unsafe { free(ptr) }
 }
 
-fn mem_setup() -> z_stream {
+fn mem_setup() -> libz_rs_sys::z_stream {
     let zone = MemZone {
         items: Vec::new(),
         total: 0,
@@ -124,7 +124,7 @@ fn mem_setup() -> z_stream {
     };
     let zone = Box::new(zone);
 
-    let stream = z_stream {
+    let stream = libz_rs_sys::z_stream {
         next_in: std::ptr::null_mut(),
         avail_in: 0,
         total_in: 0,
@@ -144,14 +144,14 @@ fn mem_setup() -> z_stream {
     stream
 }
 
-fn mem_limit(stream: &mut z_stream, limit: usize) {
+fn mem_limit(stream: &mut libz_rs_sys::z_stream, limit: usize) {
     assert!(!stream.opaque.is_null());
 
     let mut zone = ManuallyDrop::new(unsafe { Box::from_raw(stream.opaque as *mut MemZone) });
     zone.limit = limit;
 }
 
-fn mem_done(stream: &mut z_stream) {
+fn mem_done(stream: &mut libz_rs_sys::z_stream) {
     assert!(!stream.opaque.is_null());
 
     extern "C" {
@@ -183,6 +183,8 @@ fn mem_done(stream: &mut z_stream) {
 
 #[test]
 fn gzip_header_check() {
+    use libz_rs_sys::*;
+
     let input: &[u8] = &[
         0x1f, 0x8b, 0x08, 0x1f, 0x44, 0x0a, 0x45, 0x65, 0x00, 0x03, 0x0e, 0x00, 0x54, 0x47, 0x0a,
         0x00, 0x45, 0x58, 0x54, 0x52, 0x41, 0x20, 0x44, 0x41, 0x54, 0x41, 0x74, 0x65, 0x73, 0x74,
@@ -281,6 +283,8 @@ fn gzip_header_check() {
 }
 
 fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int) {
+    use libz_rs_sys::*;
+
     let mut err = Some(err);
 
     let mut stream = mem_setup();
@@ -389,6 +393,8 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
 #[test]
 fn support() {
+    use libz_rs_sys::*;
+
     let mut stream = mem_setup();
 
     let ret = unsafe {
@@ -450,6 +456,8 @@ fn bad_window_size() {
 
 #[test]
 fn cover_wrap() {
+    use libz_rs_sys::*;
+
     assert_eq!(unsafe { inflate(std::ptr::null_mut(), 0) }, Z_STREAM_ERROR);
     assert_eq!(unsafe { inflateEnd(std::ptr::null_mut()) }, Z_STREAM_ERROR);
 
@@ -633,6 +641,8 @@ fn compute_adler32() {
 
 /* do a raw inflate of data in hexadecimal with both inflate and inflateBack */
 fn try_inflate(input: &[u8], err: c_int) -> c_int {
+    use libz_rs_sys::*;
+
     let len = input.len();
 
     /* allocate work areas */
@@ -999,6 +1009,8 @@ fn cover_cve_2022_37434() {
 }
 
 fn uncompress_help(input: &[u8]) -> Vec<u8> {
+    use libz_rs_sys::*;
+
     let mut dest_vec = vec![0u8; 1 << 16];
 
     let mut dest_len = dest_vec.len() as c_ulong;
@@ -1080,6 +1092,8 @@ fn hello_world_dynamic() {
 
 #[test]
 fn inflate_adler() {
+    use libz_rs_sys::*;
+
     const ORIGINAL: &str = "The quick brown fox jumped over the lazy dog\0";
 
     const COMPRESSED: [u8; 52] = [
@@ -1130,6 +1144,8 @@ fn inflate_adler() {
 
 #[test]
 fn inflate_get_header_non_gzip_stream() {
+    use libz_rs_sys::*;
+
     let mut stream = mem_setup();
 
     let win = 15; // i.e. zlib compression (and not gzip)
@@ -1268,7 +1284,7 @@ fn gzip_header_fields_insufficient_space() {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { deflate(stream, InflateFlush::NoFlush as _) };
+        let err = unsafe { libz_rs_sys::deflate(stream, InflateFlush::NoFlush as _) };
 
         assert_eq!(err, ReturnCode::Ok as i32, "{:?}", stream.msg);
     }
@@ -1479,7 +1495,7 @@ fn gzip_chunked(chunk_size: usize) {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { deflate(stream, InflateFlush::NoFlush as _) };
+        let err = unsafe { libz_rs_sys::deflate(stream, InflateFlush::NoFlush as _) };
 
         assert_eq!(err, ReturnCode::Ok as i32, "{:?}", stream.msg);
     }
@@ -1582,6 +1598,8 @@ fn gzip_chunked(chunk_size: usize) {
 
 #[test]
 fn chunked_output_rs() {
+    use libz_rs_sys::*;
+
     let input = [99u8, 96, 192, 11, 24, 25, 0];
 
     let mut stream = MaybeUninit::<z_stream>::zeroed();
@@ -1617,6 +1635,8 @@ fn chunked_output_rs() {
 
 #[test]
 fn version_error() {
+    use libz_rs_sys::*;
+
     let mut stream = core::mem::MaybeUninit::zeroed();
 
     let ret = unsafe {
@@ -1892,6 +1912,8 @@ fn test_inflate_flush_block() {
 
     // Log the stream positions and data_type output from libz_rs and compare
     {
+        use libz_rs_sys::*;
+
         let mut stream = MaybeUninit::<z_stream>::zeroed();
 
         let ret = unsafe {
@@ -2033,6 +2055,8 @@ fn header_configured_but_no_gzip() {
 
 #[test]
 fn issue_232() {
+    use libz_rs_sys::*;
+
     const INPUT: &[u8] = &[
         0x18, 0x57, 0x0a, 0xa8, 0xa8, 0xa8, 0xa8, 0x7e, 0x18, 0x57, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8,
         0xa8, 0x83, 0x83, 0xa8, 0x83, 0x83, 0x83, 0x83, 0x84, 0x83, 0x83, 0x83, 0x83, 0x83, 0x83,
