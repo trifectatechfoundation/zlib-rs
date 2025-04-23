@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod deflate;
 pub mod end_to_end;
+#[cfg(test)]
+#[cfg(feature = "gz")]
+mod gz;
 mod helpers;
 #[cfg(test)]
 mod inflate;
 #[cfg(test)]
 mod zlib_ng_cve;
-#[cfg(test)]
-#[cfg(feature = "gz")]
-mod gz;
 
 #[cfg(test)]
 #[macro_export]
@@ -20,6 +20,12 @@ macro_rules! assert_eq_rs_ng {
         #[allow(unused_unsafe)]
         let _ng = unsafe {
             use libz_sys::*;
+
+            // this function is not exposed by `libz_sys`
+            extern "C" {
+                #[allow(unused)]
+                fn inflateCodesUsed(strm: *mut z_stream) -> core::ffi::c_ulong;
+            }
 
             $tt
         };

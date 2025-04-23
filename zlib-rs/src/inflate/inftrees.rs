@@ -55,7 +55,7 @@ const DEXT: [u16; 32] = [
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum InflateTable {
     EnoughIsNotEnough = 1,
-    Success(usize) = 0,
+    Success { root: usize, used: usize } = 0,
     InvalidCode = -1,
 }
 
@@ -91,7 +91,7 @@ pub(crate) fn inflate_table(
         table[0] = code;
         table[1] = code;
 
-        return InflateTable::Success(1);
+        return InflateTable::Success { root: 1, used: 2 };
     }
 
     /* check for an over-subscribed or incomplete set of lengths */
@@ -135,7 +135,7 @@ pub(crate) fn inflate_table(
         CodeType::Dists => (&DBASE[..], &DEXT[..], 0),
     };
 
-    let used = 1 << root;
+    let mut used = 1 << root;
 
     /* check available table space */
     if matches!(codetype, CodeType::Lens) && used > ENOUGH_LENS {
@@ -154,7 +154,6 @@ pub(crate) fn inflate_table(
     let mut curr = root;
     let mut drop_ = 0;
     let mut low = usize::MAX; // trigger new subtable when len > root
-    let mut used = 1 << root;
     let mask = used - 1; /* mask for comparing low */
 
     // process all codes and make table entries
@@ -260,7 +259,7 @@ pub(crate) fn inflate_table(
     }
 
     /* set return parameters */
-    InflateTable::Success(root)
+    InflateTable::Success { root, used }
 }
 
 #[cfg(test)]

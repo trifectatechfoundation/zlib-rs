@@ -2209,3 +2209,73 @@ fn blow_up_the_stack_2() {
     let (_, err) = uncompress_slice(&mut output_rs, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 }
+
+#[test]
+fn codes_used() {
+    // -1 is returned on NULL
+    assert_eq_rs_ng!({ inflateCodesUsed(core::ptr::null_mut()) });
+    assert_eq!(
+        unsafe { libz_rs_sys::inflateCodesUsed(core::ptr::null_mut()) },
+        c_ulong::MAX
+    );
+
+    let inputs = &[
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-0.gz")
+            .as_slice(),
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-9.gz")
+            .as_slice(),
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-filtered-9.gz")
+            .as_slice(),
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-fixed-9.gz")
+            .as_slice(),
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-huffman-9.gz")
+            .as_slice(),
+        include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-rle-9.gz")
+            .as_slice(),
+    ];
+
+    for input in inputs {
+        assert_eq_rs_ng!({
+            let mut output: Vec<u8> = vec![0u8; 1 << 15];
+            let mut codes_used = Vec::new();
+
+            let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+            let err = unsafe {
+                inflateInit2_(
+                    stream.as_mut_ptr(),
+                    16 + 15,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as c_int,
+                )
+            };
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+            let stream = unsafe { stream.assume_init_mut() };
+            codes_used.push(inflateCodesUsed(stream));
+
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as _;
+
+            for chunk in input.chunks(16) {
+                stream.next_in = chunk.as_ptr().cast_mut();
+                stream.avail_in = chunk.len() as _;
+
+                let err = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
+                codes_used.push(inflateCodesUsed(stream));
+
+                if err == ReturnCode::StreamEnd as i32 {
+                    break;
+                }
+
+                assert_eq!(err, ReturnCode::Ok as i32);
+            }
+
+            let err = inflateEnd(stream);
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+            output.truncate(stream.total_out as usize);
+            (output, codes_used)
+        });
+    }
+}
