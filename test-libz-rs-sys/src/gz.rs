@@ -2,10 +2,10 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzoffset, gzopen, gzputc, gzputs, gzread, gztell, gzwrite,
+    gzflush, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread, gztell, gzwrite,
 };
 
-use std::ffi::{c_char, c_int, c_uint, c_void, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -1020,6 +1020,154 @@ fn gzputs_error() {
         -1
     );
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzgetc_basic() {
+    // Read data from a gzip file one byte at a time using gzgetc, and verify that
+    // the expected content is returned.
+    for gzgetc_fn in [gzgetc, gzgetc_] {
+        let file_name = crate_path("src/test-data/text.gz");
+        let file = unsafe {
+            gzopen(
+                CString::new(file_name.as_str()).unwrap().as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        assert_eq!(unsafe { gzbuffer(file, 8) }, 0);
+        const EXPECTED: &str = "gzip\nexample data\nfor tests";
+        let mut content = String::with_capacity(EXPECTED.len());
+        for _ in 0..EXPECTED.len() {
+            // Safety: `file` was initialized by `gzopen`.
+            let ch = unsafe { gzgetc_fn(file) };
+            assert_ne!(ch, -1);
+            content.push(ch as u8 as char);
+        }
+        // We should be at the end, so the next gzgetc should return -1.
+        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+        assert_eq!(content.as_str(), EXPECTED);
+    }
+}
+
+#[test]
+fn gzgetc_error() {
+    for gzgetc_fn in [gzgetc, gzgetc_] {
+        // gzgetc on a null file handle should return -1.
+        assert_eq!(unsafe { gzgetc_fn(ptr::null_mut()) }, -1);
+
+        // gzgetc on a write-only file handle should return -1.
+        let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+        // Open an invalid file descriptor as a gzip read stream. gzgetc should return -1.
+        let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+    }
+}
+
+#[test]
+fn gzgets_basic() {
+    // Open a file containing gzip-compressed text.
+    let file_name = crate_path("src/test-data/text.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // gzgets with a buffer too small to hold the next line should fetch len-1 bytes and
+    // add a null terminator. Note: we fill the output buffer with a nonzero value before
+    // the call to make sure gzgets null-terminates properly.
+    let mut buf = [127 as c_char; 4];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(!ret.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(buf.as_ptr()).to_str().unwrap() },
+        "gzi"
+    );
+
+    // gzgets with a bigger buffer should fetch (only) the remainder of the line, up to and
+    // including the '\n'.
+    let mut buf = [127 as c_char; 100];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(!ret.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(buf.as_ptr()).to_str().unwrap() },
+        "p\n"
+    );
+
+    // gzgets with len=1 should return a string consisting of just a null terminator.
+    let mut buf = [127 as c_char; 1];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(!ret.is_null());
+    assert_eq!(buf[0], 0 as c_char);
+
+    // Read the next line with gzgets, using a buffer just big enough.
+    let mut buf = [127 as c_char; 14];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(!ret.is_null());
+    assert!(!ret.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(buf.as_ptr()).to_str().unwrap() },
+        "example data\n"
+    );
+
+    // Read the final line of the file, which is not terminated by a newline character.
+    let mut buf = [127 as c_char; 100];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(!ret.is_null());
+    assert!(!ret.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(buf.as_ptr()).to_str().unwrap() },
+        "for tests"
+    );
+
+    // gzgets at the end of the file should return null.
+    let mut buf = [127 as c_char; 100];
+    let ret = unsafe { gzgets(file, buf.as_mut_ptr(), buf.len() as _) };
+    assert!(ret.is_null());
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzgets_error() {
+    let mut buf = [0 as c_char; 16];
+
+    // gzgets on a null file handle should return null.
+    assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), buf.len() as _) }.is_null());
+
+    // gzgets on a write-only file handle should return null.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), buf.len() as _) }.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Open an invalid file descriptor as a gzip read stream. gzgets should return null.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), buf.len() as _) }.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Test invalid gzgets parameters with a valid input file.
+    let file_name = crate_path("src/test-data/issue-109.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // gzgets with a null buffer should return null.
+    assert!(unsafe { gzgets(ptr::null_mut(), ptr::null_mut(), 1) }.is_null());
+    // gzgets with a nonpositive len should return null.
+    assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), 0) }.is_null());
+    assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), -1) }.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
 
 // Get the size in bytes of a file.

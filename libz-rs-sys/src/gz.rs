@@ -1774,6 +1774,7 @@ pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzputc))]
 pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -1833,6 +1834,7 @@ pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - `s` must point to a null-terminated C string.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzputs))]
 pub unsafe extern "C-unwind" fn gzputs(file: gzFile, s: *const c_char) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -1858,6 +1860,186 @@ pub unsafe extern "C-unwind" fn gzputs(file: gzFile, s: *const c_char) -> c_int 
     match put.cmp(&(len as i32)) {
         Ordering::Less => -1,
         Ordering::Equal | Ordering::Greater => len as _,
+    }
+}
+
+/// Read one decompressed byte from `file`.
+///
+/// Note: The C header file zlib.h provides a macro wrapper for gzgetc that implements
+/// the fast path inline and calls this function for the slow path.
+///
+/// # Returns
+///
+/// - The byte read, on success.
+/// - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgetc))]
+pub unsafe extern "C-unwind" fn gzgetc(file: gzFile) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    // Check that we're reading and that there's no (serious) error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return -1;
+    }
+
+    // Try output buffer (no need to check for skip request).
+    if state.have != 0 {
+        state.have -= 1;
+        state.pos += 1;
+        // Safety: Since `state.have` is at least 1, `state.next` points to at least
+        // one readable byte within `state.output`.
+        let ret = unsafe { *state.next };
+        // Safety: Since `state.have` is at least 1, the byte between `state.next` and
+        // `state.next + 1` is within the bounds of the `state.output` buffer, as required
+        // by the pointer `add` method.
+        state.next = unsafe { state.next.add(1) };
+        return ret as _;
+    }
+
+    // Nothing there -- try gz_read.
+    let mut buf = [0u8; 1];
+    // Safety: `buf` is big enough to hold `len = 1` bytes.
+    match unsafe { gz_read(state, buf.as_mut_ptr(), 1) } {
+        1 => buf[0] as _,
+        _ => -1,
+    }
+}
+
+/// Backward-compatibility alias for [`gzgetc`].
+///
+/// # Returns
+///
+/// - The byte read, on success.
+/// - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgetc_))]
+pub unsafe extern "C-unwind" fn gzgetc_(file: gzFile) -> c_int {
+    // Safety: The caller has ensured that `file` is null or a valid file handle.
+    unsafe { gzgetc(file) }
+}
+
+/// Read decompressed bytes from `file` into `buf`, until `len-1` characters are
+/// read, or until a newline character is read and transferred to `buf`, or an
+/// end-of-file condition is encountered.  If any characters are read or if `len`
+/// is one, the string is terminated with a null character.  If no characters
+/// are read due to an end-of-file or `len` is less than one, then the buffer is
+/// left untouched.
+///
+/// Note: This function generally only makes sense for files where the decompressed
+/// content is text. If there are any null bytes, this function will copy them into
+/// `buf` just like any other character, resulting in early truncation of the
+/// returned C string. To read gzip files whose decompressed content is binary,
+/// please see [`gzread`].
+///
+/// # Returns
+///
+/// - `buf`, which now is a null-terminated string, on success.
+/// - `null` on error. If there was an error, the contents at `buf` are indeterminate.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - `buf` must be null or a pointer to at least `len` writable bytes.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgets))]
+pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_int) -> *mut c_char {
+    // Check parameters.
+    if buf.is_null() || len < 1 {
+        return ptr::null_mut();
+    }
+
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return ptr::null_mut();
+    };
+
+    // Check that we're reading and that there's no (serious) error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return ptr::null_mut();
+    }
+
+    /* FIXME uncomment when seek support is implemented.
+    // Process a skip request.
+    if state.seek {
+        state.seek = false;
+        if gz_skip(state, state.skip) == -1 {
+            return ptr::null_mut();
+        }
+    }
+     */
+
+    // Copy output bytes up to newline or `len - 1`, whichever comes first.
+    let mut left = len as usize - 1;
+    if left == 0 {
+        // The caller provided a 1-byte buffer, so write the terminating null and we're done.
+        // Safety: `len` is 1 in this block, so it's safe to write 1 byte at `*buf`.
+        unsafe { *buf = 0 };
+        return buf;
+    }
+    let mut dst = buf;
+    loop {
+        // Assure that something is in the output buffer.
+        // Safety: `state` is valid based on the checked cast above.
+        if state.have == 0 && unsafe { gz_fetch(state) }.is_err() {
+            // Error -- couldn't read any data.
+            return ptr::null_mut();
+        }
+        if state.have == 0 {
+            // End of file; return whatever we have.
+            state.past = true;
+            break;
+        }
+
+        // Look for newline in current output buffer.
+        let mut n = cmp::min(left, state.have as _);
+        // Safety: `state.next` points to a block of `state.have` readable bytes. We're scanning
+        // the first `n` of those bytes, and `n <= state.have` based on the `min` calculation.
+        let eol = unsafe { libc::memchr(state.next.cast::<c_void>(), '\n' as c_int, n as _) };
+        if !eol.is_null() {
+            // Compute the number of bytes to copy, + 1 because we need to copy the newline itself.
+            // Safety: `eol` was found by `memchr` in the same buffer as `state.next`, so `offset_of`
+            // is valid. And because `memchr` only scans forward, `eol` will be at or after
+            // `state.next`, so we can cast the result of `offset_from` to an unsigned value.
+            n = unsafe { eol.cast::<u8>().offset_from(state.next) } as usize + 1;
+        }
+
+        // Copy through end of line, or remainder if newline not found.
+        // Safety: `state.next` points to at least `n` readable bytes because `n <= state.have`,
+        // `dst` points to at least `n` writable bytes because `n <= left`, and the source
+        // and destination regions are nonoverlapping because we're copying from an internal
+        // buffer to a caller-supplied buffer.
+        unsafe { ptr::copy_nonoverlapping(state.next, dst as _, n) };
+        state.have -= n as c_uint;
+        // Safety: As described above, `state.next` pointed to at least `n` readable bytes, so
+        // when we increase it by `n` it will still point into the `output` buffer.
+        state.next = unsafe { state.next.add(n) };
+        state.pos += n as u64;
+        left -= n;
+        // Safety: `dst` pointed to at least `n` writable bytes, so when we increase it by `n`
+        // it will still point into `buf`.
+        dst = unsafe { dst.add(n) };
+
+        if left == 0 || !eol.is_null() {
+            break;
+        }
+    }
+
+    if dst == buf {
+        // Nothing was copied.
+        ptr::null_mut()
+    } else {
+        // Something was copied. Null-terminate and return the string.
+        // Safety: we copied at most `left = len - 1` bytes, and `dst` points just past
+        // the last copied byte, so `dst` is within the block of `len` writable bytes
+        // starting at `buf`.
+        unsafe { *dst = 0 };
+        buf
     }
 }
 
