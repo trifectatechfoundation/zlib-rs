@@ -107,32 +107,30 @@ impl GzState {
         Ok((exclusive, cloexec))
     }
 
-    // Compute the number of bytes of input buffered in `self`.
-    //
-    // # Safety
-    //
-    // Either
-    // - `state.next_in` points into the buffer that starts at `state.input`, or
-    // - `state.input` is null.
-    //
-    // It is almost always the case that one of those two conditions is true
-    // inside this module. The notable exception is in a specific block within
-    // `gz_write`, where we temporarily set `state.next_in` to point to a
-    // caller-supplied bufferto do a zero-copy optimization when compressing
-    // large inputs.
+    /// Compute the number of bytes of input buffered in `self`.
+    ///
+    /// # Safety
+    ///
+    /// Either
+    /// - `state.input` is null.
+    /// - `state.stream.next_in .. state.stream.next_in + state.stream.avail_in`
+    ///   is contained in `state.input .. state.input + state.in_size`.
+    ///
+    /// It is almost always the case that one of those two conditions is true
+    /// inside this module. The notable exception is in a specific block within
+    /// `gz_write`, where we temporarily set `state.next_in` to point to a
+    /// caller-supplied buffer to do a zero-copy optimization when compressing
+    /// large inputs.
     unsafe fn input_len(&self) -> usize {
         if self.input.is_null() {
             return 0;
         }
-        // Safety: As long as the caller has verified that `stream.next_in` points inside
-        // the buffer that starts at `input`, `stream.next_in + stream.avail_in` will be within
-        // that buffer too.
-        (unsafe {
-            self.stream
-                .next_in
-                .add(self.stream.avail_in as usize)
-                .offset_from(self.input)
-        }) as _
+
+        // Safety: `next_in .. next_in + avail_in` is a subslice, so the preconditions hold.
+        let end = unsafe { self.stream.next_in.add(self.stream.avail_in as usize) };
+
+        // Safety: the caller guarantees that the input slice of `stream` is a subslice of `input`.
+        (unsafe { end.offset_from(self.input) }) as _
     }
 }
 
