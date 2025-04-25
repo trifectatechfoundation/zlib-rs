@@ -2,9 +2,11 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread, gztell, gzwrite,
+    gzflush, gzfread, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread, gztell,
+    gzwrite,
 };
 
+use libc::size_t;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -1172,6 +1174,80 @@ fn gzgets_error() {
     assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), 0) }.is_null());
     assert!(unsafe { gzgets(ptr::null_mut(), buf.as_mut_ptr(), -1) }.is_null());
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzfread_basic() {
+    let mut buf = [0u8; 32];
+    let file_name = crate_path("src/test-data/text.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // When there is enough data remaining in the file, gzfread should transfer exactly
+    // size * nitems bytes into the buffer.
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 4, 5, file) },
+        5
+    );
+    assert_eq!(&buf[..20], b"gzip\nexample data\nfo");
+    assert_eq!(buf[20], 0);
+
+    // When there is not enough data remaining in the file, gzfread should transfer as many
+    // units of size as possible.
+    let mut buf = [0u8; 32];
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 4, 5, file) },
+        1
+    );
+    assert_eq!(&buf[..4], b"r te");
+    // gzfread should have partially filled the next item.
+    assert_eq!(&buf[4..8], b"sts\0");
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzfread_error() {
+    let mut buf = [0u8; 10];
+
+    // gzfread on a null file handle should return 0.
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 1, 1, ptr::null_mut()) },
+        0
+    );
+
+    // gzfread with a size or nitems of 0 should return 0.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 0, 1, file) },
+        0
+    );
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 1, 0, file) },
+        0
+    );
+
+    // gzfread should return 0 if size * nitems is too big to fit in a size_t.
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), size_t::MAX, 1, file) },
+        0
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // gzfread on a read-only file handle should return 0.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert_eq!(
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 1, 1, file) },
+        0
+    );
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
 
 // Get the size in bytes of a file.

@@ -9,6 +9,7 @@ use crate::{
 };
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
+use libc::size_t; // FIXME: Switch to core::ffi::c_size_t when it's stable.
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
 use std::cmp;
 use std::cmp::Ordering;
@@ -916,7 +917,8 @@ pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
 ///
 /// # Safety
 ///
-/// The caller must ensure that `buf` points to at least `len` writable bytes.
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - The caller must ensure that `buf` points to at least `len` writable bytes.
 #[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzread))]
 pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_uint) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
@@ -945,6 +947,71 @@ pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_ui
         -1
     } else {
         got as _
+    }
+}
+
+/// Read and decompress up to `nitems` items of size `size` from `file` into `buf`,
+/// otherwise operating as [`gzread`] does. This duplicates the interface of
+/// C stdio's `fread()`, with `size_t` request and return types.
+///
+/// `gzfread` returns the number of full items read of size `size`, or zero if
+/// the end of the file was reached and a full item could not be read, or if
+/// there was an error.  [`gzerror`] must be consulted if zero is returned in
+/// order to determine if there was an error.  If the multiplication of `size` and
+/// `nitems` overflows, i.e. the product does not fit in a `size_t`, then nothing
+/// is read, zero is returned, and the error state is set to `Z_STREAM_ERROR`.
+///
+/// In the event that the end of file is reached and only a partial item is
+/// available at the end, i.e. the remaining uncompressed data length is not a
+/// multiple of `size`, then the final partial item is nevertheless read into `buf`
+/// and the end-of-file flag is set.  The length of the partial item read is not
+/// provided, but could be inferred from the result of [`gztell`].  This behavior
+/// is the same as the behavior of `fread` implementations in common libraries,
+/// but it prevents the direct use of `gzfread` to read a concurrently written
+/// file, resetting and retrying on end-of-file, when `size` is not 1.
+///
+/// # Returns
+///
+/// - The number of complete object of size `size` read into `buf`.
+/// - `0` on error or end-of-file.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - The caller must ensure that `buf` points to at least `size * nitems` writable bytes.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzfread))]
+pub unsafe extern "C-unwind" fn gzfread(
+    buf: *mut c_void,
+    size: size_t,
+    nitems: size_t,
+    file: gzFile,
+) -> size_t {
+    if size == 0 {
+        return 0;
+    }
+
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return 0;
+    };
+
+    // Check that we're reading and that there's no (serious) error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return 0;
+    }
+
+    // Compute the number of bytes to read, and make sure it fits in a size_t.
+    let Some(len) = size.checked_mul(nitems) else {
+        const MSG: &str = "request does not fit in a size_t";
+        unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
+        return 0;
+    };
+
+    if len == 0 {
+        len
+    } else {
+        // Safety: The caller is responsible for ensuring that `buf` points to at least
+        // `len = size * nitems` writable bytes.
+        (unsafe { gz_read(state, buf.cast::<u8>(), len) }) / size
     }
 }
 
