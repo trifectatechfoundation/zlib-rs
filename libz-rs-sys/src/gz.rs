@@ -1898,14 +1898,14 @@ pub unsafe extern "C-unwind" fn gzgetc(file: gzFile) -> c_int {
         // `state.next + 1` is within the bounds of the `state.output` buffer, as required
         // by the pointer `add` method.
         state.next = unsafe { state.next.add(1) };
-        return ret as _;
+        return c_int::from(ret);
     }
 
     // Nothing there -- try gz_read.
-    let mut buf = [0u8; 1];
-    // Safety: `buf` is big enough to hold `len = 1` bytes.
-    match unsafe { gz_read(state, buf.as_mut_ptr(), 1) } {
-        1 => buf[0] as _,
+    let mut c = 0u8;
+    // Safety: `c` is big enough to hold `len = 1` bytes.
+    match unsafe { gz_read(state, core::slice::from_mut(&mut c).as_mut_ptr(), 1) } {
+        1 => c_int::from(c),
         _ => -1,
     }
 }
