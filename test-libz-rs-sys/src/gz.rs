@@ -1026,6 +1026,8 @@ fn gzputs_error() {
 fn gzgetc_basic() {
     // Read data from a gzip file one byte at a time using gzgetc, and verify that
     // the expected content is returned.
+    // FIXME: Replace these closures with simple function pointers once the project MSRV
+    // includes a fix for https://github.com/rust-lang/rust/issues/140293
     for gzgetc_fn in [|x| unsafe { gzgetc(x) }, |x| unsafe { gzgetc_(x) }] {
         let file_name = crate_path("src/test-data/text.gz");
         let file = unsafe {
@@ -1053,6 +1055,8 @@ fn gzgetc_basic() {
 
 #[test]
 fn gzgetc_error() {
+    // FIXME: Replace these closures with simple function pointers once the project MSRV
+    // includes a fix for https://github.com/rust-lang/rust/issues/140293
     for gzgetc_fn in [|x| unsafe { gzgetc(x) }, |x| unsafe { gzgetc_(x) }] {
         // gzgetc on a null file handle should return -1.
         assert_eq!(gzgetc_fn(ptr::null_mut()), -1);
