@@ -1026,7 +1026,7 @@ fn gzputs_error() {
 fn gzgetc_basic() {
     // Read data from a gzip file one byte at a time using gzgetc, and verify that
     // the expected content is returned.
-    for gzgetc_fn in [gzgetc, gzgetc_] {
+    for gzgetc_fn in [|x| unsafe { gzgetc(x) }, |x| unsafe { gzgetc_(x) }] {
         let file_name = crate_path("src/test-data/text.gz");
         let file = unsafe {
             gzopen(
@@ -1040,12 +1040,12 @@ fn gzgetc_basic() {
         let mut content = String::with_capacity(EXPECTED.len());
         for _ in 0..EXPECTED.len() {
             // Safety: `file` was initialized by `gzopen`.
-            let ch = unsafe { gzgetc_fn(file) };
+            let ch = gzgetc_fn(file);
             assert_ne!(ch, -1);
             content.push(ch as u8 as char);
         }
         // We should be at the end, so the next gzgetc should return -1.
-        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(gzgetc_fn(file), -1);
         assert_eq!(unsafe { gzclose(file) }, Z_OK);
         assert_eq!(content.as_str(), EXPECTED);
     }
@@ -1053,18 +1053,18 @@ fn gzgetc_basic() {
 
 #[test]
 fn gzgetc_error() {
-    for gzgetc_fn in [gzgetc, gzgetc_] {
+    for gzgetc_fn in [|x| unsafe { gzgetc(x) }, |x| unsafe { gzgetc_(x) }] {
         // gzgetc on a null file handle should return -1.
-        assert_eq!(unsafe { gzgetc_fn(ptr::null_mut()) }, -1);
+        assert_eq!(gzgetc_fn(ptr::null_mut()), -1);
 
         // gzgetc on a write-only file handle should return -1.
         let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
-        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(gzgetc_fn(file), -1);
         assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 
         // Open an invalid file descriptor as a gzip read stream. gzgetc should return -1.
         let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
-        assert_eq!(unsafe { gzgetc_fn(file) }, -1);
+        assert_eq!(gzgetc_fn(file), -1);
         assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
     }
 }
