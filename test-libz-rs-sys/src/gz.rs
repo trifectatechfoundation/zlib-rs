@@ -2,8 +2,8 @@ use zlib_rs::c_api::*;
 
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzfread, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread, gztell,
-    gzwrite,
+    gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
+    gztell, gzwrite,
 };
 
 use libc::size_t;
@@ -1197,6 +1197,9 @@ fn gzfread_basic() {
     assert_eq!(&buf[..20], b"gzip\nexample data\nfo");
     assert_eq!(buf[20], 0);
 
+    // gzfread with a null buffer should return 0.
+    assert_eq!(unsafe { gzfread(ptr::null_mut(), 1, 1, file) }, 0);
+
     // When there is not enough data remaining in the file, gzfread should transfer as many
     // units of size as possible.
     let mut buf = [0u8; 32];
@@ -1222,7 +1225,7 @@ fn gzfread_error() {
     );
 
     // gzfread with a size or nitems of 0 should return 0.
-    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
     assert!(!file.is_null());
     assert_eq!(
         unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 0, 1, file) },
@@ -1235,15 +1238,108 @@ fn gzfread_error() {
 
     // gzfread should return 0 if size * nitems is too big to fit in a size_t.
     assert_eq!(
-        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), size_t::MAX, 1, file) },
+        unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), size_t::MAX, 2, file) },
         0
     );
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 
-    // gzfread on a read-only file handle should return 0.
+    // gzfread on a write-only file handle should return 0.
     let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
     assert_eq!(
         unsafe { gzfread(buf.as_mut_ptr().cast::<c_void>(), 1, 1, file) },
+        0
+    );
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzfwrite_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output");
+
+    // Open a file for writing, using direct (uncompressed) mode to make it easier
+    // to verify the output.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("wT").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // gzfwrite of a single object should return 1.
+    assert_eq!(
+        unsafe { gzfwrite(b"test".as_ptr().cast::<c_void>(), 4, 1, file) },
+        1
+    );
+    // gzfwrite of n objects should return n.
+    assert_eq!(
+        unsafe { gzfwrite(b" of gzfwrite...".as_ptr().cast::<c_void>(), 4, 3, file) },
+        3
+    );
+
+    // gzfwrite with a null buffer should return 0.
+    assert_eq!(unsafe { gzfread(ptr::null_mut(), 1, 1, file) }, 0);
+
+    // After the gzfwrite calls, the file should close cleanly.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Read in the file and verify that the contents match what was passed to gzfwrite.
+    let mut mode = 0;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    mode |= libc::O_RDONLY;
+    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
+    assert_ne!(fd, -1);
+    const EXPECTED: &[u8] = b"test of gzfwrite";
+    let mut buf = [0u8; EXPECTED.len() + 1];
+    let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len() as _) };
+    assert_eq!(ret, EXPECTED.len() as _);
+    assert_eq!(&buf[..EXPECTED.len()], EXPECTED);
+
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+}
+
+#[test]
+fn gzfwrite_error() {
+    let mut buf = [0u8; 10];
+
+    // gzfwrite on a null file handle should return 0.
+    assert_eq!(
+        unsafe { gzfwrite(buf.as_mut_ptr().cast::<c_void>(), 1, 1, ptr::null_mut()) },
+        0
+    );
+
+    // gzfwrite with a size or nitems of 0 should return 0.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(
+        unsafe { gzfwrite(buf.as_mut_ptr().cast::<c_void>(), 0, 1, file) },
+        0
+    );
+    assert_eq!(
+        unsafe { gzfwrite(buf.as_mut_ptr().cast::<c_void>(), 1, 0, file) },
+        0
+    );
+
+    // gzfwrite should return 0 if size * nitems is too big to fit in a size_t.
+    assert_eq!(
+        unsafe { gzfwrite(buf.as_mut_ptr().cast::<c_void>(), size_t::MAX, 2, file) },
+        0
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // gzfwrite on a read-only file handle should return 0.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert_eq!(
+        unsafe { gzfwrite(buf.as_mut_ptr().cast::<c_void>(), 1, 1, file) },
         0
     );
     assert!(!file.is_null());

@@ -986,7 +986,7 @@ pub unsafe extern "C-unwind" fn gzfread(
     nitems: size_t,
     file: gzFile,
 ) -> size_t {
-    if size == 0 {
+    if size == 0 || buf.is_null() {
         return 0;
     }
 
@@ -1461,6 +1461,58 @@ pub unsafe extern "C-unwind" fn gzwrite(file: gzFile, buf: *const c_void, len: c
     // Safety: We validated state above, and the caller is responsible for ensuring
     // that buf points to at least len bytes of readable memory.
     unsafe { gz_write(state, buf, len) }
+}
+
+/// Compress and write `nitems` items of size `size` from `buf` to `file`, duplicating
+/// the interface of C stdio's `fwrite`, with `size_t` request and return types.
+///
+/// # Returns
+///
+/// - The number of full items written of size `size` on success.
+/// - Zero on error.
+///
+/// Note: If the multiplication of `size` and `nitems` overflows, i.e. the product does
+/// not fit in a `size_t`, then nothing is written, zero is returned, and the error state
+/// is set to `Z_STREAM_ERROR`.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+/// - The caller must ensure that `buf` points to at least `size * nitems` readable bytes.
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzfwrite))]
+pub unsafe extern "C-unwind" fn gzfwrite(
+    buf: *const c_void,
+    size: size_t,
+    nitems: size_t,
+    file: gzFile,
+) -> size_t {
+    if size == 0 || buf.is_null() {
+        return 0;
+    }
+
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return 0;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
+        return 0;
+    }
+
+    // Compute the number of bytes to write, and make sure it fits in a size_t.
+    let Some(len) = size.checked_mul(nitems) else {
+        const MSG: &str = "request does not fit in a size_t";
+        unsafe { gz_error(state, Some((Z_STREAM_ERROR, MSG))) };
+        return 0;
+    };
+
+    if len == 0 {
+        len
+    } else {
+        // Safety: The caller is responsible for ensuring that `buf` points to at least
+        // `len = size * nitems` readable bytes.
+        (unsafe { gz_write(state, buf, len) }) as size_t / size
+    }
 }
 
 // Internal implementation of `gzwrite`.
