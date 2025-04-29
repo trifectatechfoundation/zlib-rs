@@ -3,7 +3,7 @@ use zlib_rs::c_api::*;
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
-    gztell, gzwrite,
+    gztell, gzungetc, gzwrite,
 };
 
 use libc::size_t;
@@ -1073,6 +1073,132 @@ fn gzgetc_error() {
         assert_eq!(gzgetc_fn(file), -1);
         assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
     }
+}
+
+#[test]
+fn gzungetc_basic() {
+    // Open a gzip file for reading.
+    let file_name = crate_path("src/test-data/text.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // Set a small buffer size to make it easier to exercise all the edge cases.
+    // Since file is in read mode, `gzbuffer(file, 8)` will result in an input
+    // buffer of 8 bytes and an output buffer of 16 bytes. gzungetc operates
+    // on the output buffer, so the operations that follow are working with a
+    // 16 byte buffer.
+    assert_eq!(unsafe { gzbuffer(file, 8) }, 0);
+
+    // Call gzungetc before doing any read operations on the file. It should return the
+    // character pushed. Because the output buffer size is 16 bytes (based on the gzbuffer
+    // call above), gzungetc should work exactly 16 times before we do any reads.
+    const CONTENT: &[u8] = b"0123456789abcdef";
+    for c in CONTENT.iter().rev() {
+        assert_eq!(unsafe { gzungetc(*c as c_int, file) }, *c as c_int);
+    }
+
+    // gzread should return the characters we pushed into the buffer with gzungetc.
+    // Note that we looped through CONTENT in reverse when doing the gzungetc, so
+    // the result of this read should match CONTENT.
+    let mut buf = [0u8; CONTENT.len()];
+    assert_eq!(
+        unsafe {
+            gzread(
+                file,
+                buf.as_mut_ptr().cast::<c_void>(),
+                CONTENT.len() as c_uint,
+            )
+        },
+        CONTENT.len() as _
+    );
+    assert_eq!(&buf, CONTENT);
+
+    // Do a large read to skip toward the end of the file. This will leave the output buffer empty.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 16) },
+        16
+    );
+    assert_eq!(&buf, b"gzip\nexample dat");
+
+    // The number of bytes remaining to decompress from the file is smaller than the output
+    // buffer. Do a one-byte gzread which will uncompress the remainder of the file into
+    // the output buffer and then consume the first byte.
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), 1) },
+        1
+    );
+    assert_eq!(buf[0], b'a');
+
+    // After the last gzread, the 16-byte output buffer should consist of:
+    // - 1 unused byte (that held the 'a' we consumed in the last `gzread`).
+    // - 10 bytes of decompressed output ("\nfor tests").
+    // - 5 unused bytes.
+    //
+    // Call gzungetc twice. The first call will be able to write into the available
+    // byte at the start. The second call will have to shift the content to the end
+    // of the output buffer to make room.
+    assert_eq!(unsafe { gzungetc('6' as c_int, file) }, '6' as c_int);
+    assert_eq!(unsafe { gzungetc('5' as c_int, file) }, '5' as c_int);
+
+    // The output buffer should now contain:
+    // - 4 unused bytes.
+    // - The last character pushed using gzungetc, '6'.
+    // - The previous character pushed using gzungetc, '5'.
+    // - The content that was already in the buffer, "\nfor tests".
+    //
+    // We should be able to push 4 more bytes with gzungetc to fill up the
+    // available space at the start.
+    for c in ['4', '3', '2', '1'] {
+        assert_eq!(unsafe { gzungetc(c as c_int, file) }, c as c_int);
+    }
+
+    // gzread should yield the remaining 10 bytes of uncompressed content from the file,
+    // preceded by the 6 bytes we just pushed with gzungetc, for a total of 16 bytes.
+    const EXPECTED: &[u8] = b"123456\nfor tests";
+    // Read more than expected to make sure there's no other output following it.
+    let mut buf = [0u8; EXPECTED.len() + 1];
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        EXPECTED.len() as _
+    );
+    assert_eq!(&buf[..EXPECTED.len()], EXPECTED);
+
+    // The 16-byte output buffer is now empty. Call gzungetc 17 times. The first
+    // 16 calls should succeed, and the last one should fail.
+    for _ in 0..16 {
+        assert_eq!(unsafe { gzungetc('-' as c_int, file) }, '-' as c_int);
+    }
+    assert_eq!(unsafe { gzungetc('-' as c_int, file) }, -1);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzungetc_error() {
+    // gzungetc on a null file handle should return -1.
+    assert_eq!(unsafe { gzungetc('*' as c_int, ptr::null_mut()) }, -1);
+
+    // gzgetc on a write-only file handle should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert_eq!(unsafe { gzungetc('*' as c_int, file) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // gzgetc with a negative character value should return -1.
+    let file_name = crate_path("src/test-data/text.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzungetc(-1 as c_int, file) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
 
 #[test]

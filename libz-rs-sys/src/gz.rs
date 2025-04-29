@@ -35,7 +35,7 @@ struct GzState {
     // fields directly.
     have: c_uint,       // number of bytes available at next
     next: *const Bytef, // next byte of uncompressed data
-    pos: u64,           // current offset in uncompressed data stream
+    pos: i64,           // current offset in uncompressed data stream
 
     // End of public interface:
     // All fields after this point are opaque to C code using this library,
@@ -1108,7 +1108,7 @@ unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usiz
         len -= n;
         buf = unsafe { buf.add(n) };
         got += n;
-        state.pos += n as u64;
+        state.pos += n as i64;
 
         if len == 0 {
             break;
@@ -1561,7 +1561,7 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
             // bytes, and copy is <= len.
             unsafe { ptr::copy(buf, state.input.add(have).cast::<c_void>(), copy) };
             state.stream.avail_in += copy as c_uint;
-            state.pos += copy as u64;
+            state.pos += copy as i64;
             buf = unsafe { buf.add(copy) };
             len -= copy;
             if len != 0 && gz_comp(state, Z_NO_FLUSH).is_err() {
@@ -1585,7 +1585,7 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
         loop {
             let n = cmp::min(len, c_uint::MAX as usize) as c_uint;
             state.stream.avail_in = n;
-            state.pos += n as u64;
+            state.pos += n as i64;
             if gz_comp(state, Z_NO_FLUSH).is_err() {
                 return 0;
             }
@@ -1838,7 +1838,7 @@ pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
 
     // Return position.
     match state.seek {
-        true => (state.pos + state.skip as u64) as z_off_t,
+        true => (state.pos + state.skip) as z_off_t,
         false => state.pos as z_off_t,
     }
 }
@@ -2045,6 +2045,113 @@ pub unsafe extern "C-unwind" fn gzgetc_(file: gzFile) -> c_int {
     unsafe { gzgetc(file) }
 }
 
+/// Push `c` back onto the stream for file to be read as the first character on
+/// the next read.  At least one character of push-back is always allowed.
+///
+/// `gzungetc` will fail if `c` is `-1`, and may fail if a character has been pushed
+/// but not read yet. If `gzungetc` is used immediately after [`gzopen`] or [`gzdopen`],
+/// at least the output buffer size of pushed characters is allowed.  (See [`gzbuffer`].)
+///
+/// The pushed character will be discarded if the stream is repositioned with
+/// [`gzseek`] or [`gzrewind`].
+///
+/// # Returns
+///
+/// - The character pushed, on success.
+/// - `-1` on failure.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzungetc))]
+pub unsafe extern "C-unwind" fn gzungetc(c: c_int, file: gzFile) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    // Validate the input.
+    if c < 0 {
+        return -1;
+    }
+
+    // Check that we're reading and that there's no (serious) error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return -1;
+    }
+
+    // In case this was just opened, set up the input buffer.
+    if state.how == How::Look && state.have == 0 {
+        // We have verified that `state` is valid.
+        let _ = unsafe { gz_look(state) };
+    }
+
+    /* FIXME uncomment when seek support is implemented.
+    // Process a skip request.
+    if state.seek {
+        state.seek = false;
+        if gz_skip(state, state.skip) == -1 {
+            return -1;
+        }
+    }
+     */
+
+    // If output buffer empty, put byte at end (allows more pushing).
+    if state.have == 0 {
+        state.have = 1;
+        // Safety: because `state.have` is nonzero, the `state.output` buffer has been
+        // allocated. And because the buffer's size is `state.out_size`, a pointer to
+        // `output + out_size - 1` points within the buffer.
+        state.next = unsafe { state.output.add(state.out_size - 1) };
+        // Safety: from the addition above, `state.next` currently points within the
+        // `state.output` buffer.
+        unsafe { *(state.next as *mut u8) = c as u8 };
+        state.pos -= 1;
+        state.past = false;
+        return c;
+    }
+
+    // If no room, give up (must have already done a `gzungetc`).
+    if state.have as usize == state.out_size {
+        const MSG: &str = "out of room to push characters";
+        // Safety: We have verified that `state` is valid.
+        unsafe { gz_error(state, Some((Z_DATA_ERROR, MSG))) };
+        return -1;
+    }
+
+    // Slide output data if needed and insert byte before existing data.
+    if state.next == state.output {
+        // There are `state.have` bytes of usable content at the front of the buffer
+        // `state.output`, which has capacity `state.out_size`. We want to move that
+        // content to the end of the buffer, so we copy from `state.output` to
+        // `state.output + (state.out_size - state.have)` and update `state.next`
+        // to point to the content's new location within the buffer.
+        let offset = state.out_size - state.have as usize;
+
+        // Safety: `state.have` < `state.out_size`, or we would have returned in the
+        // check for the == case above. Therefore, `offset`, which is `out_size - have`,
+        // is in the range `1..=(out_size - 1)`. When we add that to `output`, the result
+        // is within the buffer's allocation of `out_size` bytes.
+        let dst = unsafe { state.output.add(offset) };
+
+        // Safety: `state.next` points a sequence of `state.have` initialized bytes
+        // within the `state.output` buffer. And because `dst` was computed as
+        // `state.output + state.out_size - state.have`, we can write `state.have`
+        // bytes starting at `dst` and they will all be within the buffer.
+        // Note that this may be an overlapping copy.
+        unsafe { ptr::copy(state.next, dst as _, state.have as _) };
+        state.next = dst;
+    }
+    state.have += 1;
+    // Safety: `state.next` > `state.output`, due to the `state.next = dst` above, so it
+    // is safe to decrease `state.next` by 1.
+    state.next = unsafe { state.next.sub(1) };
+    // Safety: `state.next` >= `state.output` following the subtraction.
+    unsafe { *(state.next as *mut u8) = c as u8 };
+    state.pos -= 1;
+    state.past = false;
+    c
+}
+
 /// Read decompressed bytes from `file` into `buf`, until `len-1` characters are
 /// read, or until a newline character is read and transferred to `buf`, or an
 /// end-of-file condition is encountered.  If any characters are read or if `len`
@@ -2138,7 +2245,7 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
         // Safety: As described above, `state.next` pointed to at least `n` readable bytes, so
         // when we increase it by `n` it will still point into the `output` buffer.
         state.next = unsafe { state.next.add(n) };
-        state.pos += n as u64;
+        state.pos += n as i64;
         left -= n;
         // Safety: `dst` pointed to at least `n` writable bytes, so when we increase it by `n`
         // it will still point into `buf`.
