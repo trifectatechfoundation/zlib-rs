@@ -3,7 +3,7 @@ use zlib_rs::c_api::*;
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
-    gztell, gzungetc, gzwrite,
+    gzsetparams, gztell, gzungetc, gzwrite,
 };
 
 use libc::size_t;
@@ -1469,6 +1469,134 @@ fn gzfwrite_error() {
         0
     );
     assert!(!file.is_null());
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzsetparams_basic() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output.gz");
+
+    // Open a file for writing.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("w").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // Call gzsetparams before doing any writes. It should return Z_OK and should
+    // not cause any file I/O yet.
+    assert_eq!(unsafe { gzsetparams(file, 2, 0) }, Z_OK);
+    assert_eq!(file_size(&file_name).unwrap(), 0);
+
+    // Provide some data to the file descriptor for compression. The deflate output
+    // should be buffered, so the file size should not increase yet.
+    const STRING1: &[u8] = b"first write ";
+    assert_eq!(
+        unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+        STRING1.len() as _
+    );
+    assert_eq!(file_size(&file_name).unwrap(), 0);
+
+    // Call gzsetparams to change the deflate parameters. It should return Z_OK and should
+    // flush some of the previously buffered data to the file.
+    assert_eq!(unsafe { gzsetparams(file, 9, 0) }, Z_OK);
+    let size = file_size(&file_name).unwrap();
+    assert!(size > 0);
+
+    // Write more data to the file descriptor.
+    const STRING2: &[u8] = b"second write ";
+    assert_eq!(
+        unsafe { gzwrite(file, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
+        STRING2.len() as _
+    );
+
+    // Call gzsetparams with the same parameters as last time. This should be a no-op, returning
+    // Z_OK and not forcing a flush of the buffered write.
+    assert_eq!(unsafe { gzsetparams(file, 9, 0) }, Z_OK);
+    assert_eq!(file_size(&file_name).unwrap(), size);
+
+    // Call gzsetparams with different parameters. This should return Z_OK and should flush
+    // the previously buffered output to the file.
+    assert_eq!(unsafe { gzsetparams(file, 9, 1) }, Z_OK);
+    let new_size = file_size(&file_name).unwrap();
+    assert!(new_size > size);
+    let size = new_size;
+
+    // Do another write, and close the file.
+    const STRING3: &[u8] = b"third write";
+    assert_eq!(
+        unsafe { gzwrite(file, STRING3.as_ptr().cast::<c_void>(), STRING3.len() as _) },
+        STRING3.len() as _
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    let new_size = file_size(&file_name).unwrap();
+    assert!(new_size > size);
+
+    // Read and uncompress the file. We should get back the concatenation of all the
+    // content written to it.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    const EXPECTED: &[u8] = b"first write second write third write";
+    let mut buf = [0u8; EXPECTED.len() + 1];
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        EXPECTED.len() as _
+    );
+    assert_eq!(&buf[..EXPECTED.len()], EXPECTED);
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+}
+
+#[test]
+fn gzsetparams_error() {
+    // gzsetparams on a null file handle should return Z_STREAM_ERROR.
+    assert_eq!(
+        unsafe { gzsetparams(ptr::null_mut(), 1, 0) },
+        Z_STREAM_ERROR
+    );
+
+    // gzsetparams on a read-only file should return Z_STREAM_ERROR.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzsetparams(file, 1, 0) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // gzsetparams on a file in direct-write mode should return Z_STREAM_ERROR.
+    let file = unsafe { gzdopen(-2, CString::new("wT").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzsetparams(file, 1, 0) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // gzsetparams with an invalid strategy should return Z_STREAM_ERROR.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzsetparams(file, 1, 0) }, Z_OK);
+    assert_eq!(unsafe { gzsetparams(file, 1, -1) }, Z_STREAM_ERROR);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Open a gzip file handle around an invalid file descriptor, do a buffered write,
+    // and then call gzsetparams with valid parameters. This should trigger a file
+    // write that fails, resulting in an error code bubbling back up through
+    // through gzsetparams.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    const CONTENT: &[u8] = b"0123456789";
+    assert_eq!(
+        unsafe { gzwrite(file, CONTENT.as_ptr().cast::<c_void>(), CONTENT.len() as _) },
+        CONTENT.len() as _
+    );
+    assert_eq!(unsafe { gzsetparams(file, 1, 2) }, Z_ERRNO);
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
 
