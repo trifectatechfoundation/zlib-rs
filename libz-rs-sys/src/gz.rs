@@ -2269,6 +2269,68 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
     }
 }
 
+/// Dynamically update the compression level and strategy for `file`. See the
+/// description of [`deflateInit2`] for the meaning of these parameters. Previously
+/// provided data is flushed before applying the parameter changes.
+///
+/// Note: If `level` is not valid, this function will silently fail with a return
+/// value of `Z_OK`, matching the semantics of the C zlib version. However, if
+/// `strategy` is not valid, this function will return an error.
+///
+/// # Returns
+///
+/// - [`Z_OK`] on success.
+/// - [`Z_STREAM_ERROR`] if the file was not opened for writing.
+/// - [`Z_ERRNO`] if there is an error writing the flushed data.
+/// - [`Z_MEM_ERROR`] if there is a memory allocation error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzsetparams))]
+pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy: c_int) -> c_int {
+    let Ok(strategy) = Strategy::try_from(strategy) else {
+        return Z_STREAM_ERROR;
+    };
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return Z_STREAM_ERROR;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK || state.direct {
+        return Z_STREAM_ERROR;
+    }
+
+    // If no change is requested, then do nothing.
+    if level == c_int::from(state.level) && strategy == state.strategy {
+        return Z_OK;
+    }
+
+    /* FIXME: uncomment when seek support is implemented
+    // Check for seek request.
+    if state.seek {
+        state.seek = false`;
+        if gz_zero(state, state.skip) == -1 {
+            return state.err;
+        }
+    }
+     */
+
+    // Change compression parameters for subsequent input.
+    if !state.input.is_null() {
+        // Flush previous input with previous parameters before changing.
+        if state.stream.avail_in != 0 && gz_comp(state, Z_BLOCK).is_err() {
+            return state.err;
+        }
+        // Safety: Because `state` is in write mode and `state.input` is non-null, `state.stream`
+        // was initialized using `deflateInit2` in `gz_init`.
+        unsafe { super::deflateParams(&mut state.stream, level, strategy as c_int) };
+    }
+    state.level = level as _;
+    state.strategy = strategy;
+    Z_OK
+}
+
 // Create a deep copy of a C string using `ALLOCATOR`
 //
 // # Safety
