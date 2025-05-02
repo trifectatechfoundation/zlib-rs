@@ -3,7 +3,7 @@ use zlib_rs::c_api::*;
 use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
-    gzsetparams, gztell, gzungetc, gzwrite,
+    gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
 };
 
 use libc::size_t;
@@ -1597,6 +1597,207 @@ fn gzsetparams_error() {
         CONTENT.len() as _
     );
     assert_eq!(unsafe { gzsetparams(file, 1, 2) }, Z_ERRNO);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzseek_read() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create compressed and non-compressed versions of the same file, to exercise
+    // all the implementation paths for gzseek.
+    let gzip_file_name = crate_path("src/test-data/issue-109.gz");
+    let direct_file_name = path(temp_path, "uncompressed");
+    let mut mode = libc::O_CREAT;
+    #[cfg(target_os = "windows")]
+    {
+        mode |= libc::O_BINARY;
+    }
+    mode |= libc::O_WRONLY;
+    let fd = unsafe {
+        libc::open(
+            CString::new(direct_file_name.as_str()).unwrap().as_ptr(),
+            mode,
+            0o644,
+        )
+    };
+    assert_ne!(fd, -1);
+    let file = unsafe {
+        gzopen(
+            CString::new(gzip_file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    let mut buf = [0u8; 65536];
+    loop {
+        let ret = unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) };
+        assert_ne!(ret, -1);
+        if ret == 0 {
+            break;
+        }
+        assert_eq!(
+            unsafe { libc::write(fd, buf.as_mut_ptr().cast::<c_void>(), ret as _) },
+            ret as _
+        );
+    }
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+
+    for file_name in [direct_file_name, gzip_file_name] {
+        eprintln!("opening {}", file_name);
+        let file = unsafe {
+            gzopen(
+                CString::new(file_name.as_str()).unwrap().as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+
+        // Set a small buffer size to help exercise all the code paths.
+        assert_eq!(unsafe { gzbuffer(file, 16) }, 0);
+
+        // Issue an absolute seek, and then a read. The read should return content from the proper offset.
+        assert_eq!(unsafe { gzseek(file, 10, libc::SEEK_SET) }, 10);
+        assert_eq!(unsafe { gztell(file) }, 10);
+        let mut buf = [0u8; 16];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            buf.len() as _
+        );
+        assert_eq!(&buf, b"t type=file uid=");
+        assert_eq!(unsafe { gztell(file) }, 26);
+
+        // Issue a relative seek forward, and then a read. We previously moved to offset 10 and
+        // read 16 bytes, so we're starting at offset 26. Seeking 24 bytes forward should take us
+        // to offset 50.
+        assert_eq!(unsafe { gzseek(file, 24, libc::SEEK_CUR) }, 50);
+        assert_eq!(unsafe { gztell(file) }, 50);
+        let mut buf = [0u8; 16];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            buf.len() as _
+        );
+        assert_eq!(&buf, b"DINFO time=16815");
+        assert_eq!(unsafe { gztell(file) }, 66);
+
+        // Issue a relative seek backwards, and then a read. We previously moved to offset 50 and
+        // read 16 bytes, so we're starting at offset 66. Seeking 26 bytes backwards should take us
+        // to offset 40.
+        assert_eq!(unsafe { gzseek(file, -26, libc::SEEK_CUR) }, 40);
+        assert_eq!(unsafe { gztell(file) }, 40);
+        let mut buf = [0u8; 16];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            buf.len() as _
+        );
+        assert_eq!(&buf, b"44\n./.BUILDINFO ");
+        assert_eq!(unsafe { gztell(file) }, 56);
+
+        // Attempt an absolute seek to a location before the start. gzseek should return -1,
+        // and the position in the uncompressed data stream should remain unchanged.
+        assert_eq!(unsafe { gzseek(file, -2, libc::SEEK_SET) }, -1);
+        assert_eq!(unsafe { gztell(file) }, 56);
+
+        // Attempt a relative seek to a location before the start. gzseek should return -1,
+        // and the position in the uncompressed data stream should remain unchanged.
+        assert_eq!(unsafe { gzseek(file, -57, libc::SEEK_SET) }, -1);
+        assert_eq!(unsafe { gztell(file) }, 56);
+
+        // After those failed seeks, we should be able to seek to a valid location and read
+        // the data there. This time, use gzgets to cover its implementation of the seek logic.
+        // (When reading compressed data, gzseek only schedules the seek; the various read
+        // functions actually act upon it.)
+        assert_eq!(unsafe { gzseek(file, 10000, libc::SEEK_SET) }, 10000);
+        assert_eq!(unsafe { gztell(file) }, 10000);
+        let mut buf = [127u8; 16];
+        let ret = unsafe { gzgets(file, buf.as_mut_ptr().cast::<c_char>(), buf.len() as _) };
+        assert!(!ret.is_null());
+        assert_eq!(&buf, b"681598407.0 siz\0");
+
+        // Use gzrewind to seek back to the start, and verify that gzgetc returns the
+        // beginning of the uncompressed content.
+        assert_eq!(unsafe { gzrewind(file) }, 0);
+        const EXPECTED: &[u8] = b"#mtre";
+        for &c in EXPECTED {
+            assert_eq!(unsafe { gzgetc(file) }, c as _);
+        }
+
+        // Call gzseek twice and then do a read. The read should begin at the sum of the
+        // offsets of the gzseek calls.
+        assert_eq!(unsafe { gztell(file) }, 5);
+        assert_eq!(unsafe { gzseek(file, 1, libc::SEEK_CUR) }, 6);
+        assert_eq!(unsafe { gzseek(file, 2, libc::SEEK_CUR) }, 8);
+        let mut buf = [0u8; 5];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            buf.len() as _
+        );
+        assert_eq!(&buf, b"set t");
+
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+}
+
+#[test]
+fn gzseek_error() {
+    // gzseek on a null file handle should return -1.
+    assert_eq!(unsafe { gzseek(ptr::null_mut(), 0, libc::SEEK_CUR) }, -1);
+
+    // Open a gzip file handle around an invalid file descriptor, do a buffered write,
+    // and then call gzflush to force a file write. This will set an error condition
+    // inside the file handle, after which gzseek should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    const CONTENT: &[u8] = b"0123456789";
+    assert_eq!(
+        unsafe { gzwrite(file, CONTENT.as_ptr().cast::<c_void>(), CONTENT.len() as _) },
+        CONTENT.len() as _
+    );
+    assert_eq!(unsafe { gzflush(file, Z_SYNC_FLUSH) }, Z_ERRNO);
+    assert_eq!(unsafe { gzseek(file, 0, libc::SEEK_CUR) }, -1);
+
+    // Clear the error condition and call gzseek with the unsupported mode SEEK_END.
+    // This should return -1.
+    unsafe { gzclearerr(file) };
+    assert_eq!(unsafe { gzseek(file, 0, libc::SEEK_END) }, -1);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+}
+
+#[test]
+fn gzrewind_error() {
+    // gzrewind on a null file handle should return -1.
+    assert_eq!(unsafe { gzrewind(ptr::null_mut()) }, -1);
+
+    // gzrewind on a write-only file should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("w").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzrewind(file) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Open a gzip file handle for reading using an invalid file descriptor. gzrewind
+    // should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    assert_eq!(unsafe { gzrewind(file) }, -1);
+    assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
+
+    // Open a gzip file handle for reading using an invalid file descriptor, and
+    // attempt a read to set the handle's internal error status. After that,
+    // gzrewind should return -1.
+    let file = unsafe { gzdopen(-2, CString::new("r").unwrap().as_ptr()) };
+    assert!(!file.is_null());
+    let mut buf = [0u8; 16];
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        -1
+    );
+    assert_eq!(unsafe { gzrewind(file) }, -1);
     assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
 }
 
