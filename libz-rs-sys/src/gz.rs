@@ -3,14 +3,16 @@
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
+use crate::gz::GzMode::GZ_READ;
 use crate::{
     deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
     inflateReset, z_off_t, zlibVersion,
 };
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
+use libc::off_t;
 use libc::size_t; // FIXME: Switch to core::ffi::c_size_t when it's stable.
-use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END};
+use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET};
 use std::cmp;
 use std::cmp::Ordering;
 use zlib_rs::deflate::Strategy;
@@ -1031,16 +1033,13 @@ unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usiz
         return 0;
     }
 
-    /* FIXME: Uncomment this when seek support is added:
-
-    // process a skip request
+    // Process a skip request.
     if state.seek {
         state.seek = false;
-        if gz_skip(state, state.skip) == -1 {
+        if gz_skip(state, state.skip).is_err() {
             return 0;
         }
     }
-     */
 
     // Loop until we get enough bytes or reach the end of the file.
     let mut got = 0;
@@ -1116,6 +1115,57 @@ unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usiz
     }
 
     got
+}
+
+// Given an unsigned value `x`, determine whether `x` is larger than the maximum
+// signed 64-bit offset value.
+// Note: This can happen only on targets where the C unsigned int is a 64-bit value.
+macro_rules! gt_off {
+    ($x:expr) => {
+        core::mem::size_of_val(&$x) == core::mem::size_of::<i64>()
+            && $x as usize > i64::MAX as usize
+    };
+}
+
+// Skip len uncompressed bytes of output.
+//
+// # Returns
+//
+// - `Ok` on success.
+// - `Err` on error.
+fn gz_skip(state: &mut GzState, mut len: i64) -> Result<(), ()> {
+    /* skip over len bytes or reach end-of-file, whichever comes first */
+    while len != 0 {
+        // Skip over whatever is in output buffer.
+        if state.have != 0 {
+            // For consistency with zlib-ng, we use `gt_off` to check whether the value
+            // of `state.have` is too large to be represented as a signed 64-bit offset.
+            // This case can be triggered only if the platform has 64-bit C ints and
+            // `state.have` is >= 2^63.
+            let n = if gt_off!(state.have) || state.have as i64 > len {
+                len as usize
+            } else {
+                state.have as usize
+            };
+            state.have -= n as c_uint;
+            // Safety: `n` <= `state.have` and there are at least `state.have` accessible
+            // bytes after `state.next` in the buffer.
+            state.next = unsafe { state.next.add(n) };
+            state.pos += n as i64;
+            len -= n as i64;
+        } else if state.eof && state.stream.avail_in == 0 {
+            // Output buffer empty -- return if we're at the end of the input.
+            break;
+        } else {
+            // Need more data to skip -- load up output buffer.
+            // Get more output, looking for header if required.
+            // Safety: `state` is valid, and `state.have` is zero in this branch.
+            if unsafe { gz_fetch(state) }.is_err() {
+                return Err(());
+            }
+        }
+    }
+    Ok(())
 }
 
 // Given a gzip file opened for reading, check for a gzip header, and set
@@ -1423,7 +1473,7 @@ unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
 ///
 /// # Returns
 ///
-/// - The number of uncompress bytes written, on success.
+/// - The number of uncompressed bytes written, on success.
 /// - Or 0 in case of error.
 ///
 /// # Safety
@@ -2190,15 +2240,13 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
         return ptr::null_mut();
     }
 
-    /* FIXME uncomment when seek support is implemented.
     // Process a skip request.
     if state.seek {
         state.seek = false;
-        if gz_skip(state, state.skip) == -1 {
+        if gz_skip(state, state.skip).is_err() {
             return ptr::null_mut();
         }
     }
-     */
 
     // Copy output bytes up to newline or `len - 1`, whichever comes first.
     let mut left = len as usize - 1;
@@ -2329,6 +2377,160 @@ pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy
     state.level = level as _;
     state.strategy = strategy;
     Z_OK
+}
+
+/// Set the starting position to `offset` relative to `whence` for the next [`gzread`]
+/// or [`gzwrite`] on `file`. The `offset` represents a number of bytes in the
+/// uncompressed data stream. The `whence` parameter is defined as in `lseek(2)`,
+/// but only `SEEK_CUR` (relative to current position) and `SEEK_SET` (absolute from
+/// start of the uncompressed data stream) are supported.
+///
+/// If `file` is open for reading, this function is emulated but can extremely
+/// slow (because it operates on the decompressed data stream).  If `file` is open
+/// for writing, only forward seeks are supported; `gzseek` then compresses a sequence
+/// of zeroes up to the new starting position. If a negative `offset` is specified in
+/// write mode, `gzseek` returns -1.
+///
+/// <div class="warning">
+///
+/// Warning: `gzseek` currently is implemented only for reads. Write support will be added
+/// in the future.
+///
+/// </div>
+///
+/// # Returns
+///
+/// - The resulting offset location as measured in bytes from the beginning of the uncompressed
+///   stream, on success.
+/// - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzseek))]
+pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_int) -> z_off_t {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        // Unreachable if `file` was initialized with `gzopen` or `gzdopen`.
+        return -1;
+    }
+
+    // Check that there's no error.
+    if state.err != Z_OK && state.err != Z_BUF_ERROR {
+        return -1;
+    }
+
+    // Can only seek from start or relative to current position.
+    if whence != SEEK_SET && whence != SEEK_CUR {
+        return -1;
+    }
+
+    let mut offset: i64 = offset as _;
+
+    // Normalize offset to a SEEK_CUR specification (i.e., relative to current position).
+    if whence == SEEK_SET {
+        offset -= state.pos;
+    } else if state.seek {
+        offset += state.skip;
+    }
+    state.seek = false;
+
+    // If we are reading non-compressed content, just lseek to the right location.
+    if state.mode == GZ_READ && state.how == How::Copy && state.pos + offset >= 0 {
+        let ret = unsafe { libc::lseek(state.fd, offset as off_t - state.have as off_t, SEEK_CUR) };
+        if ret == -1 {
+            return -1;
+        }
+        state.have = 0;
+        state.eof = false;
+        state.past = false;
+        state.seek = false;
+        // Safety: `state` was validated above.
+        unsafe { gz_error(state, None) };
+        state.stream.avail_in = 0;
+        state.pos += offset;
+        return state.pos as _;
+    }
+
+    // Calculate the skip amount. If we're seeking backwards in a compressed file, we'll
+    // need to rewind to the start and decompress content until we arrive at the right spot.
+    if offset < 0 {
+        if state.mode != GzMode::GZ_READ {
+            // Can't go backwards when writing.
+            return -1;
+        }
+        offset += state.pos;
+        if offset < 0 {
+            // Before start of file!
+            return -1;
+        }
+
+        // Rewind, then skip to offset.
+        // Safety: `file` points to an initialized `GzState`.
+        if unsafe { gzrewind(file) } == -1 {
+            return -1;
+        }
+    }
+
+    // If reading, skip what's in output buffer. (This simplifies `gzgetc`.)
+    if state.mode == GzMode::GZ_READ {
+        // For consistency with zlib-ng, we use `gt_off` to check whether the value
+        // of `state.have` is too large to be represented as a signed 64-bit offset.
+        // This case can be triggered only if the platform has 64-bit C ints and
+        // `state.have` is >= 2^63.
+        let n = if gt_off!(state.have) || state.have as i64 > offset {
+            offset as usize
+        } else {
+            state.have as usize
+        };
+        state.have -= n as c_uint;
+        // Safety: `n` <= `state.have`, and `state.next` points to at least `state.have`
+        // accessible bytes within the buffer.
+        state.next = unsafe { state.next.add(n) };
+        state.pos += n as i64;
+        offset -= n as i64;
+    }
+
+    // Request skip (if not zero). The actual seek will happen on the next read or write operation.
+    if offset != 0 {
+        state.seek = true;
+        state.skip = offset;
+    }
+
+    (state.pos + offset) as _
+}
+
+/// Rewind `file` to the start. This function is supported only for reading.
+///
+/// Note: `gzrewind(file)` is equivalent to [`gzseek`]`(file, 0, SEEK_SET)`
+///
+/// # Returns
+///
+/// - `0` on success.
+/// - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzrewind))]
+pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return -1;
+    };
+
+    // Check that we're reading and that there's no error.
+    if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
+        return -1;
+    }
+
+    // Back up and start over.
+    if unsafe { libc::lseek(state.fd, state.start as _, SEEK_SET) } == -1 {
+        return -1;
+    }
+    gz_reset(state);
+    0
 }
 
 // Create a deep copy of a C string using `ALLOCATOR`
