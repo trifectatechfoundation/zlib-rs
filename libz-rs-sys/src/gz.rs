@@ -640,14 +640,13 @@ pub unsafe extern "C-unwind" fn gzclose_w(file: gzFile) -> c_int {
         return Z_STREAM_ERROR;
     }
 
-    /* FIXME Uncomment this when seek support is implemented
     // Check for a pending seek request
     if state.seek {
         state.seek = false;
-        gz_zero(state, state.skip);
-        ret = state.err;
+        if gz_zero(state, state.skip as _).is_err() {
+            ret = state.err;
+        }
     }
-     */
 
     // Compress (if not in direct mode) and output any data left in the input buffer.
     if gz_comp(state, Z_FINISH).is_err() {
@@ -1134,7 +1133,7 @@ macro_rules! gt_off {
 // - `Ok` on success.
 // - `Err` on error.
 fn gz_skip(state: &mut GzState, mut len: i64) -> Result<(), ()> {
-    /* skip over len bytes or reach end-of-file, whichever comes first */
+    // Skip over len bytes or reach end-of-file, whichever comes first.
     while len != 0 {
         // Skip over whatever is in output buffer.
         if state.have != 0 {
@@ -1586,14 +1585,12 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
         return 0;
     }
 
-    /* FIXME uncomment once seek support is implemented
     if state.seek {
-        state.seek = 0;
-        if gz_zero(state, state.skip) == -1 {
+        state.seek = false;
+        if gz_zero(state, state.skip as _).is_err() {
             return 0;
         }
     }
-     */
 
     let put = len as c_int;
 
@@ -1649,6 +1646,44 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
 
     // Input was all buffered or compressed.
     put
+}
+
+// Compress `len` null bytes to output.
+//
+// # Returns
+//
+// - `Ok` on success.
+// - `Err` on error.
+fn gz_zero(state: &mut GzState, mut len: usize) -> Result<(), ()> {
+    // Consume whatever is left in the input buffer.
+    if state.stream.avail_in != 0 && gz_comp(state, Z_NO_FLUSH).is_err() {
+        return Err(());
+    }
+
+    // Compress `len` zeros.
+    let mut first = true;
+    while len != 0 {
+        let n = cmp::min(state.in_size, len);
+        if first {
+            // Safety: `state.input` is non-null here, either because it was initialized
+            // before this function was called (enabling the `state.stream.avail_in != 0`
+            // case in the check above) or because the call to `gz_comp` initialized it.
+            // All initialization paths in this module ensure that, when `state.input` is
+            // non-null, it points to `state.in_size` bytes of writable memory. Here we
+            // are writing `n` bytes, where `n` is initialized above to be <= `state.in_size`.
+            unsafe { state.input.write_bytes(0u8, n) };
+            first = false;
+        }
+        state.stream.avail_in = n as _;
+        state.stream.next_in = state.input;
+        state.pos += n as i64;
+        if gz_comp(state, Z_NO_FLUSH).is_err() {
+            return Err(());
+        }
+        len -= n;
+    }
+
+    Ok(())
 }
 
 // Initialize `state` for writing a gzip file.  Mark initialization by setting
@@ -1845,15 +1880,13 @@ pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
         return Z_STREAM_ERROR;
     }
 
-    /* FIXME: uncomment this when seek support is implemented
     // Check for seek request.
     if state.seek {
         state.seek = false;
-        if gz_zero(state, state.skip) == -1 {
+        if gz_zero(state, state.skip as _).is_err() {
             return state.err;
         }
     }
-     */
 
     // Compress remaining data with requested flush.
     let _ = gz_comp(state, flush);
@@ -1920,7 +1953,7 @@ pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
         return -1;
     }
 
-    /* compute and return effective offset in file */
+    // Compute and return effective offset in file.
     let offset = unsafe { libc::lseek(state.fd, 0, SEEK_CUR) };
     if offset == -1 {
         return -1;
@@ -1954,15 +1987,13 @@ pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
         return -1;
     }
 
-    /* FIXME: Uncomment when seek support is implemented.
     // Check for seek request.
     if state.seek {
         state.seek = false;
-        if gz_zero(state, state.skip) == -1 {
+        if gz_zero(state, state.skip as _).is_err() {
             return -1;
         }
     }
-     */
 
     // Try writing to input buffer for speed (state.input == null if buffer not initialized).
     if !state.input.is_null() {
@@ -2135,15 +2166,13 @@ pub unsafe extern "C-unwind" fn gzungetc(c: c_int, file: gzFile) -> c_int {
         let _ = unsafe { gz_look(state) };
     }
 
-    /* FIXME uncomment when seek support is implemented.
     // Process a skip request.
     if state.seek {
         state.seek = false;
-        if gz_skip(state, state.skip) == -1 {
+        if gz_skip(state, state.skip).is_err() {
             return -1;
         }
     }
-     */
 
     // If output buffer empty, put byte at end (allows more pushing).
     if state.have == 0 {
@@ -2354,15 +2383,13 @@ pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy
         return Z_OK;
     }
 
-    /* FIXME: uncomment when seek support is implemented
     // Check for seek request.
     if state.seek {
-        state.seek = false`;
-        if gz_zero(state, state.skip) == -1 {
+        state.seek = false;
+        if gz_zero(state, state.skip as _).is_err() {
             return state.err;
         }
     }
-     */
 
     // Change compression parameters for subsequent input.
     if !state.input.is_null() {

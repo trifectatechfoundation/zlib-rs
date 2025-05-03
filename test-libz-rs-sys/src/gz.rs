@@ -1159,21 +1159,51 @@ fn gzungetc_basic() {
 
     // gzread should yield the remaining 10 bytes of uncompressed content from the file,
     // preceded by the 6 bytes we just pushed with gzungetc, for a total of 16 bytes.
-    const EXPECTED: &[u8] = b"123456\nfor tests";
+    const EXPECTED1: &[u8] = b"123456\nfor tests";
     // Read more than expected to make sure there's no other output following it.
-    let mut buf = [0u8; EXPECTED.len() + 1];
+    let mut buf = [0u8; EXPECTED1.len() + 1];
     assert_eq!(
         unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
-        EXPECTED.len() as _
+        EXPECTED1.len() as _
     );
-    assert_eq!(&buf[..EXPECTED.len()], EXPECTED);
+    assert_eq!(&buf[..EXPECTED1.len()], EXPECTED1);
 
     // The 16-byte output buffer is now empty. Call gzungetc 17 times. The first
-    // 16 calls should succeed, and the last one should fail.
+    // 16 calls should succeed, and the last one should fail and set an error.
+    let mut err = Z_OK;
+    assert!(!unsafe { gzerror(file, &mut err) }.is_null());
+    assert_eq!(err, Z_OK);
     for _ in 0..16 {
         assert_eq!(unsafe { gzungetc('-' as c_int, file) }, '-' as c_int);
     }
     assert_eq!(unsafe { gzungetc('-' as c_int, file) }, -1);
+    assert!(!unsafe { gzerror(file, &mut err) }.is_null());
+    assert_eq!(err, Z_DATA_ERROR);
+
+    // Clear the error state, rewind to the start of the file, and read some data
+    // to refill the output buffer.
+    unsafe { gzclearerr(file) };
+    unsafe { gzrewind(file) };
+    assert!(!unsafe { gzerror(file, &mut err) }.is_null());
+    assert_eq!(err, Z_OK);
+    assert_eq!(unsafe { gzgetc(file) }, 'g' as c_int);
+    assert_eq!(unsafe { gzgetc(file) }, 'z' as c_int);
+
+    // Push a character back into the output buffer with gzungetc, issue a seek
+    // request to move to another part of the output stream, and then do another
+    // gzungetc. gzread should then return the character pushed in the second
+    // gzungetc call, followed by the data at the seek target location. The
+    // character pushed by the first gzungetc call should be discarded.
+    assert_eq!(unsafe { gzungetc('7' as c_int, file) }, '7' as c_int);
+    assert_eq!(unsafe { gzseek(file, 1, libc::SEEK_CUR) }, 2);
+    assert_eq!(unsafe { gzungetc('8' as c_int, file) }, '8' as c_int);
+    const EXPECTED2: &[u8] = b"8ip\nexample";
+    let mut buf = [0u8; EXPECTED2.len()];
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        EXPECTED2.len() as _
+    );
+    assert_eq!(&buf, EXPECTED2);
 
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
@@ -1649,7 +1679,6 @@ fn gzseek_read() {
     assert_eq!(unsafe { libc::close(fd) }, 0);
 
     for file_name in [direct_file_name, gzip_file_name] {
-        eprintln!("opening {}", file_name);
         let file = unsafe {
             gzopen(
                 CString::new(file_name.as_str()).unwrap().as_ptr(),
@@ -1741,6 +1770,159 @@ fn gzseek_read() {
 
         assert_eq!(unsafe { gzclose(file) }, Z_OK);
     }
+}
+
+#[test]
+fn gzseek_write() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Test both compressed and direct (non-compressed) writes.
+    for mode in ["w", "wT"] {
+        // Open a file handle for writing.
+        let file_name = path(temp_path, "output");
+        let file = unsafe {
+            gzopen(
+                CString::new(file_name.as_str()).unwrap().as_ptr(),
+                CString::new(mode).unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+
+        // Set a small buffer size to help exercise all the code paths.
+        const BUF_SIZE: c_uint = 8;
+        assert_eq!(unsafe { gzbuffer(file, BUF_SIZE) }, 0);
+
+        // gzseek forward a few bytes immediately.
+        assert_eq!(unsafe { gzseek(file, 3, libc::SEEK_SET) }, 3);
+        assert_eq!(unsafe { gztell(file) }, 3);
+
+        // Write some data, with gzseek calls interleaved. Note: Part of the internal seek
+        // implementation is done lazily in the next write call, so we use a combination
+        // of all the write functions: gzwrite, gzputc, gzputs, and gzflush. gzsetparams
+        // also implements the pending seek, but it is not supported in direct-mode
+        // (non-compressed) files, so it is tested separately in the function
+        // gzseek_gzsetparams.
+        const STRING1: &[u8] = b"0123";
+        assert_eq!(
+            unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+            STRING1.len() as _
+        );
+        assert_eq!(unsafe { gztell(file) }, 7);
+        assert_eq!(unsafe { gzseek(file, 1, libc::SEEK_CUR) }, 8);
+        assert_eq!(unsafe { gzseek(file, 12, libc::SEEK_SET) }, 12);
+        assert_eq!(unsafe { gztell(file) }, 12);
+        const STRING2: &[u8] = b"456\0";
+        assert_eq!(
+            unsafe { gzputs(file, STRING2.as_ptr().cast::<c_char>()) },
+            (STRING2.len() - 1) as _
+        );
+        assert_eq!(unsafe { gztell(file) }, 15);
+        assert_eq!(unsafe { gzseek(file, 2, libc::SEEK_CUR) }, 17);
+        assert_eq!(unsafe { gzputc(file, b'7' as _) }, b'7' as _);
+        assert_eq!(unsafe { gztell(file) }, 18);
+        assert_eq!(unsafe { gzseek(file, 1, libc::SEEK_CUR) }, 19);
+        assert_eq!(unsafe { gzflush(file, Z_SYNC_FLUSH) }, Z_OK);
+        assert_eq!(unsafe { gzputc(file, b'8' as _) }, b'8' as _);
+
+        // Do one more gzseek at the end, and then close the file handle. This should produce
+        // the specified number of zero bytes at the end of the uncompressed data stream.
+        assert_eq!(
+            unsafe { gzseek(file, (BUF_SIZE * 3 + 1) as _, libc::SEEK_CUR) },
+            (20 + BUF_SIZE * 3 + 1) as _
+        );
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+        // Read the file and confirm that each of the gzeek calls produced the expected
+        // number of zero bytes.
+        let file = unsafe {
+            gzopen(
+                CString::new(file_name.as_str()).unwrap().as_ptr(),
+                CString::new("r").unwrap().as_ptr(),
+            )
+        };
+        assert!(!file.is_null());
+        const EXPECTED1: &[u8] = b"\x00\x00\x000123\x00\x00\x00\x00\x00456\x00\x007\x008";
+        let mut buf = [127u8; EXPECTED1.len()];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            buf.len() as _
+        );
+        assert_eq!(&buf, EXPECTED1);
+        const EXPECTED2: &[u8] = &[0u8; BUF_SIZE as usize * 3 + 1];
+        let mut buf = [127u8; EXPECTED2.len() + 1];
+        assert_eq!(
+            unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+            EXPECTED2.len() as _
+        );
+        assert_eq!(&buf[..EXPECTED2.len()], EXPECTED2);
+        assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    }
+}
+
+#[test]
+fn gzseek_gzsetparams() {
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+
+    // Open a file handle for writing in compressed mode.
+    let file_name = path(temp_path, "output.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("w").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // Write some content to the file handle.
+    const STRING1: &[u8] = b"hello";
+    assert_eq!(unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) }, STRING1.len() as _);
+
+    // Call gzseek to schedule a pending write of some zeros to the compressed stream.
+    const SEEK_AMOUNT: usize = 4;
+    assert_eq!(unsafe { gzseek(file, SEEK_AMOUNT as _, libc::SEEK_CUR) }, 9);
+
+    // Before doing another write, call gzsetparams. This should write the pending zeros
+    // to the current gzip stream before closing the stream and starting a new one.
+    assert_eq!(unsafe { gzsetparams(file, 9, 2) }, Z_OK);
+    assert_eq!(unsafe { gztell(file) }, (STRING1.len() + SEEK_AMOUNT) as _);
+
+    // Write some more content to the file handle. This will end up in the second gzip stream
+    // in the file.
+    const STRING2: &[u8] = b"world";
+    assert_eq!(unsafe { gzwrite(file, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) }, STRING2.len() as _);
+
+    // Close the file handle to flush any buffered output to the file.
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+    // Open the newly created file for reading.
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+
+    // Read back the content to validate that it was written correctly.
+    let mut buf = [127u8; STRING1.len()];
+    assert_eq!(unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) }, buf.len() as _);
+    assert_eq!(&buf, STRING1);
+    for _ in 0..SEEK_AMOUNT {
+        assert_eq!(unsafe { gzgetc(file) }, 0);
+    }
+    let mut buf = [127u8; STRING2.len() + 1];
+    assert_eq!(unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) }, (buf.len() - 1) as _);
+    assert_eq!(&buf[..STRING2.len()], STRING2);
+
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
 
 #[test]
