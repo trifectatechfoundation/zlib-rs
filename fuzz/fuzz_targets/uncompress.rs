@@ -126,8 +126,10 @@ fn run(input: &[u8]) -> Corpus {
     }
 }
 
-libfuzzer_sys::fuzz_mutator!(
-    |data: &mut [u8], size: usize, max_size: usize, _seed: u32| {
+libfuzzer_sys::fuzz_mutator!(|data: &mut [u8], size: usize, max_size: usize, seed: u32| {
+    if seed.is_multiple_of(4) {
+        libfuzzer_sys::fuzzer_mutate(data, size, max_size)
+    } else {
         // Decompress the input data. If that fails, use a dummy value.
         let mut buf = vec![0xAAu8; 4 * max_size];
         let config = zlib_rs::inflate::InflateConfig::default();
@@ -154,7 +156,7 @@ libfuzzer_sys::fuzz_mutator!(
         let new_size = std::cmp::min(max_size, compressed.len());
         new_size
     }
-);
+});
 
 mod helpers {
     use core::ffi::{c_int, c_uint};
