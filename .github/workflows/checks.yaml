@@ -293,7 +293,8 @@ jobs:
           # prevents `cargo fuzz coverage` from rebuilding everything
           RUSTFLAGS: "-C instrument-coverage"
         run: |
-          cargo fuzz run ${{matrix.features}} ${{matrix.fuzz_target}} ${{matrix.corpus}} -- -max_total_time=10
+          # use a fixed seed so that the coverage is (somewhat) deterministic
+          cargo fuzz run ${{matrix.features}} ${{matrix.fuzz_target}} ${{matrix.corpus}} -- -max_total_time=10 -seed=1234
       - name: Fuzz codecov
         run: |
           cargo fuzz coverage ${{matrix.features}} ${{matrix.fuzz_target}} ${{matrix.corpus}}
