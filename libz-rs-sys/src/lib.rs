@@ -908,8 +908,11 @@ pub unsafe extern "C-unwind" fn inflateResetKeep(strm: *mut z_stream) -> c_int {
 /// - `buf` is `NULL`
 /// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateCodesUsed))]
-pub unsafe extern "C-unwind" fn inflateCodesUsed(_strm: *mut z_stream) -> c_ulong {
-    todo!()
+pub unsafe extern "C-unwind" fn inflateCodesUsed(strm: *mut z_stream) -> c_ulong {
+    match InflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::inflate::codes_used(stream) as c_ulong,
+        None => c_ulong::MAX,
+    }
 }
 
 /// Compresses as much data as possible, and stops when the input buffer becomes empty or the output buffer becomes full.
