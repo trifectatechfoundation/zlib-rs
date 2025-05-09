@@ -70,6 +70,7 @@ pub fn adler32_avx2(adler: u32, src: &[u8]) -> u32 {
 
 #[target_feature(enable = "avx2")]
 #[target_feature(enable = "bmi2")]
+#[target_feature(enable = "bmi1")]
 unsafe fn adler32_avx2_help(adler: u32, src: &[u8]) -> u32 {
     if src.is_empty() {
         return adler;

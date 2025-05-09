@@ -39,8 +39,9 @@ pub fn is_enabled_avx2_and_bmi2() -> bool {
             0 => false,
             1 => true,
             _ => {
-                let detected =
-                    std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("bmi2");
+                let detected = std::is_x86_feature_detected!("avx2")
+                    && std::is_x86_feature_detected!("bmi1")
+                    && std::is_x86_feature_detected!("bmi2");
                 CACHE.store(u32::from(detected), Ordering::Relaxed);
                 detected
             }
