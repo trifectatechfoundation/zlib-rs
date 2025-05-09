@@ -479,7 +479,7 @@ jobs:
       - name: Test public C api with NULL arguments
         run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} null::"
         env:
-          RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2"
+          RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1"
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz logic with miri

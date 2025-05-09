@@ -1827,6 +1827,7 @@ fn inflate_fast_help(state: &mut State, start: usize) {
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[target_feature(enable = "avx2")]
 #[target_feature(enable = "bmi2")]
+#[target_feature(enable = "bmi1")]
 unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
     inflate_fast_help_impl::<{ CpuFeatures::AVX2 }>(state, start);
 }

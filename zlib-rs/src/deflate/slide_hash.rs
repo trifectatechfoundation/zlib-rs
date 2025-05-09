@@ -55,6 +55,7 @@ mod avx2 {
     /// Behavior is undefined if the `avx2` target feature is not enabled
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "bmi2")]
+    #[target_feature(enable = "bmi1")]
     pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         // 64 means that 4 256-bit values can be processed per iteration.
         // That appear to be the optimal amount for avx2.

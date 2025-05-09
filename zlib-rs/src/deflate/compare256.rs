@@ -181,6 +181,7 @@ mod avx2 {
     /// Behavior is undefined if the `avx` target feature is not enabled
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "bmi2")]
+    #[target_feature(enable = "bmi1")]
     pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         let src0 = src0.chunks_exact(32);
         let src1 = src1.chunks_exact(32);
