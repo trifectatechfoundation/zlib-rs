@@ -10,7 +10,7 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
 
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(target_arch = "x86_64")]
-    if crate::cpu_features::is_enabled_avx2() {
+    if crate::cpu_features::is_enabled_avx2_and_bmi2() {
         return unsafe { avx2::compare256(src0, src1) };
     }
 
@@ -180,6 +180,7 @@ mod avx2 {
     ///
     /// Behavior is undefined if the `avx` target feature is not enabled
     #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "bmi2")]
     pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         let src0 = src0.chunks_exact(32);
         let src1 = src1.chunks_exact(32);
@@ -212,7 +213,7 @@ mod avx2 {
 
     #[test]
     fn test_compare256() {
-        if crate::cpu_features::is_enabled_avx2() {
+        if crate::cpu_features::is_enabled_avx2_and_bmi2() {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 

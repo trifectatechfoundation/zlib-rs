@@ -1816,7 +1816,7 @@ impl State<'_> {
 
 fn inflate_fast_help(state: &mut State, start: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-    if crate::cpu_features::is_enabled_avx2() {
+    if crate::cpu_features::is_enabled_avx2_and_bmi2() {
         // SAFETY: we've verified the target features
         return unsafe { inflate_fast_help_avx2(state, start) };
     }
@@ -1826,6 +1826,7 @@ fn inflate_fast_help(state: &mut State, start: usize) {
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[target_feature(enable = "avx2")]
+#[target_feature(enable = "bmi2")]
 unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
     inflate_fast_help_impl::<{ CpuFeatures::AVX2 }>(state, start);
 }
