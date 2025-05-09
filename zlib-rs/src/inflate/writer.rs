@@ -106,7 +106,7 @@ impl<'a> Writer<'a> {
         //        }
 
         #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_avx2() {
+        if crate::cpu_features::is_enabled_avx2_and_bmi2() {
             return self.extend_from_window_help::<32>(window, range);
         }
 
@@ -186,7 +186,7 @@ impl<'a> Writer<'a> {
         //        }
 
         #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_avx2() {
+        if crate::cpu_features::is_enabled_avx2_and_bmi2() {
             return self.copy_match_help::<32>(offset_from_end, length);
         }
 
@@ -379,7 +379,7 @@ mod test {
         }
 
         #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_avx2() {
+        if crate::cpu_features::is_enabled_avx2_and_bmi2() {
             helper!(Writer::copy_match_help::<32>);
         }
 

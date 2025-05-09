@@ -10,8 +10,8 @@ pub fn slide_hash(state: &mut crate::deflate::State) {
 
 fn slide_hash_chain(table: &mut [u16], wsize: u16) {
     #[cfg(target_arch = "x86_64")]
-    if crate::cpu_features::is_enabled_avx2() {
-        // SAFETY: the avx2 target feature is enabled.
+    if crate::cpu_features::is_enabled_avx2_and_bmi2() {
+        // SAFETY: the avx2 and bmi2 target feature are enabled.
         return unsafe { avx2::slide_hash_chain(table, wsize) };
     }
 
@@ -54,6 +54,7 @@ mod avx2 {
     ///
     /// Behavior is undefined if the `avx2` target feature is not enabled
     #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "bmi2")]
     pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         // 64 means that 4 256-bit values can be processed per iteration.
         // That appear to be the optimal amount for avx2.
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_slide_hash_avx2() {
-        if crate::cpu_features::is_enabled_avx2() {
+        if crate::cpu_features::is_enabled_avx2_and_bmi2() {
             let mut input = INPUT;
 
             unsafe { avx2::slide_hash_chain(&mut input, WSIZE) };

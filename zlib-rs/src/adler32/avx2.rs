@@ -63,12 +63,13 @@ unsafe fn partial_hsum256(x: __m256i) -> u32 {
 }
 
 pub fn adler32_avx2(adler: u32, src: &[u8]) -> u32 {
-    assert!(crate::cpu_features::is_enabled_avx2());
+    assert!(crate::cpu_features::is_enabled_avx2_and_bmi2());
     // SAFETY: the assertion above ensures this code is not executed unless the CPU has AVX2.
     unsafe { adler32_avx2_help(adler, src) }
 }
 
 #[target_feature(enable = "avx2")]
+#[target_feature(enable = "bmi2")]
 unsafe fn adler32_avx2_help(adler: u32, src: &[u8]) -> u32 {
     if src.is_empty() {
         return adler;
