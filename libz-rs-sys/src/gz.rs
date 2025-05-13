@@ -1249,7 +1249,6 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
 
     // No gzip header. If we were decoding gzip before, the remaining bytes
     // are trailing garbage that can be ignored.
-    // FIXME: Add test coverage for this case (which may require the remaining decompression logic).
     if !state.direct {
         state.stream.avail_in = 0;
         state.eof = true;
