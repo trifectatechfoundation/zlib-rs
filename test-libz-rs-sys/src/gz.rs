@@ -23,6 +23,19 @@ fn path(prefix: &Path, file: &str) -> String {
     path_buf.as_path().to_str().unwrap().to_owned()
 }
 
+// Return an open(2) mode, modified as needed to support binary files on the target platform.
+fn binary_mode(mode: c_int) -> c_int {
+    #[cfg(target_os = "windows")]
+    {
+        mode | libc::O_BINARY
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        mode
+    }
+}
+
 // Try to gzopen a file path with a specified mode, and panic if the result is unexpected.
 // NOTE: This is a macro, instead of a function, so that the test runner will report errors
 // with the line number where it is invoked.
@@ -287,6 +300,58 @@ fn gzread_special_cases() {
         );
         assert_eq!(unsafe { gzclose(file) }, Z_ERRNO);
     }
+
+    // Create a gzip file with some junk data after the end of the deflate stream.
+    // gzread should ignore the junk data.
+    // Create a temporary directory that will be automatically removed when
+    // temp_dir goes out of scope.
+    let temp_dir_path = temp_base();
+    let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+    let temp_path = temp_dir.path();
+    let file_name = path(temp_path, "output.gz");
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("w").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    const STRING1: &[u8] = b"deflated contents";
+    const STRING2: &[u8] = b"\ntrailing data";
+    assert_eq!(
+        unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+        STRING1.len() as _
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
+    let old_size = file_size(&file_name).unwrap();
+    let fd = unsafe {
+        libc::open(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            binary_mode(libc::O_APPEND | libc::O_WRONLY),
+        )
+    };
+    assert_ne!(fd, -1);
+    assert_eq!(
+        unsafe { libc::write(fd, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
+        STRING2.len() as _
+    );
+    assert_eq!(unsafe { libc::close(fd) }, 0);
+    let new_size = file_size(&file_name).unwrap();
+    assert_eq!(new_size, old_size + STRING2.len());
+    let file = unsafe {
+        gzopen(
+            CString::new(file_name.as_str()).unwrap().as_ptr(),
+            CString::new("r").unwrap().as_ptr(),
+        )
+    };
+    assert!(!file.is_null());
+    // Read more than expected to make sure we get everything.
+    let mut buf = [0u8; STRING1.len() + 1];
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        STRING1.len() as _
+    );
+    assert_eq!(unsafe { gzclose(file) }, Z_OK);
 }
 
 #[test]
@@ -720,16 +785,10 @@ fn gzoffset_gztell_read() {
     // header. This should affect the return values of gzoffset but not gztell.
     const OFFSET: usize = 123;
     const PADDING: &[u8] = &[0u8; OFFSET];
-    let mut mode = libc::O_CREAT;
-    mode |= libc::O_WRONLY;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
     let fd = unsafe {
         libc::open(
             CString::new(file_name.as_str()).unwrap().as_ptr(),
-            mode,
+            binary_mode(libc::O_CREAT | libc::O_WRONLY),
             0o644,
         )
     };
@@ -739,11 +798,7 @@ fn gzoffset_gztell_read() {
         OFFSET as _
     );
     let source_name = crate_path("src/test-data/issue-109.gz");
-    mode = libc::O_RDONLY;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
+    let mode = binary_mode(libc::O_RDONLY);
     let source_fd =
         unsafe { libc::open(CString::new(source_name.as_str()).unwrap().as_ptr(), mode) };
     assert_ne!(source_fd, -1);
@@ -910,12 +965,7 @@ fn gzputc_basic() {
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
     // Validate that the file contains the expected bytes.
-    let mut mode = 0;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
-    mode |= libc::O_RDONLY;
+    let mode = binary_mode(libc::O_RDONLY);
     let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
     assert_ne!(fd, -1);
     // Try to read more than the expected amount of data, to ensure we get everything.
@@ -988,12 +1038,7 @@ fn gzputs_basic() {
 
     // Validate that the file contains the expected bytes.
     const EXPECTED: &str = "zlib string larger than the buffer size";
-    let mut mode = 0;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
-    mode |= libc::O_RDONLY;
+    let mode = binary_mode(libc::O_RDONLY);
     let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
     assert_ne!(fd, -1);
     // Try to read more than the expected amount of data, to ensure we get everything.
@@ -1446,12 +1491,7 @@ fn gzfwrite_basic() {
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
     // Read in the file and verify that the contents match what was passed to gzfwrite.
-    let mut mode = 0;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
-    mode |= libc::O_RDONLY;
+    let mode = binary_mode(libc::O_RDONLY);
     let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
     assert_ne!(fd, -1);
     const EXPECTED: &[u8] = b"test of gzfwrite";
@@ -1642,16 +1682,10 @@ fn gzseek_read() {
     // all the implementation paths for gzseek.
     let gzip_file_name = crate_path("src/test-data/issue-109.gz");
     let direct_file_name = path(temp_path, "uncompressed");
-    let mut mode = libc::O_CREAT;
-    #[cfg(target_os = "windows")]
-    {
-        mode |= libc::O_BINARY;
-    }
-    mode |= libc::O_WRONLY;
     let fd = unsafe {
         libc::open(
             CString::new(direct_file_name.as_str()).unwrap().as_ptr(),
-            mode,
+            binary_mode(libc::O_CREAT | libc::O_WRONLY),
             0o644,
         )
     };
@@ -1883,7 +1917,10 @@ fn gzseek_gzsetparams() {
 
     // Write some content to the file handle.
     const STRING1: &[u8] = b"hello";
-    assert_eq!(unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) }, STRING1.len() as _);
+    assert_eq!(
+        unsafe { gzwrite(file, STRING1.as_ptr().cast::<c_void>(), STRING1.len() as _) },
+        STRING1.len() as _
+    );
 
     // Call gzseek to schedule a pending write of some zeros to the compressed stream.
     const SEEK_AMOUNT: usize = 4;
@@ -1897,7 +1934,10 @@ fn gzseek_gzsetparams() {
     // Write some more content to the file handle. This will end up in the second gzip stream
     // in the file.
     const STRING2: &[u8] = b"world";
-    assert_eq!(unsafe { gzwrite(file, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) }, STRING2.len() as _);
+    assert_eq!(
+        unsafe { gzwrite(file, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
+        STRING2.len() as _
+    );
 
     // Close the file handle to flush any buffered output to the file.
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
@@ -1913,13 +1953,19 @@ fn gzseek_gzsetparams() {
 
     // Read back the content to validate that it was written correctly.
     let mut buf = [127u8; STRING1.len()];
-    assert_eq!(unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) }, buf.len() as _);
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        buf.len() as _
+    );
     assert_eq!(&buf, STRING1);
     for _ in 0..SEEK_AMOUNT {
         assert_eq!(unsafe { gzgetc(file) }, 0);
     }
     let mut buf = [127u8; STRING2.len() + 1];
-    assert_eq!(unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) }, (buf.len() - 1) as _);
+    assert_eq!(
+        unsafe { gzread(file, buf.as_mut_ptr().cast::<c_void>(), buf.len() as _) },
+        (buf.len() - 1) as _
+    );
     assert_eq!(&buf[..STRING2.len()], STRING2);
 
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
