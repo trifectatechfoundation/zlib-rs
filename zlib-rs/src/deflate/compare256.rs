@@ -53,11 +53,7 @@ mod rust {
     pub fn compare256_rle(byte: u8, src: &[u8]) -> usize {
         assert!(src.len() >= 256, "too short {}", src.len());
 
-        let mut sv = byte as u64;
-        sv |= sv << 8;
-        sv |= sv << 16;
-        sv |= sv << 32;
-
+        let sv = u64::from_ne_bytes([byte; 8]);
         let mut len = 0;
 
         // this optimizes well because we statically limit the slice to 256 bytes.
