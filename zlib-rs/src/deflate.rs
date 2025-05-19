@@ -2407,7 +2407,6 @@ pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     flush_pending(stream)
 }
 
-#[must_use]
 fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<ReturnCode> {
     let mut state = &mut stream.state;
 
