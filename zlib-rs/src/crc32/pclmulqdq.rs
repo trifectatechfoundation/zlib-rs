@@ -78,6 +78,7 @@ impl Accumulator {
          */
         let mut crc_fold = RK1_RK2;
 
+        #[allow(unused_unsafe)] // because target features 1.1
         unsafe {
             let x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
             xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
@@ -269,6 +270,7 @@ impl Accumulator {
             // SAFETY: [u8; 16] can safely transmute into _m128i.
             let (before, _, _) = unsafe { src.align_to::<__m128i>() };
 
+            #[allow(unused_unsafe)] // because target features 1.1
             if !before.is_empty() {
                 xmm_crc_part = unsafe { _mm_loadu_si128(src.as_ptr() as *const __m128i) };
                 if COPY {
