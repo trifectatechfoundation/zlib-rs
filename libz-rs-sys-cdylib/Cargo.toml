@@ -12,7 +12,7 @@ rust-version = "1.75" # MSRV
 
 [lib]
 name = "z_rs" # turns into e.g. `libz_rs.so`
-crate-type=["cdylib"]
+crate-type = ["cdylib", "lib"]
 test = false
 
 [profile.dev]
