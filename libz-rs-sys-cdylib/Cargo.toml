@@ -28,9 +28,14 @@ rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"] # by default,
 custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-compatible way
 capi = []
+gz = ["dep:libc"] # gzip support has to be configured explicitly, to avoid a libc dependency in the core zlib-rs
+export-symbols = [] # whether the zlib api symbols are publicly exported
+std = ["zlib-rs/std"] # assume `::std` is available
 
 [dependencies]
 libz-rs-sys = { version = "0.5.0", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
+zlib-rs = { version = "0.5.0", path = "../zlib-rs", default-features = false }
+libc = { version = "0.2.171", optional = true }
 
 [package.metadata.capi.library]
 version = "1.3.0" # the zlib api version we match

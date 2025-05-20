@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "libc"
+version = "0.2.172"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
+
+[[package]]
 name = "libz-rs-sys"
 version = "0.5.0"
 dependencies = [
@@ -13,7 +19,9 @@ dependencies = [
 name = "libz-rs-sys-cdylib"
 version = "0.5.0"
 dependencies = [
+ "libc",
  "libz-rs-sys",
+ "zlib-rs",
 ]
 
 [[package]]

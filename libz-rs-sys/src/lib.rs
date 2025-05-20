@@ -37,12 +37,6 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
-#[cfg(feature = "gz")]
-mod gz;
-
-#[cfg(feature = "gz")]
-pub use gz::*;
-
 #[cfg(feature = "custom-prefix")]
 macro_rules! prefix {
     ($name:expr) => {
@@ -669,7 +663,7 @@ pub unsafe extern "C-unwind" fn inflateInit2_(
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-unsafe extern "C-unwind" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     let Some(strm) = (unsafe { strm.as_mut() }) else {
         return ReturnCode::StreamError as _;
     };

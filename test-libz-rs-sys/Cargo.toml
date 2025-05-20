@@ -15,11 +15,12 @@ rust-version.workspace = true
 default = ["rust-allocator", "gz"]
 c-allocator = ["libz-rs-sys/c-allocator"]
 rust-allocator = ["libz-rs-sys/rust-allocator"]
-gz = ["libz-rs-sys/gz", "dep:libc"]
+gz = ["libz-rs-sys-cdylib/gz", "dep:libc"]
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test"] }
 libz-rs-sys = { workspace = true, default-features = false, features = ["std", "testing-prefix"] }
+libz-rs-sys-cdylib = { path = "../libz-rs-sys-cdylib", default-features = false, features = ["std", "c-allocator"] }
 libz-sys.workspace = true
 libc = { version = "0.2.171", optional = true }
 
