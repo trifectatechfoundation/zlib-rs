@@ -1,6 +1,6 @@
 use zlib_rs::c_api::*;
 
-use libz_rs_sys::{
+use libz_rs_sys_cdylib::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
     gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
