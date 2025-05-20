@@ -22,9 +22,11 @@ use zlib_rs::MAX_WBITS;
 /// of an open gzFile to support the gzgetc() C macro. Since Rust code won't be
 /// using that C macro, we define gzFile_s as an empty structure. The first fields
 /// in GzState match what would be in the C version of gzFile_s.
+#[allow(non_camel_case_types)]
 pub enum gzFile_s {}
 
 /// File handle for an open gzip file.
+#[allow(non_camel_case_types)]
 pub type gzFile = *mut gzFile_s;
 
 // The internals of a gzip file handle (the thing gzFile actually points to, with the
@@ -139,6 +141,7 @@ impl GzState {
 
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
+#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GzMode {
     GZ_NONE = 0,
