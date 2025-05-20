@@ -17,7 +17,7 @@ fn slide_hash_chain(table: &mut [u16], wsize: u16) {
 
     #[cfg(target_arch = "aarch64")]
     if crate::cpu_features::is_enabled_neon() {
-        return neon::slide_hash_chain(table, wsize);
+        return unsafe { neon::slide_hash_chain(table, wsize) };
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -65,51 +65,16 @@ mod avx2 {
     }
 }
 
-/// # Safety
-///
-/// These functions should only be executed on `aarch64` systems with the `neon` feature enabled.
 #[cfg(target_arch = "aarch64")]
 mod neon {
-    use core::arch::aarch64::{
-        uint16x8_t, uint16x8x4_t, vdupq_n_u16, vld1q_u16_x4, vqsubq_u16, vst1q_u16_x4,
-    };
-
-    pub fn slide_hash_chain(table: &mut [u16], wsize: u16) {
-        assert!(crate::cpu_features::is_enabled_neon());
-        unsafe { slide_hash_chain_internal(table, wsize) }
-    }
-
     /// # Safety
     ///
     /// Behavior is undefined if the `neon` target feature is not enabled
     #[target_feature(enable = "neon")]
-    unsafe fn slide_hash_chain_internal(table: &mut [u16], wsize: u16) {
-        debug_assert_eq!(table.len() % 32, 0);
-
-        let v = unsafe { vdupq_n_u16(wsize) };
-
-        for chunk in table.chunks_exact_mut(32) {
-            unsafe {
-                let p0 = vld1q_u16_x4(chunk.as_ptr());
-                let p0 = vqsubq_u16_x4_x1(p0, v);
-                vst1q_u16_x4(chunk.as_mut_ptr(), p0);
-            }
-        }
-    }
-
-    /// # Safety
-    ///
-    /// Behavior is undefined if the `neon` target feature is not enabled
-    #[target_feature(enable = "neon")]
-    unsafe fn vqsubq_u16_x4_x1(a: uint16x8x4_t, b: uint16x8_t) -> uint16x8x4_t {
-        unsafe {
-            uint16x8x4_t(
-                vqsubq_u16(a.0, b),
-                vqsubq_u16(a.1, b),
-                vqsubq_u16(a.2, b),
-                vqsubq_u16(a.3, b),
-            )
-        }
+    pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        // 32 means that 4 128-bit values can be processed per iteration. That appear to be the
+        // optimal amount for neon.
+        super::generic_slide_hash_chain::<32>(table, wsize);
     }
 }
 
@@ -172,7 +137,7 @@ mod tests {
         if crate::cpu_features::is_enabled_neon() {
             let mut input = INPUT;
 
-            neon::slide_hash_chain(&mut input, WSIZE);
+            unsafe { neon::slide_hash_chain(&mut input, WSIZE) };
 
             assert_eq!(input, OUTPUT);
         }
