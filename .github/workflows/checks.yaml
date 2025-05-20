@@ -399,7 +399,7 @@ jobs:
         working-directory: libz-rs-sys-cdylib
         run: |
           # build using cargo-c this time
-          cargo cinstall --offline --release --destdir=/tmp/cargo-cbuild-libz-rs
+          cargo cinstall --release --destdir=/tmp/cargo-cbuild-libz-rs
           tree /tmp/cargo-cbuild-libz-rs
           # verify that the SONAME  is set and includes a version
           objdump -p target/x86_64-unknown-linux-gnu/release/libz_rs.so | awk '/SONAME/{print $2}' | grep -E 'libz_rs\.so\.1'
