@@ -279,7 +279,7 @@ jobs:
           toolchain: nightly
           components: llvm-tools-preview
       - name: Install cargo fuzz & rustfilt
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        uses: taiki-e/install-action@a48a50298f98c47e46a957ae6f82c44cc4878e42 # v2.49.47
         with:
           tool: cargo-fuzz,rustfilt
       - name: Download custom decompression corpus
@@ -483,7 +483,9 @@ jobs:
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz logic with miri
-        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz"
+        working-directory: libz-rs-sys-cdylib
+        run:
+          "cargo +nightly miri nextest run -j4 -p libz-rs-sys-cdylib --target ${{ matrix.target }} --features=gz"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
 
