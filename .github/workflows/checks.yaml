@@ -87,11 +87,21 @@ jobs:
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
         env:
           RUST_BACKTRACE: 1
+      - name: cargo nextest cdylib
+        if: matrix.os != 'windows-2022'
+        working-directory: libz-rs-sys-cdylib
+        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --features="gz" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
+      - name: cargo nextest cdylib
+        if: matrix.os == 'windows-2022'
+        working-directory: libz-rs-sys-cdylib
+        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --features="gz" --no-fail-fast
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
         if: matrix.os != 'windows-2022' && matrix.rust == 'stable'
         with:
-          files: ./lcov.info
+          files: |
+            ./lcov.info
+            ./cdylib.lcov.info
           fail_ci_if_error: false
           flags: test-${{matrix.target}}
           token: ${{ secrets.CODECOV_TOKEN }}
