@@ -28,7 +28,6 @@ custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to pr
 semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-compatible way
 capi = []
 gz = ["dep:libc"] # gzip support has to be configured explicitly, to avoid a libc dependency in the core zlib-rs
-export-symbols = [] # whether the zlib api symbols are publicly exported
 std = ["zlib-rs/std"] # assume `::std` is available
 
 [dependencies]
