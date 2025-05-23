@@ -5,8 +5,8 @@ pub use zlib_rs::c_api::*;
 
 use crate::gz::GzMode::GZ_READ;
 use crate::{
-    deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
-    inflateReset, z_off_t, zlibVersion,
+    deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2_,
+    inflateReset, z_off_t, z_stream, zlibVersion,
 };
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
@@ -1211,7 +1211,15 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
         state.stream.next_in = ptr::null_mut();
         // Safety: `gzopen_help` initialized `state.stream`'s `zalloc`, `zfree`, and
         // `opaque` fields as needed by `inflateInit2`.
-        if unsafe { inflateInit2(&mut state.stream as *mut z_stream, MAX_WBITS + 16) } != Z_OK {
+        if unsafe {
+            inflateInit2_(
+                &mut state.stream as *mut z_stream,
+                MAX_WBITS + 16,
+                zlibVersion(),
+                std::mem::size_of::<z_stream>() as i32,
+            )
+        } != Z_OK
+        {
             // Safety: The caller confirmed the validity of `state`, and `free_buffers` checks
             // for null input and output pointers internally.
             unsafe { free_buffers(state) };
