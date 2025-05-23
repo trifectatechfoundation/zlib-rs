@@ -19,8 +19,6 @@ export-symbols = [] # whether the zlib api symbols are publicly exported
 custom-prefix = ["export-symbols"] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 testing-prefix = ["export-symbols"] # prefix all symbols with LIBZ_RS_SYS_TEST_ for testing
 semver-prefix = ["export-symbols"] # prefix all symbols in a semver-compatible way
-gz = ["dep:libc"] # gzip support has to be configured explicitly, to avoid a libc dependency in the core zlib-rs
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
-libc = { version = "0.2.171", optional = true }

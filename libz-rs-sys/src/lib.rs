@@ -37,12 +37,6 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
-#[cfg(feature = "gz")]
-mod gz;
-
-#[cfg(feature = "gz")]
-pub use gz::*;
-
 #[cfg(feature = "custom-prefix")]
 macro_rules! prefix {
     ($name:expr) => {

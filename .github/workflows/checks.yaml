@@ -87,11 +87,21 @@ jobs:
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
         env:
           RUST_BACKTRACE: 1
+      - name: cargo nextest cdylib
+        if: matrix.os != 'windows-2022'
+        working-directory: libz-rs-sys-cdylib
+        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --features="gz" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
+      - name: cargo nextest cdylib
+        if: matrix.os == 'windows-2022'
+        working-directory: libz-rs-sys-cdylib
+        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --features="gz" --no-fail-fast
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
         if: matrix.os != 'windows-2022' && matrix.rust == 'stable'
         with:
-          files: ./lcov.info
+          files: |
+            ./lcov.info
+            ./cdylib.lcov.info
           fail_ci_if_error: false
           flags: test-${{matrix.target}}
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -167,15 +177,22 @@ jobs:
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
           toolchain: stable
-          components: clippy
+          components: clippy, rustfmt
           targets: ${{matrix.target}}
       - name: Rust cache
         uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
         with:
             shared-key: "stable-${{matrix.target}}"
 
-      - name: Run clippy
-        run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
+      - name: Run rustfmt and clippy
+        run: |
+          cargo fmt --all --check
+          cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
+      - name: Run rustfmt and clippy (cdylib)
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo fmt --all --check
+          cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
       - name: Run clippy (fuzzers)
         if: ${{ !contains(matrix.features, 'gz') }}
         run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --manifest-path ./fuzz/Cargo.toml --all-targets -- -D warnings
@@ -255,7 +272,7 @@ jobs:
           done
 
   fuzz-code-coverage:
-    name: Fuzz with code coverage 
+    name: Fuzz with code coverage
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -399,7 +416,7 @@ jobs:
         working-directory: libz-rs-sys-cdylib
         run: |
           # build using cargo-c this time
-          cargo cinstall --offline --release --destdir=/tmp/cargo-cbuild-libz-rs
+          cargo cinstall --release --destdir=/tmp/cargo-cbuild-libz-rs
           tree /tmp/cargo-cbuild-libz-rs
           # verify that the SONAME  is set and includes a version
           objdump -p target/x86_64-unknown-linux-gnu/release/libz_rs.so | awk '/SONAME/{print $2}' | grep -E 'libz_rs\.so\.1'
@@ -483,7 +500,8 @@ jobs:
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz logic with miri
-        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz"
+        working-directory: libz-rs-sys-cdylib
+        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys-cdylib --target ${{ matrix.target }} --features=gz"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
 

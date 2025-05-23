@@ -5,8 +5,8 @@ pub use zlib_rs::c_api::*;
 
 use crate::gz::GzMode::GZ_READ;
 use crate::{
-    deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2,
-    inflateReset, z_off_t, zlibVersion,
+    deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2_,
+    inflateReset, z_off_t, z_stream, zlibVersion,
 };
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
@@ -22,9 +22,11 @@ use zlib_rs::MAX_WBITS;
 /// of an open gzFile to support the gzgetc() C macro. Since Rust code won't be
 /// using that C macro, we define gzFile_s as an empty structure. The first fields
 /// in GzState match what would be in the C version of gzFile_s.
+#[allow(non_camel_case_types)]
 pub enum gzFile_s {}
 
 /// File handle for an open gzip file.
+#[allow(non_camel_case_types)]
 pub type gzFile = *mut gzFile_s;
 
 // The internals of a gzip file handle (the thing gzFile actually points to, with the
@@ -139,6 +141,7 @@ impl GzState {
 
 // Gzip operating modes
 // NOTE: These values match what zlib-ng uses.
+#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GzMode {
     GZ_NONE = 0,
@@ -186,7 +189,9 @@ enum Source {
 ///
 /// The caller must ensure that `path` and `mode` point to valid C strings. If the
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzopen))]
+///
+/// [`gzfree`]: crate::z_stream
+#[export_name = crate::prefix!(gzopen)]
 pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char) -> gzFile {
     if path.is_null() {
         return ptr::null_mut();
@@ -208,7 +213,9 @@ pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char)
 ///
 /// The caller must ensure that `mode` points to a valid C string. If the
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzdopen))]
+///
+/// [`gzfree`]: crate::z_stream
+#[export_name = crate::prefix!(gzdopen)]
 pub unsafe extern "C-unwind" fn gzdopen(fd: c_int, mode: *const c_char) -> gzFile {
     // Safety: the caller is responsible for `mode` being a non-null C string.
     unsafe { gzopen_help(Source::Fd(fd), mode) }
@@ -360,9 +367,6 @@ fn fd_path(buf: &mut [u8; 27], fd: c_int) -> &CStr {
     // characters, plus space for the largest decimal value for the `c_int` type. On some systems
     // the c_int type can actually be 64 bits. The `i64::MIN` value has 20 digits, and the minus
     // sign, for a total of 6 + 20 + 1 = 27.
-    #[cfg(feature = "std")]
-    debug_assert!(format!("<fd:{}>\0", i64::MIN).len() <= buf.len());
-
     struct Writer<'a> {
         buf: &'a mut [u8; 27],
         len: usize,
@@ -551,7 +555,7 @@ unsafe fn deallocate_cstr(s: *mut c_char) {
 ///
 /// `file` must not be used after this call returns, as the memory it references may have
 /// been deallocated.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose))]
+#[export_name = crate::prefix!(gzclose)]
 pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
         return Z_STREAM_ERROR;
@@ -578,7 +582,7 @@ pub unsafe extern "C-unwind" fn gzclose(file: gzFile) -> c_int {
 ///
 /// `file` must not be used after this call returns, as the memory it references may have
 /// been deallocated.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose_r))]
+#[export_name = crate::prefix!(gzclose_r)]
 pub unsafe extern "C-unwind" fn gzclose_r(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return Z_STREAM_ERROR;
@@ -627,7 +631,7 @@ pub unsafe extern "C-unwind" fn gzclose_r(file: gzFile) -> c_int {
 ///
 /// `file` must not be used after this call returns, as the memory it references may have
 /// been deallocated.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclose_w))]
+#[export_name = crate::prefix!(gzclose_w)]
 pub unsafe extern "C-unwind" fn gzclose_w(file: gzFile) -> c_int {
     let mut ret = Z_OK;
 
@@ -689,7 +693,7 @@ pub unsafe extern "C-unwind" fn gzclose_w(file: gzFile) -> c_int {
 /// `file` must be one of the following:
 /// - A file handle must have been obtained from a function in this library, such as [`gzopen`].
 /// - A null pointer.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzbuffer))]
+#[export_name = crate::prefix!(gzbuffer)]
 pub unsafe extern "C-unwind" fn gzbuffer(file: gzFile, size: c_uint) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -748,7 +752,7 @@ pub unsafe extern "C-unwind" fn gzbuffer(file: gzFile, size: c_uint) -> c_int {
 /// deallocate the string.
 ///
 /// If `errnum` is non-null, it must point to an address at which a [`c_int`] may be written.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzerror))]
+#[export_name = crate::prefix!(gzerror)]
 pub unsafe extern "C-unwind" fn gzerror(file: gzFile, errnum: *mut c_int) -> *const c_char {
     // Get internal structure and check integrity
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
@@ -784,7 +788,7 @@ pub unsafe extern "C-unwind" fn gzerror(file: gzFile, errnum: *mut c_int) -> *co
 /// # Safety
 ///
 /// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzclearerr))]
+#[export_name = crate::prefix!(gzclearerr)]
 pub unsafe extern "C-unwind" fn gzclearerr(file: gzFile) {
     // Get internal structure and check integrity
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
@@ -821,7 +825,7 @@ pub unsafe extern "C-unwind" fn gzclearerr(file: gzFile) {
 /// # Safety
 ///
 /// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzeof))]
+#[export_name = crate::prefix!(gzeof)]
 pub unsafe extern "C-unwind" fn gzeof(file: gzFile) -> c_int {
     // Get internal structure and check integrity
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
@@ -861,7 +865,7 @@ pub unsafe extern "C-unwind" fn gzeof(file: gzFile) -> c_int {
 /// # Safety
 ///
 /// `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzdirect))]
+#[export_name = crate::prefix!(gzdirect)]
 pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return 0;
@@ -920,7 +924,7 @@ pub unsafe extern "C-unwind" fn gzdirect(file: gzFile) -> c_int {
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - The caller must ensure that `buf` points to at least `len` writable bytes.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzread))]
+#[export_name = crate::prefix!(gzread)]
 pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_uint) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -980,7 +984,7 @@ pub unsafe extern "C-unwind" fn gzread(file: gzFile, buf: *mut c_void, len: c_ui
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - The caller must ensure that `buf` points to at least `size * nitems` writable bytes.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzfread))]
+#[export_name = crate::prefix!(gzfread)]
 pub unsafe extern "C-unwind" fn gzfread(
     buf: *mut c_void,
     size: size_t,
@@ -1207,7 +1211,15 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
         state.stream.next_in = ptr::null_mut();
         // Safety: `gzopen_help` initialized `state.stream`'s `zalloc`, `zfree`, and
         // `opaque` fields as needed by `inflateInit2`.
-        if unsafe { inflateInit2(&mut state.stream as *mut z_stream, MAX_WBITS + 16) } != Z_OK {
+        if unsafe {
+            inflateInit2_(
+                &mut state.stream as *mut z_stream,
+                MAX_WBITS + 16,
+                zlibVersion(),
+                std::mem::size_of::<z_stream>() as i32,
+            )
+        } != Z_OK
+        {
             // Safety: The caller confirmed the validity of `state`, and `free_buffers` checks
             // for null input and output pointers internally.
             unsafe { free_buffers(state) };
@@ -1478,7 +1490,7 @@ unsafe fn gz_decomp(state: &mut GzState) -> Result<(), ()> {
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - `buf` must point to at least `len` bytes of readable memory.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzwrite))]
+#[export_name = crate::prefix!(gzwrite)]
 pub unsafe extern "C-unwind" fn gzwrite(file: gzFile, buf: *const c_void, len: c_uint) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return 0;
@@ -1527,7 +1539,7 @@ pub unsafe extern "C-unwind" fn gzwrite(file: gzFile, buf: *const c_void, len: c
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - The caller must ensure that `buf` points to at least `size * nitems` readable bytes.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzfwrite))]
+#[export_name = crate::prefix!(gzfwrite)]
 pub unsafe extern "C-unwind" fn gzfwrite(
     buf: *const c_void,
     size: size_t,
@@ -1863,7 +1875,7 @@ fn gz_comp(state: &mut GzState, flush: c_int) -> Result<(), ()> {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzflush))]
+#[export_name = crate::prefix!(gzflush)]
 pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return Z_STREAM_ERROR;
@@ -1906,7 +1918,7 @@ pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gztell))]
+#[export_name = crate::prefix!(gztell)]
 pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
         return -1;
@@ -1940,7 +1952,7 @@ pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzoffset))]
+#[export_name = crate::prefix!(gzoffset)]
 pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
         return -1;
@@ -1975,7 +1987,7 @@ pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzputc))]
+#[export_name = crate::prefix!(gzputc)]
 pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -2033,7 +2045,7 @@ pub unsafe extern "C-unwind" fn gzputc(file: gzFile, c: c_int) -> c_int {
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - `s` must point to a null-terminated C string.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzputs))]
+#[export_name = crate::prefix!(gzputs)]
 pub unsafe extern "C-unwind" fn gzputs(file: gzFile, s: *const c_char) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -2075,7 +2087,7 @@ pub unsafe extern "C-unwind" fn gzputs(file: gzFile, s: *const c_char) -> c_int 
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgetc))]
+#[export_name = crate::prefix!(gzgetc)]
 pub unsafe extern "C-unwind" fn gzgetc(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -2119,7 +2131,7 @@ pub unsafe extern "C-unwind" fn gzgetc(file: gzFile) -> c_int {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgetc_))]
+#[export_name = crate::prefix!(gzgetc_)]
 pub unsafe extern "C-unwind" fn gzgetc_(file: gzFile) -> c_int {
     // Safety: The caller has ensured that `file` is null or a valid file handle.
     unsafe { gzgetc(file) }
@@ -2143,7 +2155,7 @@ pub unsafe extern "C-unwind" fn gzgetc_(file: gzFile) -> c_int {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzungetc))]
+#[export_name = crate::prefix!(gzungetc)]
 pub unsafe extern "C-unwind" fn gzungetc(c: c_int, file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -2252,7 +2264,7 @@ pub unsafe extern "C-unwind" fn gzungetc(c: c_int, file: gzFile) -> c_int {
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 /// - `buf` must be null or a pointer to at least `len` writable bytes.
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzgets))]
+#[export_name = crate::prefix!(gzgets)]
 pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_int) -> *mut c_char {
     // Check parameters.
     if buf.is_null() || len < 1 {
@@ -2346,7 +2358,7 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
 }
 
 /// Dynamically update the compression level and strategy for `file`. See the
-/// description of [`deflateInit2`] for the meaning of these parameters. Previously
+/// description of [`deflateInit2_`] for the meaning of these parameters. Previously
 /// provided data is flushed before applying the parameter changes.
 ///
 /// Note: If `level` is not valid, this function will silently fail with a return
@@ -2363,7 +2375,7 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzsetparams))]
+#[export_name = crate::prefix!(gzsetparams)]
 pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy: c_int) -> c_int {
     let Ok(strategy) = Strategy::try_from(strategy) else {
         return Z_STREAM_ERROR;
@@ -2433,7 +2445,7 @@ pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzseek))]
+#[export_name = crate::prefix!(gzseek)]
 pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_int) -> z_off_t {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
@@ -2540,7 +2552,7 @@ pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[cfg_attr(feature = "export-symbols", export_name = crate::prefix!(gzrewind))]
+#[export_name = crate::prefix!(gzrewind)]
 pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;

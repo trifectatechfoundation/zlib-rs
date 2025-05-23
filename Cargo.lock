@@ -133,7 +133,15 @@ dependencies = [
 name = "libz-rs-sys"
 version = "0.5.0"
 dependencies = [
+ "zlib-rs",
+]
+
+[[package]]
+name = "libz-rs-sys-cdylib"
+version = "0.5.0"
+dependencies = [
  "libc",
+ "libz-rs-sys",
  "zlib-rs",
 ]
 
@@ -280,6 +288,7 @@ dependencies = [
  "libc",
  "libloading",
  "libz-rs-sys",
+ "libz-rs-sys-cdylib",
  "libz-sys",
  "quickcheck",
  "tempfile",
