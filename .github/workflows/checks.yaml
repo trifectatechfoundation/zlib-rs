@@ -276,7 +276,7 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
-          toolchain: nightly
+          toolchain: nightly-2025-04-21-x86_64-unknown-linux-gnu
           components: llvm-tools-preview
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
