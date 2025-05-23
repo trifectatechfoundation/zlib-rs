@@ -189,6 +189,8 @@ enum Source {
 ///
 /// The caller must ensure that `path` and `mode` point to valid C strings. If the
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
+///
+/// [`gzfree`]: crate::z_stream
 #[export_name = crate::prefix!(gzopen)]
 pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char) -> gzFile {
     if path.is_null() {
@@ -211,6 +213,8 @@ pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char)
 ///
 /// The caller must ensure that `mode` points to a valid C string. If the
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
+///
+/// [`gzfree`]: crate::z_stream
 #[export_name = crate::prefix!(gzdopen)]
 pub unsafe extern "C-unwind" fn gzdopen(fd: c_int, mode: *const c_char) -> gzFile {
     // Safety: the caller is responsible for `mode` being a non-null C string.
@@ -2349,7 +2353,7 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
 }
 
 /// Dynamically update the compression level and strategy for `file`. See the
-/// description of [`deflateInit2`] for the meaning of these parameters. Previously
+/// description of [`deflateInit2_`] for the meaning of these parameters. Previously
 /// provided data is flushed before applying the parameter changes.
 ///
 /// Note: If `level` is not valid, this function will silently fail with a return

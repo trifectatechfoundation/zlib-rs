@@ -37,11 +37,7 @@ macro_rules! prefix {
     };
 }
 
-#[cfg(all(
-    not(feature = "custom-prefix"),
-    not(feature = "semver-prefix"),
-    not(any(test, feature = "testing-prefix"))
-))]
+#[cfg(all(not(feature = "custom-prefix"), not(feature = "semver-prefix"),))]
 macro_rules! prefix {
     ($name:expr) => {
         stringify!($name)
@@ -51,7 +47,7 @@ macro_rules! prefix {
 #[cfg(all(
     not(feature = "custom-prefix"),
     not(feature = "semver-prefix"),
-    any(test, feature = "testing-prefix")
+    any(test)
 ))]
 macro_rules! prefix {
     ($name:expr) => {
