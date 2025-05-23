@@ -47,11 +47,7 @@ mod custom_prefix {
         };
     }
 
-    #[cfg(all(
-        not(feature = "custom-prefix"),
-        not(feature = "semver-prefix"),
-        any(test)
-    ))]
+    #[cfg(all(not(feature = "custom-prefix"), not(feature = "semver-prefix"), test))]
     macro_rules! prefix {
         ($name:expr) => {
             concat!("LIBZ_RS_SYS_TEST_", stringify!($name))

@@ -177,15 +177,22 @@ jobs:
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
           toolchain: stable
-          components: clippy
+          components: clippy, rustfmt
           targets: ${{matrix.target}}
       - name: Rust cache
         uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
         with:
             shared-key: "stable-${{matrix.target}}"
 
-      - name: Run clippy
-        run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
+      - name: Run rustfmt and clippy
+        run: |
+          cargo fmt --all --check
+          cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
+      - name: Run rustfmt and clippy (cdylib)
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo fmt --all --check
+          cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
       - name: Run clippy (fuzzers)
         if: ${{ !contains(matrix.features, 'gz') }}
         run: cargo clippy --target ${{matrix.target}} ${{matrix.features}} --manifest-path ./fuzz/Cargo.toml --all-targets -- -D warnings
@@ -265,7 +272,7 @@ jobs:
           done
 
   fuzz-code-coverage:
-    name: Fuzz with code coverage 
+    name: Fuzz with code coverage
     runs-on: ubuntu-latest
     strategy:
       matrix:
