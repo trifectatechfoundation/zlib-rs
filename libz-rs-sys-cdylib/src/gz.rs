@@ -367,9 +367,6 @@ fn fd_path(buf: &mut [u8; 27], fd: c_int) -> &CStr {
     // characters, plus space for the largest decimal value for the `c_int` type. On some systems
     // the c_int type can actually be 64 bits. The `i64::MIN` value has 20 digits, and the minus
     // sign, for a total of 6 + 20 + 1 = 27.
-    #[cfg(feature = "std")]
-    debug_assert!(format!("<fd:{}>\0", i64::MIN).len() <= buf.len());
-
     struct Writer<'a> {
         buf: &'a mut [u8; 27],
         len: usize,
