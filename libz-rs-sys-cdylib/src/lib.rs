@@ -12,47 +12,54 @@ mod gz;
 #[cfg(feature = "gz")]
 pub use gz::*;
 
-#[cfg(feature = "custom-prefix")]
-macro_rules! prefix {
-    ($name:expr) => {
-        concat!(env!("LIBZ_RS_SYS_PREFIX"), stringify!($name))
-    };
-}
+#[cfg(feature = "gz")]
+#[allow(unused)]
+mod custom_prefix {
+    #[cfg(feature = "custom-prefix")]
+    macro_rules! prefix {
+        ($name:expr) => {
+            concat!(env!("LIBZ_RS_SYS_PREFIX"), stringify!($name))
+        };
+    }
 
-// NOTE: once we reach 1.0.0, the macro used for the `semver-prefix` feature should no longer include the
-// minor version in the name. The name is meant to be unique between semver-compatible versions!
-const _PRE_ONE_DOT_O: () = assert!(env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] == b'0');
+    // NOTE: once we reach 1.0.0, the macro used for the `semver-prefix` feature should no longer include the
+    // minor version in the name. The name is meant to be unique between semver-compatible versions!
+    const _PRE_ONE_DOT_O: () = assert!(env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] == b'0');
 
-#[cfg(feature = "semver-prefix")]
-macro_rules! prefix {
-    ($name:expr) => {
-        concat!(
-            "LIBZ_RS_SYS_v",
-            env!("CARGO_PKG_VERSION_MAJOR"),
-            ".",
-            env!("CARGO_PKG_VERSION_MINOR"),
-            ".x_",
+    #[cfg(feature = "semver-prefix")]
+    macro_rules! prefix {
+        ($name:expr) => {
+            concat!(
+                "LIBZ_RS_SYS_v",
+                env!("CARGO_PKG_VERSION_MAJOR"),
+                ".",
+                env!("CARGO_PKG_VERSION_MINOR"),
+                ".x_",
+                stringify!($name)
+            )
+        };
+    }
+
+    #[cfg(all(not(feature = "custom-prefix"), not(feature = "semver-prefix"),))]
+    macro_rules! prefix {
+        ($name:expr) => {
             stringify!($name)
-        )
-    };
+        };
+    }
+
+    #[cfg(all(
+        not(feature = "custom-prefix"),
+        not(feature = "semver-prefix"),
+        any(test)
+    ))]
+    macro_rules! prefix {
+        ($name:expr) => {
+            concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
+        };
+    }
+
+    pub(crate) use prefix;
 }
 
-#[cfg(all(not(feature = "custom-prefix"), not(feature = "semver-prefix"),))]
-macro_rules! prefix {
-    ($name:expr) => {
-        stringify!($name)
-    };
-}
-
-#[cfg(all(
-    not(feature = "custom-prefix"),
-    not(feature = "semver-prefix"),
-    any(test)
-))]
-macro_rules! prefix {
-    ($name:expr) => {
-        concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
-    };
-}
-
-pub(crate) use prefix;
+#[cfg(feature = "gz")]
+pub(crate) use custom_prefix::prefix;
