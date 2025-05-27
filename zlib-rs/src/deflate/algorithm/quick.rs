@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use crate::deflate::hash_calc::StandardHashCalc;
 use crate::{
     deflate::{
         fill_window, flush_pending, BlockState, BlockType, DeflateStream, State, StaticTreeDesc,
@@ -93,7 +94,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
         }
 
         if state.lookahead >= WANT_MIN_MATCH {
-            let hash_head = state.quick_insert_string(state.strstart);
+            let hash_head = StandardHashCalc::quick_insert_string(state, state.strstart);
             let dist = state.strstart as isize - hash_head as isize;
 
             if dist <= state.max_dist() as isize && dist > 0 {
