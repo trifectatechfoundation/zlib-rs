@@ -31,9 +31,9 @@ mod custom_prefix {
             concat!(
                 "LIBZ_RS_SYS_v",
                 env!("CARGO_PKG_VERSION_MAJOR"),
-                ".",
+                "_",
                 env!("CARGO_PKG_VERSION_MINOR"),
-                ".x_",
+                "_x_",
                 stringify!($name)
             )
         };
