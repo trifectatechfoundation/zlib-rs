@@ -20,7 +20,7 @@ gz = ["libz-rs-sys-cdylib/gz", "dep:libc"]
 [dependencies]
 zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test"] }
 libz-rs-sys = { workspace = true, default-features = false, features = ["std", "testing-prefix"] }
-libz-rs-sys-cdylib = { path = "../libz-rs-sys-cdylib", default-features = false, features = ["semver-prefix"] }
+libz-rs-sys-cdylib = { path = "../libz-rs-sys-cdylib", default-features = false, features = ["semver-prefix", "__internal-test"] }
 libz-sys.workspace = true
 libc = { version = "0.2.171", optional = true }
 
