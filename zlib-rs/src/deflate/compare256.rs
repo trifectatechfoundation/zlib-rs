@@ -107,7 +107,8 @@ mod rust {
 #[cfg(target_arch = "aarch64")]
 mod neon {
     use core::arch::aarch64::{
-        uint8x16_t, veorq_u8, vgetq_lane_u64, vld1q_u8, vreinterpretq_u64_u8,
+        uint8x16x4_t, vceqq_u8, vget_lane_u64, vld4q_u8, vreinterpret_u64_u8, vreinterpretq_u16_u8,
+        vshrn_n_u16, vsriq_n_u8,
     };
 
     /// # Safety
@@ -115,33 +116,69 @@ mod neon {
     /// Behavior is undefined if the `neon` target feature is not enabled
     #[target_feature(enable = "neon")]
     pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
-        let src0 = src0.chunks_exact(16);
-        let src1 = src1.chunks_exact(16);
+        type Chunk = uint8x16x4_t;
+        let src0 = src0.chunks_exact(core::mem::size_of::<Chunk>());
+        let src1 = src1.chunks_exact(core::mem::size_of::<Chunk>());
 
         let mut len = 0;
 
         for (a, b) in src0.zip(src1) {
             unsafe {
-                let a: uint8x16_t = vld1q_u8(a.as_ptr());
-                let b: uint8x16_t = vld1q_u8(b.as_ptr());
+                // Load 4 vectors *deinterleaved* from the two slices
+                // e.g. the first vector contains the 0, 4, 8, ... bytes of the input, the
+                // second vector contains the 1, 5, 9, ... bytes of the input, etc.
+                let a: Chunk = vld4q_u8(a.as_ptr());
+                let b: Chunk = vld4q_u8(b.as_ptr());
 
-                let cmp = veorq_u8(a, b);
+                // Compare each vector element-wise, each resulting vector will contain
+                // 0xFF for equal bytes, and 0x00 for unequal bytes.
+                let cmp0 = vceqq_u8(a.0, b.0);
+                let cmp1 = vceqq_u8(a.1, b.1);
+                let cmp2 = vceqq_u8(a.2, b.2);
+                let cmp3 = vceqq_u8(a.3, b.3);
 
-                let lane = vgetq_lane_u64(vreinterpretq_u64_u8(cmp), 0);
-                if lane != 0 {
-                    let match_byte = lane.trailing_zeros() / 8;
+                // Pack bits from the 4 vectors into a single vector to convert to a 64-bit integer.
+
+                // shift the second vector right by one, insert the top bit from the first vector
+                // The top two bits each element of the result are from the first and second vector
+                let first_two_bits = vsriq_n_u8::<1>(cmp1, cmp0);
+
+                // shift the fourth vector right by one, insert the top bit from the third vector
+                // The top two bits each element of the result are from the third and fourth vector
+                let last_two_bits = vsriq_n_u8::<1>(cmp3, cmp2);
+
+                // shift last_two_bits (the top two bits of which are from the third and fourth
+                // vector) right by 2, insert the top two bits from first_two_bits (the top two
+                // bits of which are from the first and second vector).
+                // The top four bits of each element of the result are from the
+                // first, second, third, and fourth vector
+                let first_four_bits = vsriq_n_u8::<2>(last_two_bits, first_two_bits);
+
+                // duplicate the top 4 bits into the bottom 4 bits of each element.
+                let bitmask_vector = vsriq_n_u8::<4>(first_four_bits, first_four_bits);
+
+                // Reinterpret as 16-bit integers, and shift right by 4 bits narrowing:
+                // shifting right by 4 bits means the top 4 bits of each 16 bit element contains the
+                // low 4 bits of the 0th 8-bit element and the high 4 bits of the 1nth 8-bit
+                // element. Narrowing takes the top 8 bits of each (16-bit) element.
+                let result_vector = vshrn_n_u16::<4>(vreinterpretq_u16_u8(bitmask_vector));
+
+                // Convert the vector to a 64-bit integer, where each bit represents whether
+                // the corresponding byte in the original vectors was equal.
+                let bitmask = vget_lane_u64::<0>(vreinterpret_u64_u8(result_vector));
+
+                // We reinterpreted the vector as a 64-bit integer, so endianness matters.
+                // We want things to be in little-endian (where the least significant bit is in the
+                // first byte), but in big-endian, the first vector element will be the most
+                // significant byte, so we need to convert to little-endian.
+                let bitmask = bitmask.to_le();
+                if bitmask != u64::MAX {
+                    // Find the first byte that is not equal, which is the first bit that is not set
+                    let match_byte = bitmask.trailing_ones();
                     return len + match_byte as usize;
                 }
 
-                len += 8;
-
-                let lane = vgetq_lane_u64(vreinterpretq_u64_u8(cmp), 1);
-                if lane != 0 {
-                    let match_byte = lane.trailing_zeros() / 8;
-                    return len + match_byte as usize;
-                }
-
-                len += 8;
+                len += core::mem::size_of::<Chunk>();
             }
         }
 
