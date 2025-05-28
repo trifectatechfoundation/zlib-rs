@@ -316,7 +316,6 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
 
         // window
         w_size,
-        w_mask: w_size - 1,
 
         // allocated values
         window,
@@ -374,7 +373,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _cache_line_1: (),
         _cache_line_2: (),
         _cache_line_3: (),
-        _padding_0: 0,
+        _padding_0: [0; 16],
     };
 
     unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
@@ -667,7 +666,6 @@ pub fn copy<'a>(
         static_len: source_state.static_len,
         insert: source_state.insert,
         w_size: source_state.w_size,
-        w_mask: source_state.w_mask,
         lookahead: source_state.lookahead,
         prev,
         head,
@@ -1253,7 +1251,8 @@ pub(crate) struct State<'a> {
 
     pub(crate) window: Window<'a>,
     pub(crate) w_size: usize, /* LZ77 window size (32K by default) */
-    pub(crate) w_mask: usize, /* w_size - 1 */
+
+    pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
 
     _cache_line_0: (),
 
@@ -1334,15 +1333,13 @@ pub(crate) struct State<'a> {
     /// bytes at end of window left to insert
     pub(crate) insert: usize,
 
-    pub(crate) lookahead: usize, /* number of valid bytes ahead in window */
-
     ///  hash index of string to be inserted
     pub(crate) ins_h: u32,
 
     gzhead: Option<&'a mut gz_header>,
     gzindex: usize,
 
-    _padding_0: usize,
+    _padding_0: [u8; 16],
 
     _cache_line_3: (),
 
@@ -1392,6 +1389,10 @@ impl<'a> State<'a> {
     // log2(w_size)  (in the range MIN_WBITS..=MAX_WBITS)
     pub(crate) fn w_bits(&self) -> u32 {
         self.w_size.trailing_zeros()
+    }
+
+    pub(crate) fn w_mask(&self) -> usize {
+        self.w_size - 1
     }
 
     pub(crate) fn max_dist(&self) -> usize {
