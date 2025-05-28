@@ -38,6 +38,11 @@ impl StandardHashCalc {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
         let val = u32::from_le_bytes(slice[..4].try_into().unwrap());
 
+        Self::quick_insert_value(state, string, val)
+    }
+
+    #[inline]
+    pub fn quick_insert_value(state: &mut State, string: usize, val: u32) -> u16 {
         let hm = Self::update_hash(0, val) as usize;
 
         let head = state.head.as_slice()[hm];
