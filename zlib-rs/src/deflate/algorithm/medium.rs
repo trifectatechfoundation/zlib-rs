@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use crate::deflate::hash_calc::StandardHashCalc;
 use crate::{
     deflate::{
         fill_window, BlockState, DeflateStream, State, MIN_LOOKAHEAD, STD_MIN_MATCH, WANT_MIN_MATCH,
@@ -60,7 +61,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         } else {
             hash_head = 0;
             if state.lookahead >= WANT_MIN_MATCH {
-                hash_head = state.quick_insert_string(state.strstart);
+                hash_head = StandardHashCalc::quick_insert_string(state, state.strstart);
             }
 
             current_match.strstart = state.strstart as u16;
@@ -104,7 +105,7 @@ pub fn deflate_medium(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
                 < (state.window_size - MIN_LOOKAHEAD)
         {
             state.strstart = (current_match.strstart + current_match.match_length) as usize;
-            hash_head = state.quick_insert_string(state.strstart);
+            hash_head = StandardHashCalc::quick_insert_string(state, state.strstart);
 
             next_match.strstart = state.strstart as u16;
             next_match.orgstart = next_match.strstart;
@@ -253,7 +254,7 @@ fn insert_match(state: &mut State, mut m: Match) {
         m.match_length = 0;
 
         if (m.strstart as usize) >= (STD_MIN_MATCH - 2) {
-            state.quick_insert_string(m.strstart as usize + 2 - STD_MIN_MATCH);
+            StandardHashCalc::quick_insert_string(state, m.strstart as usize + 2 - STD_MIN_MATCH);
         }
 
         /* If lookahead < WANT_MIN_MATCH, ins_h is garbage, but it does not
