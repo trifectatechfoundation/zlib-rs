@@ -34,6 +34,7 @@ impl StandardHashCalc {
         Self::hash_calc(h, val) & Self::HASH_CALC_MASK
     }
 
+    #[inline]
     pub fn quick_insert_string(state: &mut State, string: usize) -> u16 {
         let slice = &state.window.filled()[string + Self::HASH_CALC_OFFSET..];
         let val = u32::from_le_bytes(slice[..4].try_into().unwrap());
