@@ -993,8 +993,7 @@ fn gzputc_error() {
     let file = unsafe { gzdopen(-2, CString::new("wT").unwrap().as_ptr()) };
     const BUF_SIZE: usize = 10;
     assert_eq!(unsafe { gzbuffer(file, BUF_SIZE as _) }, 0);
-    // In write mode, the internal input buffer is 2x the size specified via gzbuffer.
-    for _ in 0..BUF_SIZE * 2 {
+    for _ in 0..BUF_SIZE {
         assert_eq!(unsafe { gzputc(file, 1) }, 1);
     }
     assert_eq!(unsafe { gzputc(file, 1) }, -1);
