@@ -145,7 +145,7 @@ jobs:
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        uses: taiki-e/install-action@a48a50298f98c47e46a957ae6f82c44cc4878e42 # v2.49.47
         with:
           tool: cargo-nextest
       - name: cargo build
@@ -180,7 +180,7 @@ jobs:
           components: clippy, rustfmt
           targets: ${{matrix.target}}
       - name: Rust cache
-        uses: Swatinem/rust-cache@3cf7f8cc28d1b4e7d01e3783be10a97d55d483c8
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
             shared-key: "stable-${{matrix.target}}"
 
@@ -448,7 +448,7 @@ jobs:
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        uses: taiki-e/install-action@a48a50298f98c47e46a957ae6f82c44cc4878e42 # v2.49.47
         with:
           tool: cargo-nextest
       - name: Download wasi-sdk
@@ -490,7 +490,7 @@ jobs:
           sudo apt-get install gcc-mingw-w64-x86-64
           x86_64-w64-mingw32-gcc --help
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        uses: taiki-e/install-action@a48a50298f98c47e46a957ae6f82c44cc4878e42 # v2.49.47
         with:
           tool: cargo-nextest
       - name: Test public C api with NULL arguments
