@@ -345,7 +345,7 @@ jobs:
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
-          toolchain: stable
+          toolchain: nightly
           targets: ${{matrix.target}}
       - name: "cdylib: default settings"
         working-directory: libz-rs-sys-cdylib
@@ -387,12 +387,21 @@ jobs:
           cargo build --release --target ${{matrix.target}} --features=semver-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
       - run: sudo apt-get install -y valgrind
+      - name: "cdylib: test_gzio"
+        env:
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo build --release --target ${{matrix.target}} --no-default-features --features=gz,gzprintf,c-allocator
+          cc -DNO_STD -o test_gzio test_gzio.c target/${{matrix.target}}/release/deps/libz_rs.so
+          ./test_gzio
+          valgrind --track-origins=yes --error-exitcode=1 ./test_gzio
       - name: "cdylib: example.c"
         env:
           LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
-          cargo build --release --target ${{matrix.target}} --no-default-features --features=gz,c-allocator
+          cargo build --release --target ${{matrix.target}} --no-default-features --features=gz,gzprintf,c-allocator
           cc -DNO_STD -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
