@@ -51,7 +51,7 @@ struct GzState {
     source: Source,
     want: usize,     // requested buffer size, default is GZBUFSIZE
     input: *mut u8,  // input buffer (double-sized when writing)
-    in_size: usize,  // size of *input
+    in_size: usize,  // usable size of input buffer (See [`gz_init`] for explanation.)
     output: *mut u8, // output buffer (double-sized when reading)
     out_size: usize, // size of *output
     direct: bool,    // true in pass-through mode, false if processing gzip data
@@ -110,6 +110,22 @@ impl GzState {
         }
 
         Ok((exclusive, cloexec))
+    }
+
+    // Get the number of bytes allocated for the `self.input` buffer.
+    fn in_capacity(&self) -> usize {
+        match self.mode {
+            GzMode::GZ_WRITE => self.want * 2,
+            _ => self.want,
+        }
+    }
+
+    // Get the number of bytes allocated for the `self.output` buffer.
+    fn out_capacity(&self) -> usize {
+        match self.mode {
+            GzMode::GZ_READ => self.want * 2,
+            _ => self.want,
+        }
     }
 
     /// Compute the number of bytes of input buffered in `self`.
@@ -509,14 +525,14 @@ unsafe fn free_buffers(state: &mut GzState) {
     if !state.input.is_null() {
         // Safety: state.input is always allocated using ALLOCATOR, and
         // its allocation size is stored in state.in_size.
-        unsafe { ALLOCATOR.deallocate(state.input, state.in_size) };
+        unsafe { ALLOCATOR.deallocate(state.input, state.in_capacity()) };
         state.input = ptr::null_mut();
     }
     state.in_size = 0;
     if !state.output.is_null() {
-        // Safety: state.input is always allocated using ALLOCATOR, and
-        // its allocation size is stored in state.in_size.
-        unsafe { ALLOCATOR.deallocate(state.output, state.out_size) };
+        // Safety: state.output is always allocated using ALLOCATOR, and
+        // its allocation size is stored in state.out_size.
+        unsafe { ALLOCATOR.deallocate(state.output, state.out_capacity()) };
         state.output = ptr::null_mut();
     }
     state.out_size = 0;
@@ -1185,8 +1201,9 @@ fn gz_skip(state: &mut GzState, mut len: i64) -> Result<(), ()> {
 unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
     // Allocate buffers if needed.
     if state.input.is_null() {
-        state.in_size = state.want;
-        let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
+        let capacity = state.in_capacity();
+        state.in_size = capacity;
+        let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(capacity) else {
             // Safety: The caller confirmed the validity of state.
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
             return Err(());
@@ -1194,8 +1211,9 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
         state.input = input.as_ptr();
 
         if state.output.is_null() {
-            state.out_size = state.want * 2;
-            let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
+            let capacity = state.out_capacity();
+            state.out_size = capacity;
+            let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(capacity) else {
                 // Safety: The caller confirmed the validity of state, and free_buffers checks
                 // for null input and output pointers internally.
                 unsafe { free_buffers(state) };
@@ -1705,9 +1723,14 @@ fn gz_zero(state: &mut GzState, mut len: usize) -> Result<(), ()> {
 // - `Ok` on success.
 // - `Err` on error.
 fn gz_init(state: &mut GzState) -> Result<(), ()> {
-    // Allocate input buffer (double size for gzprintf).
-    state.in_size = state.want * 2;
-    let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(state.in_size) else {
+    // Allocate input buffer.
+    // The buffer is twice as big as state.want, but we set in_size to half the
+    // buffer size (i.e. state.in_size == state.want). The reason for this is to
+    // ensure that we always have state.want bytes available for exclusive use
+    // by gzprintf.
+    let capacity = state.in_capacity();
+    state.in_size = capacity / 2;
+    let Some(input) = ALLOCATOR.allocate_slice_raw::<u8>(capacity) else {
         // Safety: The caller confirmed the validity of state.
         unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
         return Err(());
@@ -1718,8 +1741,9 @@ fn gz_init(state: &mut GzState) -> Result<(), ()> {
     // Only need output buffer and deflate state if compressing.
     if !state.direct {
         // Allocate output buffer.
-        state.out_size = state.want;
-        let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(state.out_size) else {
+        let capacity = state.out_capacity();
+        state.out_size = capacity;
+        let Some(output) = ALLOCATOR.allocate_slice_raw::<u8>(capacity) else {
             unsafe { free_buffers(state) };
             // Safety: The caller confirmed the validity of state.
             unsafe { gz_error(state, Some((Z_MEM_ERROR, "out of memory"))) };
