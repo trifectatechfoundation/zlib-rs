@@ -28,6 +28,7 @@ custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to pr
 semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-compatible way
 capi = []
 gz = ["dep:libc"] # support for the `gz*` functions is experimental
+gzprintf = []
 __internal-test = []
 
 [dependencies]

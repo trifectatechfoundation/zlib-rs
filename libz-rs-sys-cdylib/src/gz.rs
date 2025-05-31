@@ -2571,6 +2571,93 @@ pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
     0
 }
 
+/// # Safety
+///
+/// The variadic arguments must correspond with the format string in number and type.
+#[cfg(feature = "gzprintf")]
+#[export_name = crate::prefix!(gzprintf)]
+pub unsafe extern "C-unwind" fn gzprintf(
+    file: gzFile,
+    format: *const c_char,
+    mut va: ...
+) -> c_int {
+    unsafe { gzvprintf(file, format, va.as_va_list()) }
+}
+
+#[cfg(feature = "gzprintf")]
+unsafe extern "C-unwind" fn gzvprintf(
+    file: gzFile,
+    format: *const c_char,
+    va: core::ffi::VaList,
+) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return Z_STREAM_ERROR;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
+        return Z_STREAM_ERROR;
+    }
+
+    // Make sure we have some buffer space.
+    if state.input.is_null() && gz_init(state).is_err() {
+        return state.err;
+    }
+
+    // Check for seek request.
+    if state.seek {
+        state.seek = false;
+        if gz_zero(state, state.skip as _).is_err() {
+            return state.err;
+        }
+    }
+
+    // Do the printf() into the input buffer, put length in len -- the input
+    // buffer is double-sized just for this function, so there is guaranteed to
+    // be state.size bytes available after the current contents
+    if state.stream.avail_in == 0 {
+        state.stream.next_in = state.input;
+    }
+
+    extern "C" {
+        fn vsnprintf(
+            s: *mut c_char,
+            n: libc::size_t,
+            format: *const c_char,
+            va: core::ffi::VaList,
+        ) -> i32;
+    }
+
+    let next = state.input.wrapping_add(
+        (unsafe { state.stream.next_in.offset_from(state.input) })
+            .wrapping_add(state.stream.avail_in as isize) as usize,
+    );
+    let state_size = state.in_size / 2;
+    unsafe { *next.add(state_size - 1) = 0 };
+    let len = unsafe { vsnprintf(next.cast::<c_char>(), state_size, format, va) };
+
+    // Check that printf() results fit in buffer.
+    if len == 0 || len as usize >= state_size || unsafe { *next.add(state_size - 1) } != 0 {
+        return 0;
+    }
+
+    // Update buffer and position, compress first half if past that.
+    state.stream.avail_in += len as u32;
+    state.pos += i64::from(len);
+    if state.stream.avail_in as usize >= state_size {
+        let left = state.stream.avail_in - state_size as u32;
+        state.stream.avail_in = state_size as u32;
+        if gz_comp(state, Z_NO_FLUSH).is_err() {
+            return state.err;
+        }
+        unsafe { core::ptr::copy(state.input.add(state_size), state.input, left as usize) };
+        state.stream.next_in = state.input;
+        state.stream.avail_in = left;
+    }
+
+    len
+}
+
 // Create a deep copy of a C string using `ALLOCATOR`
 //
 // # Safety
