@@ -2595,6 +2595,116 @@ pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
     0
 }
 
+/// Convert, format, compress, and write the variadic arguments `...` to a file under control of the string format, as in `fprintf`.
+///
+/// # Returns
+///
+/// Returns the number of uncompressed bytes actually written, or a negative zlib error code in case of error.
+/// The number of uncompressed bytes written is limited to 8191, or one less than the buffer size given to [`gzbuffer`].
+/// The caller should assure that this limit is not exceeded. If it is exceeded, then [`gzprintf`] will return `0` with nothing written.
+///
+/// Contrary to other implementations that can use the insecure `vsprintf`, the `zlib-rs` library always uses `vsnprintf`,
+/// so attempting to write more bytes than the limit can never run into buffer overflow issues.
+///
+/// # Safety
+///
+/// - The `format`  must be a valid C string
+/// - The variadic arguments must correspond with the format string in number and type
+#[cfg(feature = "gzprintf")]
+#[export_name = crate::prefix!(gzprintf)]
+pub unsafe extern "C-unwind" fn gzprintf(
+    file: gzFile,
+    format: *const c_char,
+    mut va: ...
+) -> c_int {
+    unsafe { gzvprintf(file, format, va.as_va_list()) }
+}
+
+#[cfg(feature = "gzprintf")]
+unsafe extern "C-unwind" fn gzvprintf(
+    file: gzFile,
+    format: *const c_char,
+    va: core::ffi::VaList,
+) -> c_int {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
+        return Z_STREAM_ERROR;
+    };
+
+    // Check that we're writing and that there's no error.
+    if state.mode != GzMode::GZ_WRITE || state.err != Z_OK {
+        return Z_STREAM_ERROR;
+    }
+
+    // Make sure we have some buffer space.
+    if state.input.is_null() && gz_init(state).is_err() {
+        return state.err;
+    }
+
+    // Check for seek request.
+    if state.seek {
+        state.seek = false;
+        if gz_zero(state, state.skip as _).is_err() {
+            return state.err;
+        }
+    }
+
+    // Do the printf() into the input buffer, put length in len -- the input
+    // buffer is double-sized just for this function, so there is guaranteed to
+    // be state.size bytes available after the current contents
+    if state.stream.avail_in == 0 {
+        state.stream.next_in = state.input;
+    }
+
+    // A pointer to the space that can be used by `vsnprintf`. The size of the input buffer
+    // is `2 * state.in_size`, just for this function. That means we have at least
+    // `state.in_size` bytes available.
+    let next = (state.stream.next_in)
+        .add(state.stream.avail_in as usize)
+        .cast_mut();
+
+    // NOTE: zlib-ng writes a NULL byte to the last position of the input buffer. It must do so
+    // because in some cases it falls back to the `vsprintf` function, which contrary to
+    // `vsnprintf` does not guarantee NULL-termination.
+    //
+    // We do not support using `vsprintf`, and therefore don't need to write or check that byte.
+
+    // This function is not currently exposed by libc, because `core::ffi::VaList` is unstable.
+    extern "C" {
+        fn vsnprintf(
+            s: *mut c_char,
+            n: libc::size_t,
+            format: *const c_char,
+            va: core::ffi::VaList,
+        ) -> c_int;
+    }
+
+    // Safety: as described earlier, there are at least state.in_size bytes available starting at
+    // `next`. We forward `format` and `va`, so the caller is responsible for guarenteeing that
+    // these are valid.
+    let len = unsafe { vsnprintf(next.cast::<c_char>(), state.in_size, format, va) };
+
+    // Check that printf() results fit in buffer.
+    if len == 0 || len as usize >= state.in_size {
+        return 0;
+    }
+
+    // Update buffer and position, compress first half if past that.
+    state.stream.avail_in += len as u32;
+    state.pos += i64::from(len);
+    if state.stream.avail_in as usize >= state.in_size {
+        let left = state.stream.avail_in - state.in_size as u32;
+        state.stream.avail_in = state.in_size as u32;
+        if gz_comp(state, Z_NO_FLUSH).is_err() {
+            return state.err;
+        }
+        unsafe { core::ptr::copy(state.input.add(state.in_size), state.input, left as usize) };
+        state.stream.next_in = state.input;
+        state.stream.avail_in = left;
+    }
+
+    len
+}
+
 // Create a deep copy of a C string using `ALLOCATOR`
 //
 // # Safety

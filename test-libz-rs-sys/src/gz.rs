@@ -2054,3 +2054,178 @@ fn file_size(path: &str) -> Result<usize, ()> {
     unsafe { libc::free(stat_ptr) };
     result
 }
+
+#[cfg(feature = "gzprintf")]
+mod gzprintf {
+    use super::*;
+    use z_rs::{gzeof, gzprintf};
+
+    macro_rules! cstr {
+        ($str:literal) => {
+            CStr::from_ptr(concat!($str, "\0").as_ptr().cast::<c_char>())
+        };
+    }
+
+    macro_rules! gz_error {
+        ($fmt:literal, $err:expr) => {
+            panic!($fmt, CStr::from_ptr($err).to_str().unwrap());
+        };
+    }
+
+    #[test]
+    fn test_gzio() {
+        let temp_dir_path = temp_base();
+        let temp_dir = tempfile::TempDir::new_in(temp_dir_path).unwrap();
+        let temp_path = temp_dir.path();
+
+        let path = CString::from_vec_with_nul(path(temp_path, "test_gzio.gz\0").into()).unwrap();
+        let fname = &path;
+        let mut uncompr = vec![0i8; 10000 * size_of::<i32>()];
+
+        test_gzio_help(fname, &mut uncompr);
+    }
+
+    fn test_gzio_help(fname: &CStr, uncompr: &mut [i8]) {
+        unsafe {
+            let hello = cstr!("hello, hello!");
+
+            let mut err: i32 = 0;
+            let len: usize = hello.to_bytes_with_nul().len();
+            let pos: i64;
+
+            /* Write gz file with test data */
+            let mut file = gzopen(fname.as_ptr(), cstr!("wb").as_ptr());
+            if file.is_null() {
+                panic!("gzopen error");
+            }
+
+            /* Write hello, hello! using gzputs and gzprintf */
+            gzputc(file, b'h' as i32);
+            if gzputs(file, cstr!("ello").as_ptr()) != 4 {
+                gz_error!("gzputs err: {}", gzerror(file, &mut err));
+            }
+            if gzprintf(file, cstr!(", %s!").as_ptr(), cstr!("hello").as_ptr()) != 8 {
+                gz_error!("gzprintf err: {}", gzerror(file, &mut err));
+            }
+            /* Write string null-teriminator using gzseek */
+            if gzseek(file, 1, libc::SEEK_CUR) < 0 {
+                panic!("gzseek error, gztell={}", gztell(file));
+            }
+            /* Write hello, hello! using gzfwrite using best compression level */
+            if gzsetparams(file, Z_BEST_COMPRESSION, Z_DEFAULT_STRATEGY) != Z_OK {
+                gz_error!("gzsetparams err: {}", gzerror(file, &mut err));
+            }
+            if gzfwrite(hello.as_ptr().cast(), len, 1, file) == 0 {
+                gz_error!("gzfwrite err: {}", gzerror(file, &mut err));
+            }
+            /* Flush compressed bytes to file */
+            if gzflush(file, Z_SYNC_FLUSH) != Z_OK {
+                gz_error!("gzflush err: {}", gzerror(file, &mut err));
+            }
+            let compr_len = gzoffset(file);
+            if compr_len <= 0 {
+                gz_error!("gzoffset err: {}", gzerror(file, &mut err));
+            }
+            gzclose(file);
+
+            /* Open gz file we previously wrote */
+            file = gzopen(fname.as_ptr(), cstr!("rb").as_ptr());
+            if file.is_null() {
+                gz_error!("gzopen error: {}", gzerror(file, &mut err));
+            }
+
+            /* Read uncompressed data - hello, hello! string twice */
+            libc::strcpy(uncompr.as_mut_ptr(), cstr!("garbages").as_ptr());
+            if gzread(file, uncompr.as_mut_ptr().cast(), uncompr.len() as _) as usize != (len + len)
+            {
+                gz_error!("gzread err: {}", gzerror(file, &mut err));
+            }
+            if libc::strcmp(uncompr.as_ptr(), hello.as_ptr()) != 0 {
+                panic!(
+                    "bad gzread: {}",
+                    CStr::from_ptr(uncompr.as_ptr()).to_str().unwrap()
+                );
+            } else {
+                println!(
+                    "gzread(): {}",
+                    CStr::from_ptr(uncompr.as_ptr()).to_str().unwrap()
+                );
+            }
+            /* Check position at the end of the gz file */
+            if gzeof(file) != 1 {
+                panic!("gzeof err: not reporting end of stream");
+            }
+
+            /* Seek backwards mid-string and check char reading with gzgetc and gzungetc */
+            pos = gzseek(file, -22, libc::SEEK_CUR);
+            if pos != 6 || gztell(file) != pos {
+                panic!("gzseek error, pos={}, gztell={}", pos, gztell(file));
+            }
+            if gzgetc(file) != i32::from(b' ') {
+                panic!("gzgetc error");
+            }
+            if gzungetc(i32::from(b' '), file) != i32::from(b' ') {
+                panic!("gzungetc error");
+            }
+            /* Read first hello, hello! string with gzgets */
+            libc::strcpy(uncompr.as_mut_ptr(), cstr!("garbages").as_ptr());
+            gzgets(file, uncompr.as_mut_ptr(), uncompr.len() as _);
+            if libc::strlen(uncompr.as_mut_ptr()) != 7
+            /* " hello!" */
+            {
+                gz_error!("gzgets err after gzseek: {}", gzerror(file, &mut err));
+            }
+            if libc::strcmp(uncompr.as_mut_ptr(), hello.as_ptr().add(6)) != 0 {
+                panic!("bad gzgets after gzseek");
+            } else {
+                println!(
+                    "gzgets() after gzseek: {}",
+                    CStr::from_ptr(uncompr.as_ptr()).to_str().unwrap()
+                );
+            }
+            /* Seek to second hello, hello! string */
+            let pos = gzseek(file, 14, libc::SEEK_SET);
+            if pos != 14 || gztell(file) != pos {
+                panic!("gzseek error, pos={}, gztell={}", pos, gztell(file));
+            }
+            /* Check position not at end of file */
+            if gzeof(file) != 0 {
+                panic!("gzeof err: reporting end of stream");
+            }
+            /* Read first hello, hello! string with gzfread */
+            libc::strcpy(uncompr.as_mut_ptr(), cstr!("garbages").as_ptr());
+            let read = gzfread(uncompr.as_mut_ptr().cast(), uncompr.len() as _, 1, file);
+            if libc::strcmp(uncompr.as_mut_ptr(), hello.as_ptr()) != 0 {
+                panic!("bad gzgets");
+            } else {
+                println!(
+                    "gzgets(): {}",
+                    CStr::from_ptr(uncompr.as_ptr()).to_str().unwrap()
+                );
+            }
+            let pos = gzoffset(file);
+            if pos < 0 || pos != (compr_len + 10) {
+                panic!("gzoffset err: wrong offset at end");
+            }
+            /* Trigger an error and clear it with gzclearerr */
+            gzfread(uncompr.as_mut_ptr().cast(), usize::MAX, usize::MAX, file);
+            gzerror(file, &mut err);
+            if err == 0 {
+                panic!("gzerror err: no error returned");
+            }
+            gzclearerr(file);
+            gzerror(file, &mut err);
+            if err != 0 {
+                panic!("gzclearerr err: not zero {}", err);
+            }
+
+            gzclose(file);
+
+            if gzclose(core::ptr::null_mut()) != Z_STREAM_ERROR {
+                panic!("gzclose unexpected return when handle null");
+            }
+
+            let _ = read;
+        }
+    }
+}
