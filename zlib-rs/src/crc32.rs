@@ -90,7 +90,7 @@ impl Crc32Fold {
 
 #[cfg(test)]
 mod test {
-    use test::braid::crc32_braid;
+    use braid::crc32_braid;
 
     use super::*;
 
