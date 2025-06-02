@@ -393,7 +393,7 @@ jobs:
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features --features=gz,c-allocator
-          cc -DNO_STD -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
 
