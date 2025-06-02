@@ -1785,6 +1785,37 @@ pub const extern "C" fn zlibCompileFlags() -> c_ulong {
     flags
 }
 
+/// Returns the sliding dictionary being maintained by inflate.  
+///
+/// `dictLength` is set to the number of bytes in the dictionary, and that many bytes are copied
+/// to `dictionary`. `dictionary` must have enough space, where `32768` bytes is
+/// always enough.  If [`inflateGetDictionary`] is called with `dictionary` equal to
+/// `NULL`, then only the dictionary length is returned, and nothing is copied.
+/// Similarly, if `dictLength` is `NULL`, then it is not set.
+///
+/// # Returns
+///
+/// * [`Z_OK`] if success
+/// * [`Z_STREAM_ERROR`] if the stream state is inconsistent
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateGetDictionary))]
+pub unsafe extern "C-unwind" fn inflateGetDictionary(
+    strm: z_streamp,
+    dictionary: *mut c_uchar,
+    dictLength: *mut c_uint,
+) -> c_int {
+    let Some(stream) = InflateStream::from_stream_mut(strm) else {
+        return ReturnCode::StreamError as c_int;
+    };
+
+    let whave = zlib_rs::inflate::get_dictionary(stream, dictionary);
+
+    if let Some(dictLength) = unsafe { dictLength.as_mut() } {
+        *dictLength = whave as c_uint;
+    }
+
+    ReturnCode::Ok as _
+}
+
 /// # Safety
 ///
 /// Either
