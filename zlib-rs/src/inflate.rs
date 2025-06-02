@@ -2607,7 +2607,7 @@ pub unsafe fn get_header<'a>(
 /// # Safety
 ///
 /// The `dictionary` must have enough space for the dictionary.
-pub unsafe fn get_dictionary(stream: &mut InflateStream<'_>, dictionary: *mut u8) -> usize {
+pub unsafe fn get_dictionary(stream: &InflateStream<'_>, dictionary: *mut u8) -> usize {
     let whave = stream.state.window.have();
     let wnext = stream.state.window.next();
 

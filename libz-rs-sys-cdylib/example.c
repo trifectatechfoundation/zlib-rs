@@ -670,48 +670,48 @@ static void test_deflate_copy(unsigned char *compr, size_t comprLen) {
     CHECK_ERR(err, "deflateEnd copy");
 }
 
-// /* ===========================================================================
-//  * Test deflateGetDictionary() with small buffers
-//  */
-// static void test_deflate_get_dict(unsigned char *compr, size_t comprLen) {
-//     PREFIX3(stream) c_stream; /* compression stream */
-//     int err;
-//     unsigned char *dictNew = NULL;
-//     unsigned int *dictLen;
-//
-//     c_stream.zalloc = zalloc;
-//     c_stream.zfree = zfree;
-//     c_stream.opaque = (voidpf)0;
-//
-//     err = PREFIX(deflateInit)(&c_stream, Z_BEST_COMPRESSION);
-//     CHECK_ERR(err, "deflateInit");
-//
-//     c_stream.next_out = compr;
-//     c_stream.avail_out = (uInt)comprLen;
-//
-//     c_stream.next_in = (z_const unsigned char *)hello;
-//     c_stream.avail_in = (unsigned int)strlen(hello)+1;
-//
-//     err = PREFIX(deflate)(&c_stream, Z_FINISH);
-//
-//     if (err != Z_STREAM_END)
-//         error("deflate should report Z_STREAM_END\n");
-//
-//     dictNew = calloc(256, 1);
-//     dictLen = (unsigned int *)calloc(4, 1);
-//     err = PREFIX(deflateGetDictionary)(&c_stream, dictNew, dictLen);
-//
-//     CHECK_ERR(err, "deflateGetDictionary");
-//     if (err == Z_OK) {
-//         printf("deflateGetDictionary(): %s\n", dictNew);
-//     }
-//
-//     err = PREFIX(deflateEnd)(&c_stream);
-//     CHECK_ERR(err, "deflateEnd");
-//
-//     free(dictNew);
-//     free(dictLen);
-// }
+/* ===========================================================================
+ * Test deflateGetDictionary() with small buffers
+ */
+static void test_deflate_get_dict(unsigned char *compr, size_t comprLen) {
+    PREFIX3(stream) c_stream; /* compression stream */
+    int err;
+    unsigned char *dictNew = NULL;
+    unsigned int *dictLen;
+
+    c_stream.zalloc = zalloc;
+    c_stream.zfree = zfree;
+    c_stream.opaque = (voidpf)0;
+
+    err = PREFIX(deflateInit)(&c_stream, Z_BEST_COMPRESSION);
+    CHECK_ERR(err, "deflateInit");
+
+    c_stream.next_out = compr;
+    c_stream.avail_out = (uInt)comprLen;
+
+    c_stream.next_in = (z_const unsigned char *)hello;
+    c_stream.avail_in = (unsigned int)strlen(hello)+1;
+
+    err = PREFIX(deflate)(&c_stream, Z_FINISH);
+
+    if (err != Z_STREAM_END)
+        error("deflate should report Z_STREAM_END\n");
+
+    dictNew = calloc(256, 1);
+    dictLen = (unsigned int *)calloc(4, 1);
+    err = PREFIX(deflateGetDictionary)(&c_stream, dictNew, dictLen);
+
+    CHECK_ERR(err, "deflateGetDictionary");
+    if (err == Z_OK) {
+        printf("deflateGetDictionary(): %s\n", dictNew);
+    }
+
+    err = PREFIX(deflateEnd)(&c_stream);
+    CHECK_ERR(err, "deflateEnd");
+
+    free(dictNew);
+    free(dictLen);
+}
 
 /* ===========================================================================
  * Test deflatePending() with small buffers
@@ -1019,7 +1019,7 @@ int main(int argc, char *argv[]) {
 
     test_deflate_bound();
     test_deflate_copy(compr, comprLen);
-    ////  test_deflate_get_dict(compr, comprLen);
+    test_deflate_get_dict(compr, comprLen);
     test_deflate_set_header(compr, comprLen);
     test_deflate_tune(compr, comprLen);
     test_deflate_pending(compr, comprLen);

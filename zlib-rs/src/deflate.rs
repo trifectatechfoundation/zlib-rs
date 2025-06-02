@@ -83,6 +83,33 @@ impl<'a> DeflateStream<'a> {
         unsafe { strm.cast::<DeflateStream>().as_mut() }
     }
 
+    /// # Safety
+    ///
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `strm` satisfies the conditions of [`pointer::as_ref`]
+    /// - if not `NULL`, `strm` as initialized using [`init`] or similar
+    ///
+    /// [`pointer::as_ref`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_ref
+    #[inline(always)]
+    pub unsafe fn from_stream_ref(strm: *const z_stream) -> Option<&'a Self> {
+        {
+            // Safety: ptr points to a valid value of type z_stream (if non-null)
+            let stream = unsafe { strm.as_ref() }?;
+
+            if stream.zalloc.is_none() || stream.zfree.is_none() {
+                return None;
+            }
+
+            if stream.state.is_null() {
+                return None;
+            }
+        }
+
+        // SAFETY: DeflateStream has an equivalent layout as z_stream
+        unsafe { strm.cast::<DeflateStream>().as_ref() }
+    }
+
     fn as_z_stream_mut(&mut self) -> &mut z_stream {
         // SAFETY: a valid &mut DeflateStream is also a valid &mut z_stream
         unsafe { &mut *(self as *mut DeflateStream as *mut z_stream) }
@@ -3214,6 +3241,26 @@ pub fn bound(stream: Option<&mut DeflateStream>, source_len: usize) -> usize {
     } else {
         compress_bound_help(source_len, wrap_len)
     }
+}
+
+/// # Safety
+///
+/// The `dictionary` must have enough space for the dictionary.
+pub unsafe fn get_dictionary(stream: &DeflateStream<'_>, dictionary: *mut u8) -> usize {
+    let s = &stream.state;
+    let len = Ord::min(s.strstart + s.lookahead, s.w_size);
+
+    if !dictionary.is_null() && len > 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                s.window.as_ptr().add(s.strstart + s.lookahead - len),
+                dictionary,
+                len,
+            );
+        }
+    }
+
+    len
 }
 
 #[cfg(test)]

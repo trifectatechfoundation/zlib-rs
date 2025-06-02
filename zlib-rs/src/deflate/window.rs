@@ -30,6 +30,10 @@ impl<'a> Window<'a> {
         Some(clone)
     }
 
+    pub fn as_ptr(&self) -> *const u8 {
+        self.buf.as_ptr()
+    }
+
     /// # Safety
     ///
     /// [`Self`] must not be used after calling this function.
