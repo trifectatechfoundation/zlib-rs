@@ -25,6 +25,13 @@ macro_rules! assert_eq_rs_ng {
             extern "C" {
                 #[allow(unused)]
                 fn inflateCodesUsed(strm: *mut z_stream) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
+                fn deflateGetDictionary(
+                    strm: *const z_stream,
+                    dictionary: *mut core::ffi::c_uchar,
+                    dictLength: *mut core::ffi::c_uint,
+                ) -> core::ffi::c_int;
             }
 
             $tt

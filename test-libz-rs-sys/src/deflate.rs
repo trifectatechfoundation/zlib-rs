@@ -3,11 +3,11 @@ use std::{ffi::CString, mem::MaybeUninit};
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use core::ffi::{c_char, c_int, c_ulong, CStr};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 
 use libz_rs_sys::{
-    deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
-    Z_NO_FLUSH,
+    deflate, deflateEnd, deflateInit2_, deflateInit_, inflate, inflateEnd, inflateInit2_,
+    Z_DEFLATED, Z_FILTERED, Z_FINISH, Z_NO_FLUSH,
 };
 use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,
@@ -2422,5 +2422,51 @@ fn crc32_hash_calc_uninitialized_memory() {
         deflateEnd(stream);
 
         dest
+    });
+}
+
+#[test]
+fn test_deflate_get_dict() {
+    assert_eq_rs_ng!({
+        let mut compr = [0u8; 1024];
+
+        let mut strm = MaybeUninit::zeroed();
+
+        let ret = unsafe {
+            deflateInit_(
+                strm.as_mut_ptr(),
+                Z_BEST_COMPRESSION,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        };
+
+        let c_stream = unsafe { strm.assume_init_mut() };
+
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        c_stream.avail_out = compr.len() as _;
+        c_stream.next_out = compr.as_mut_ptr();
+
+        let mut hello = *b"hello, hello!\0";
+
+        c_stream.avail_in = hello.len() as _;
+        c_stream.next_in = hello.as_mut_ptr();
+
+        let ret = unsafe { deflate(c_stream, Z_FINISH) };
+        assert_eq!(ReturnCode::from(ret), ReturnCode::StreamEnd);
+
+        let mut dict_new = vec![0; 256];
+        let mut dict_len = dict_new.len() as c_uint;
+
+        let ret = unsafe { deflateGetDictionary(c_stream, dict_new.as_mut_ptr(), &mut dict_len) };
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        let dictionary = unsafe { CStr::from_ptr(dict_new.as_ptr().cast()) }.to_owned();
+
+        let ret = unsafe { deflateEnd(c_stream) };
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        dictionary
     });
 }
