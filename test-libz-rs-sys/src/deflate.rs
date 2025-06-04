@@ -6,8 +6,8 @@ use libz_sys as libz_ng_sys;
 use core::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 
 use libz_rs_sys::{
-    deflate, deflateEnd, deflateInit2_, deflateInit_, inflate, inflateEnd, inflateInit2_,
-    Z_DEFLATED, Z_FILTERED, Z_FINISH, Z_NO_FLUSH,
+    deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
+    Z_NO_FLUSH,
 };
 use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,

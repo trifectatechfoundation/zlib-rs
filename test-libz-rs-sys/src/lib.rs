@@ -32,6 +32,13 @@ macro_rules! assert_eq_rs_ng {
                     dictionary: *mut core::ffi::c_uchar,
                     dictLength: *mut core::ffi::c_uint,
                 ) -> core::ffi::c_int;
+
+                #[allow(unused)]
+                fn inflateGetDictionary(
+                    strm: *const z_stream,
+                    dictionary: *mut core::ffi::c_uchar,
+                    dictLength: *mut core::ffi::c_uint,
+                ) -> core::ffi::c_int;
             }
 
             $tt
