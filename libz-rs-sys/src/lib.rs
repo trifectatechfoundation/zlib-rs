@@ -1797,6 +1797,13 @@ pub const extern "C" fn zlibCompileFlags() -> c_ulong {
 ///
 /// * [`Z_OK`] if success
 /// * [`Z_STREAM_ERROR`] if the stream state is inconsistent
+///
+/// # Safety
+///
+/// - `dictionary` must `NULL` or writable for the dictionary length (`32768` is always enough)
+/// - `dictLength` must `NULL` or satisfy the requirements of [`pointer::as_mut`]
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateGetDictionary))]
 pub unsafe extern "C-unwind" fn inflateGetDictionary(
     strm: *const z_stream,
@@ -1835,6 +1842,13 @@ pub unsafe extern "C-unwind" fn inflateGetDictionary(
 ///
 /// * [`Z_OK`] if success
 /// * [`Z_STREAM_ERROR`] if the stream state is inconsistent
+///
+/// # Safety
+///
+/// - `dictionary` must `NULL` or writable for the dictionary length (`32768` is always enough)
+/// - `dictLength` must `NULL` or satisfy the requirements of [`pointer::as_mut`]
+///
+/// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateGetDictionary))]
 pub unsafe extern "C-unwind" fn deflateGetDictionary(
     strm: *const z_stream,

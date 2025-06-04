@@ -2279,3 +2279,128 @@ fn codes_used() {
         });
     }
 }
+
+#[test]
+fn test_dict_inflate() {
+    // Maximum dictionary size, according to inflateGetDictionary() description.
+    const MAX_DICTIONARY_SIZE: usize = 32768;
+
+    let mut dictionary = *b"hello\0";
+    let mut hello = *b"hello\0";
+
+    let (compr, dict_id) = assert_eq_rs_ng!({
+        let mut compr = [0u8; 1024];
+
+        let mut strm = MaybeUninit::zeroed();
+
+        let ret = unsafe {
+            deflateInit_(
+                strm.as_mut_ptr(),
+                Z_BEST_COMPRESSION,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as _,
+            )
+        };
+
+        let c_stream = unsafe { strm.assume_init_mut() };
+
+        assert_eq!(ReturnCode::from(ret), ReturnCode::Ok);
+
+        let err =
+            unsafe { deflateSetDictionary(c_stream, dictionary.as_ptr(), dictionary.len() as _) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let dict_id = c_stream.adler;
+        c_stream.avail_out = compr.len() as _;
+        c_stream.next_out = compr.as_mut_ptr();
+
+        c_stream.avail_in = hello.len() as _;
+        c_stream.next_in = hello.as_mut_ptr();
+
+        let err = unsafe { deflate(c_stream, Z_FINISH) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+        if err != Z_STREAM_END {
+            panic!("deflate should report Z_STREAM_END\n");
+        }
+        let err = unsafe { deflateEnd(c_stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        (compr, dict_id)
+    });
+
+    assert_eq_rs_ng!({
+        let mut compr = compr;
+        let mut uncompr = *b"garbage garbage garbage\0";
+
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let err = unsafe {
+            inflateInit_(
+                stream.as_mut_ptr(),
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as c_int,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        let d_stream = stream.assume_init_mut();
+
+        d_stream.adler = 0;
+        d_stream.avail_in = compr.len() as _;
+        d_stream.next_in = compr.as_mut_ptr();
+
+        d_stream.avail_out = uncompr.len() as _;
+        d_stream.next_out = uncompr.as_mut_ptr();
+
+        let mut check_dictionary = [0i8; MAX_DICTIONARY_SIZE];
+
+        loop {
+            let mut err = unsafe { inflate(d_stream, Z_NO_FLUSH) };
+
+            if err == Z_STREAM_END {
+                break;
+            }
+
+            if err == Z_NEED_DICT {
+                if d_stream.adler != dict_id {
+                    panic!("unexpected dictionary");
+                }
+                err = unsafe {
+                    inflateSetDictionary(d_stream, dictionary.as_mut_ptr(), dictionary.len() as _)
+                };
+            }
+
+            assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+        }
+
+        let mut check_dictionary_len = 0;
+        let err = unsafe {
+            inflateGetDictionary(d_stream, core::ptr::null_mut(), &mut check_dictionary_len)
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        if (check_dictionary_len as usize) < dictionary.len() {
+            panic!("bad dictionary length");
+        }
+
+        let err = unsafe {
+            inflateGetDictionary(
+                d_stream,
+                check_dictionary.as_mut_ptr().cast(),
+                &mut check_dictionary_len,
+            )
+        };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        assert_eq!(
+            dictionary,
+            &check_dictionary.map(|c| c as u8)[..dictionary.len()]
+        );
+
+        let err = unsafe { inflateEnd(d_stream) };
+        assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+        assert_eq!(uncompr[..hello.len()], hello);
+    });
+}
