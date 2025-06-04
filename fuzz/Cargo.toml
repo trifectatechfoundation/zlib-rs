@@ -71,6 +71,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "compress_gz"
+path = "fuzz_targets/compress_gz.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "end_to_end"
 path = "fuzz_targets/end_to_end.rs"
 test = false
