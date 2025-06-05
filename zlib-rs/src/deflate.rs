@@ -2603,7 +2603,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
                     stream.state.bit_writer.pending.extend(&bytes);
                 }
 
-                if gzhead.hcrc > 0 {
+                if gzhead.hcrc != 0 {
                     stream.adler = crc32(
                         stream.adler as u32,
                         stream.state.bit_writer.pending.pending(),

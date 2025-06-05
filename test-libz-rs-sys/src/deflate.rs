@@ -672,9 +672,9 @@ fn deflate_bound_gzip_header_help(
 }
 
 #[test]
-fn gz_header_text_check() {
+fn gz_header_text_and_hcrc_check() {
     // when constructing the gz header flags, zlib-rs performed a check
-    // for `text > 0` that should have been `text != 0`.
+    // for `text > 0` that should have been `text != 0`, similarly for hcrc.
     let config = DeflateConfig {
         level: 9,
         method: Method::Deflated,
@@ -703,14 +703,14 @@ fn gz_header_text_check() {
         let strm = strm.assume_init_mut();
 
         let mut header = gz_header {
-            text: -16777216,
-            time: 4278223747,
+            text: -42,
+            time: 0,
             os: 0,
             extra: core::ptr::null_mut(),
             extra_len: 0,
             name: [0u8].as_mut_ptr(),
             comment: [0u8].as_mut_ptr(),
-            hcrc: 0,
+            hcrc: -42,
             //
             xflags: 0,
             extra_max: 0,
