@@ -672,6 +672,75 @@ fn deflate_bound_gzip_header_help(
 }
 
 #[test]
+fn gz_header_text_check() {
+    // when constructing the gz header flags, zlib-rs performed a check
+    // for `text > 0` that should have been `text != 0`.
+    let config = DeflateConfig {
+        level: 9,
+        method: Method::Deflated,
+        window_bits: 31,
+        mem_level: 3,
+        strategy: Strategy::Fixed,
+    };
+
+    assert_eq_rs_ng!({
+        let mut strm = MaybeUninit::zeroed();
+
+        // first validate the config
+        let err = deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as _,
+        );
+
+        assert_eq!(err, 0);
+
+        let strm = strm.assume_init_mut();
+
+        let mut header = gz_header {
+            text: -16777216,
+            time: 4278223747,
+            os: 0,
+            extra: core::ptr::null_mut(),
+            extra_len: 0,
+            name: [0u8].as_mut_ptr(),
+            comment: [0u8].as_mut_ptr(),
+            hcrc: 0,
+            //
+            xflags: 0,
+            extra_max: 0,
+            name_max: 0,
+            comm_max: 0,
+            done: 0,
+        };
+
+        // this may fail if the config is not set up for gzip
+        let _ = deflateSetHeader(strm, &mut header);
+
+        let input = "\0\u{2}\0\0\0\0\0\0\0\u{10}";
+        let mut output = [0u8; 32];
+
+        strm.avail_in = input.len() as _;
+        strm.avail_out = output.len() as _;
+
+        strm.next_in = input.as_ptr().cast_mut();
+        strm.next_out = output.as_mut_ptr();
+
+        let err = deflate(strm, DeflateFlush::NoFlush as i32);
+        assert_eq!(err, 0);
+
+        deflateEnd(strm);
+
+        output
+    });
+}
+
+#[test]
 #[cfg_attr(miri, ignore = "slow")]
 fn deflate_bound_gzip_header() {
     ::quickcheck::quickcheck(deflate_bound_gzip_header_help as fn(_) -> _);
