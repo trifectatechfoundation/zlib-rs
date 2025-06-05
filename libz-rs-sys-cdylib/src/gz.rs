@@ -8,13 +8,12 @@ use crate::{
     deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2_,
     inflateReset, z_off_t, z_stream, zlibVersion,
 };
+use core::cmp::Ordering;
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
 use libc::off_t;
 use libc::size_t; // FIXME: Switch to core::ffi::c_size_t when it's stable.
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET};
-use std::cmp;
-use std::cmp::Ordering;
 use zlib_rs::deflate::Strategy;
 use zlib_rs::MAX_WBITS;
 
@@ -736,7 +735,7 @@ pub unsafe extern "C-unwind" fn gzbuffer(file: gzFile, size: c_uint) -> c_int {
     }
 
     // Use a minimum buffer size of 8 to work with flush semantics elsewhere in the implementation.
-    state.want = cmp::max(size, 8);
+    state.want = Ord::max(size, 8);
 
     0
 }
@@ -1064,14 +1063,14 @@ unsafe fn gz_read(state: &mut GzState, mut buf: *mut u8, mut len: usize) -> usiz
     let mut got = 0;
     loop {
         // Set n to the maximum amount of len that fits in an unsigned int.
-        let mut n = cmp::min(len, c_uint::MAX as usize);
+        let mut n = Ord::min(len, c_uint::MAX as usize);
 
         // First just try copying data from the output buffer. Note: The output
         // buffer contains bytes that have been decompressed by `state.stream` and
         // are waiting to be consumed - or, in direct mode, it contains bytes read
         // directly from the underlying file descriptor.
         if state.have != 0 {
-            n = cmp::min(n, state.have as usize);
+            n = Ord::min(n, state.have as usize);
             // Safety:
             // * n <= state.have, and there are `state.have` readable bytes starting
             //   at `state.next`.
@@ -1234,7 +1233,7 @@ unsafe fn gz_look(state: &mut GzState) -> Result<(), ()> {
                 &mut state.stream as *mut z_stream,
                 MAX_WBITS + 16,
                 zlibVersion(),
-                std::mem::size_of::<z_stream>() as i32,
+                core::mem::size_of::<z_stream>() as i32,
             )
         } != Z_OK
         {
@@ -1632,7 +1631,7 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
             }
             // Safety: `state.stream.next_in` points into the buffer starting at `state.input`.
             let have = unsafe { state.input_len() };
-            let copy = cmp::min(state.in_size.saturating_sub(have), len);
+            let copy = Ord::min(state.in_size.saturating_sub(have), len);
             // Safety: The caller is responsible for ensuring that buf points to at least len readable
             // bytes, and copy is <= len.
             unsafe { ptr::copy(buf, state.input.add(have).cast::<c_void>(), copy) };
@@ -1659,7 +1658,7 @@ unsafe fn gz_write(state: &mut GzState, mut buf: *const c_void, mut len: usize) 
         let save_next_in = state.stream.next_in;
         state.stream.next_in = buf.cast::<_>();
         loop {
-            let n = cmp::min(len, c_uint::MAX as usize) as c_uint;
+            let n = Ord::min(len, c_uint::MAX as usize) as c_uint;
             state.stream.avail_in = n;
             state.pos += n as i64;
             if gz_comp(state, Z_NO_FLUSH).is_err() {
@@ -1692,7 +1691,7 @@ fn gz_zero(state: &mut GzState, mut len: usize) -> Result<(), ()> {
     // Compress `len` zeros.
     let mut first = true;
     while len != 0 {
-        let n = cmp::min(state.in_size, len);
+        let n = Ord::min(state.in_size, len);
         if first {
             // Safety: `state.input` is non-null here, either because it was initialized
             // before this function was called (enabling the `state.stream.avail_in != 0`
@@ -2335,7 +2334,7 @@ pub unsafe extern "C-unwind" fn gzgets(file: gzFile, buf: *mut c_char, len: c_in
         }
 
         // Look for newline in current output buffer.
-        let mut n = cmp::min(left, state.have as _);
+        let mut n = Ord::min(left, state.have as _);
         // Safety: `state.next` points to a block of `state.have` readable bytes. We're scanning
         // the first `n` of those bytes, and `n <= state.have` based on the `min` calculation.
         let eol = unsafe { libc::memchr(state.next.cast::<c_void>(), '\n' as c_int, n as _) };
@@ -2658,9 +2657,7 @@ unsafe extern "C-unwind" fn gzvprintf(
     // A pointer to the space that can be used by `vsnprintf`. The size of the input buffer
     // is `2 * state.in_size`, just for this function. That means we have at least
     // `state.in_size` bytes available.
-    let next = (state.stream.next_in)
-        .add(state.stream.avail_in as usize)
-        .cast_mut();
+    let next = unsafe { (state.stream.next_in).add(state.stream.avail_in as usize) }.cast_mut();
 
     // NOTE: zlib-ng writes a NULL byte to the last position of the input buffer. It must do so
     // because in some cases it falls back to the `vsprintf` function, which contrary to
