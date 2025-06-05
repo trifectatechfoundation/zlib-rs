@@ -137,7 +137,7 @@ fn u32x4_extadd_quarters_u8x16(a: v128) -> v128 {
 
 #[inline(always)]
 fn reduce_add(v: v128) -> u32 {
-    let arr: [u32; 4] = unsafe { std::mem::transmute(v) };
+    let arr: [u32; 4] = unsafe { core::mem::transmute(v) };
     let mut sum = 0u32;
     for val in arr {
         sum = sum.wrapping_add(val);
