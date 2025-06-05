@@ -72,10 +72,14 @@ fn run(input: &[u8]) -> Corpus {
     let err = unsafe { inflateGetHeader(&mut stream, &mut header) };
     assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
 
-    let mut output = vec![0; input.len()];
-    let input_len: u64 = input.len().try_into().unwrap();
+    // We deliberately use uninitialized memory as the input buffer here, to simulate how these
+    // functions will likely be used from C, and to catch us ever reading uninitialized memory.
+    //
+    // The length is just a heuristic for a reasonable output length. The buffer may need to grow
+    // as we decode.
+    let mut output = Vec::with_capacity(input.len());
+    stream.avail_out = output.capacity().try_into().unwrap();
     stream.next_out = output.as_mut_ptr();
-    stream.avail_out = output.len().try_into().unwrap();
 
     // Small enough to hit interesting cases, but large enough to hit the fast path
     let chunk_size = 64;
@@ -92,29 +96,39 @@ fn run(input: &[u8]) -> Corpus {
         Corpus::Reject
     };
 
-    for chunk in input.chunks(chunk_size) {
+    'decompression: for chunk in input.chunks(chunk_size) {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 
-        let err = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
-        match ReturnCode::from(err) {
-            ReturnCode::StreamEnd => {
-                break;
-            }
-            ReturnCode::Ok => {
-                continue;
-            }
-            ReturnCode::BufError => {
-                let add_space: u32 = Ord::max(1024, output.len().try_into().unwrap());
-                output.resize(output.len() + add_space as usize, 0);
+        loop {
+            let err = unsafe { inflate(&mut stream, InflateFlush::NoFlush as _) };
+            match ReturnCode::from(err) {
+                ReturnCode::StreamEnd => {
+                    // Stream complete, stop processing chunks.
+                    break 'decompression;
+                }
+                ReturnCode::Ok => {
+                    if stream.avail_in == 0 {
+                        break;
+                    }
+                }
+                ReturnCode::BufError => {
+                    // We've produced this many output bytes; they must be initialized.
+                    unsafe { output.set_len(stream.total_out as usize) };
 
-                // If resize() reallocates, it may have moved in memory.
-                stream.next_out = output.as_mut_ptr();
-                stream.avail_out += add_space;
-            }
-            _ => {
-                unsafe { inflateEnd(&mut stream) };
-                return invalid_input;
+                    // there is still input from this chunk left to process but no more output buffer
+                    // this means we have to increase the output buffer and retry the decompress
+                    let add_space: u32 = Ord::max(1024, output.capacity().try_into().unwrap());
+                    output.reserve(add_space as usize);
+
+                    // If resize() reallocates, it may have moved in memory.
+                    stream.next_out = output.as_mut_ptr();
+                    stream.avail_out += add_space;
+                }
+                _ => {
+                    unsafe { inflateEnd(&mut stream) };
+                    return invalid_input;
+                }
             }
         }
     }
