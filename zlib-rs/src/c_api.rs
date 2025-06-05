@@ -252,7 +252,7 @@ impl gz_header {
     };
 
     pub(crate) fn flags(&self) -> u8 {
-        (if self.text > 0 { 1 } else { 0 })
+        (if self.text != 0 { 1 } else { 0 })
             + (if self.hcrc > 0 { 2 } else { 0 })
             + (if self.extra.is_null() { 0 } else { 4 })
             + (if self.name.is_null() { 0 } else { 8 })
