@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "libz-rs-sys"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "zlib-rs",
 ]
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "test-libz-rs-sys"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "crc32fast",
  "dynamic-libz-sys",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "arbitrary",
  "crc32fast",
