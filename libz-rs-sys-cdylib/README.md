@@ -20,6 +20,8 @@ See below for the available feature flags.
 The cdylib enables `panic="abort"`, meaning that when the rust code runs into a panic (e.g. from an assert), the program is aborted.
 Panics indicate bugs, and we'd appreciate a bug report for them if they ever appear in the wild.
 
+The `include/` directory contains a `zlib.h` and `zconf.h`. We are compatible with most system versions of these headers.
+
 ## Feature Flags
 
 ### Allocators

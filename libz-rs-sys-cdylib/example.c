@@ -982,7 +982,7 @@ int main(int argc, char *argv[]) {
     z_uintmax_t comprLen = 10000*sizeof(int); /* don't overflow on MSDOS */
     z_uintmax_t uncomprLen = comprLen;
 
-    printf("using zlib version %s\n", zlibVersion());
+    printf("using zlib version %s (with the header for %s)\n", zlibVersion(), ZLIB_VERSION);
 
     compr    = (unsigned char*)calloc((unsigned int)comprLen, 1);
     uncompr  = (unsigned char*)calloc((unsigned int)uncomprLen, 1);
