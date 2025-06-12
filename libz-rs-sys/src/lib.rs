@@ -99,7 +99,12 @@ pub type z_off_t = c_long;
 #[cfg(target_arch = "wasm32")]
 pub type z_off_t = i64;
 
+#[cfg(not(all(windows, target_env = "gnu")))]
 pub type z_off64_t = i64;
+
+// on windows gnu, z_off64_t is actually 32-bit ...
+#[cfg(all(windows, target_env = "gnu"))]
+pub type z_off64_t = z_off_t;
 
 /// Calculates the [crc32](https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks#CRC-32_algorithm) checksum
 /// of a sequence of bytes.

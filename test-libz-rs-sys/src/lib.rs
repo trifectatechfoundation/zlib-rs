@@ -39,6 +39,20 @@ macro_rules! assert_eq_rs_ng {
                     dictionary: *mut core::ffi::c_uchar,
                     dictLength: *mut core::ffi::c_uint,
                 ) -> core::ffi::c_int;
+
+                #[allow(unused)]
+                fn crc32_combine64(
+                    crc1: core::ffi::c_ulong,
+                    crc2: core::ffi::c_ulong,
+                    len2: libz_rs_sys::z_off64_t,
+                ) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
+                fn adler32_combine64(
+                    adler1: core::ffi::c_ulong,
+                    adler2: core::ffi::c_ulong,
+                    len2: libz_rs_sys::z_off64_t,
+                ) -> core::ffi::c_ulong;
             }
 
             $tt
@@ -1840,4 +1854,33 @@ fn deflate_stored_window_out_of_bounds() {
 
         let _ = unsafe { deflateEnd(strm) };
     });
+}
+
+#[test]
+fn test_crc32_combine64() {
+    use libz_rs_sys::z_off64_t;
+
+    let a = 0x98AB_CDEF;
+    let b = 0x1234_5678;
+
+    assert_eq_rs_ng!({ crc32_combine64(a, b, 0 as z_off64_t) });
+    assert_eq_rs_ng!({ crc32_combine64(a, b, 32 as z_off64_t) });
+    assert_eq_rs_ng!({ crc32_combine64(a, b, i32::MAX as z_off64_t) });
+
+    if core::mem::size_of::<z_off64_t>() == 8 {
+        assert_eq_rs_ng!({ crc32_combine64(a, b, i64::MAX as z_off64_t) });
+    }
+}
+
+#[test]
+fn test_adler32_combine64() {
+    use libz_rs_sys::z_off64_t;
+
+    let a = 0x98AB_CDEF;
+    let b = 0x1234_5678;
+
+    assert_eq_rs_ng!({ adler32_combine64(a, b, -1 as z_off64_t) });
+    assert_eq_rs_ng!({ adler32_combine64(a, b, 0 as z_off64_t) });
+    assert_eq_rs_ng!({ adler32_combine64(a, b, 32 as z_off64_t) });
+    assert_eq_rs_ng!({ adler32_combine64(a, b, i64::MAX as z_off64_t) });
 }
