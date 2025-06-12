@@ -701,6 +701,7 @@ fn gz_header_text_and_hcrc_check() {
         assert_eq!(err, 0);
 
         let strm = strm.assume_init_mut();
+        let empty_c_string = [0u8];
 
         let mut header = gz_header {
             text: -42,
@@ -708,8 +709,8 @@ fn gz_header_text_and_hcrc_check() {
             os: 0,
             extra: core::ptr::null_mut(),
             extra_len: 0,
-            name: [0u8].as_mut_ptr(),
-            comment: [0u8].as_mut_ptr(),
+            name: empty_c_string.as_ptr() as *mut _,
+            comment: empty_c_string.as_ptr() as *mut _,
             hcrc: -42,
             //
             xflags: 0,
