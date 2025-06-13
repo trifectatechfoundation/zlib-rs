@@ -6,12 +6,11 @@ pub use zlib_rs::c_api::*;
 use crate::gz::GzMode::GZ_READ;
 use crate::{
     deflate, deflateEnd, deflateInit2_, deflateReset, inflate, inflateEnd, inflateInit2_,
-    inflateReset, z_off_t, z_stream, zlibVersion,
+    inflateReset, z_off64_t, z_off_t, z_stream, zlibVersion,
 };
 use core::cmp::Ordering;
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::ptr;
-use libc::off_t;
 use libc::size_t; // FIXME: Switch to core::ffi::c_size_t when it's stable.
 use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET};
 use zlib_rs::deflate::Strategy;
@@ -206,6 +205,28 @@ enum Source {
 /// return value is non-NULL, caller must delete it using only [`gzclose`].
 ///
 /// [`gzfree`]: crate::z_stream
+#[export_name = crate::prefix!(gzopen64)]
+pub unsafe extern "C-unwind" fn gzopen64(path: *const c_char, mode: *const c_char) -> gzFile {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let source = Source::Path(path);
+    unsafe { gzopen_help(source, mode) }
+}
+
+/// Open a gzip file for reading or writing.
+///
+/// # Returns
+///
+/// * If successful, an opaque handle that the caller can later free with [`gzfree`]
+/// * On error, a null pointer
+///
+/// # Safety
+///
+/// The caller must ensure that `path` and `mode` point to valid C strings. If the
+/// return value is non-NULL, caller must delete it using only [`gzclose`].
+///
+/// [`gzfree`]: crate::z_stream
 #[export_name = crate::prefix!(gzopen)]
 pub unsafe extern "C-unwind" fn gzopen(path: *const c_char, mode: *const c_char) -> gzFile {
     if path.is_null() {
@@ -353,13 +374,13 @@ unsafe fn gzopen_help(source: Source, mode: *const c_char) -> gzFile {
     }
 
     if state.mode == GzMode::GZ_APPEND {
-        unsafe { libc::lseek(state.fd, 0, SEEK_END) }; // so gzoffset() is correct
+        lseek64(state.fd, 0, SEEK_END); // so gzoffset() is correct
         state.mode = GzMode::GZ_WRITE; // simplify later checks
     }
 
     if state.mode == GzMode::GZ_READ {
         // Save the current position for rewinding
-        unsafe { state.start = libc::lseek(state.fd, 0, SEEK_CUR) as _ };
+        state.start = lseek64(state.fd, 0, SEEK_CUR) as _;
         if state.start == -1 {
             state.start = 0;
         }
@@ -1941,8 +1962,8 @@ pub unsafe extern "C-unwind" fn gzflush(file: gzFile, flush: c_int) -> c_int {
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[export_name = crate::prefix!(gztell)]
-pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
+#[export_name = crate::prefix!(gztell64)]
+pub unsafe extern "C-unwind" fn gztell64(file: gzFile) -> z_off64_t {
     let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
         return -1;
     };
@@ -1955,8 +1976,67 @@ pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
 
     // Return position.
     match state.seek {
-        true => (state.pos + state.skip) as z_off_t,
-        false => state.pos as z_off_t,
+        true => (state.pos + state.skip) as z_off64_t,
+        false => state.pos as z_off64_t,
+    }
+}
+
+/// Return the starting position for the next [`gzread`] or [`gzwrite`] on `file`.
+/// This position represents a number of bytes in the uncompressed data stream,
+/// and is zero when starting, even if appending or reading a gzip stream from
+/// the middle of a file using [`gzdopen`].
+///
+/// # Returns
+///
+/// * The number of bytes prior to the current read or write position in the
+///   uncompressed data stream, on success.
+/// * -1 on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[export_name = crate::prefix!(gztell)]
+pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
+    z_off_t::try_from(unsafe { gztell64(file) }).unwrap_or(-1)
+}
+
+/// Return the current compressed (actual) read or write offset of `file`.  This
+/// offset includes the count of bytes that precede the gzip stream, for example
+/// when appending or when using [`gzdopen`] for reading. When reading, the
+/// offset does not include as yet unused buffered input. This information can
+//  be used for a progress indicator.
+///
+/// # Returns
+///
+/// * The number of bytes prior to the current read or write position in the
+///   compressed data stream, on success.
+/// * -1 on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[export_name = crate::prefix!(gzoffset64)]
+pub unsafe extern "C-unwind" fn gzoffset64(file: gzFile) -> z_off64_t {
+    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
+        return -1;
+    };
+
+    // Check integrity.
+    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
+        // Unreachable if `file` was initialized with `gzopen` or `gzdopen`.
+        return -1;
+    }
+
+    // Compute and return effective offset in file.
+    let offset = lseek64(state.fd, 0, SEEK_CUR) as z_off64_t;
+    if offset == -1 {
+        return -1;
+    }
+
+    // When reading, don't count buffered input.
+    match state.mode {
+        GzMode::GZ_READ => offset - state.stream.avail_in as z_off64_t,
+        GzMode::GZ_NONE | GzMode::GZ_WRITE | GzMode::GZ_APPEND => offset,
     }
 }
 
@@ -1977,27 +2057,7 @@ pub unsafe extern "C-unwind" fn gztell(file: gzFile) -> z_off_t {
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
 #[export_name = crate::prefix!(gzoffset)]
 pub unsafe extern "C-unwind" fn gzoffset(file: gzFile) -> z_off_t {
-    let Some(state) = (unsafe { file.cast::<GzState>().as_ref() }) else {
-        return -1;
-    };
-
-    // Check integrity.
-    if state.mode != GzMode::GZ_READ && state.mode != GzMode::GZ_WRITE {
-        // Unreachable if `file` was initialized with `gzopen` or `gzdopen`.
-        return -1;
-    }
-
-    // Compute and return effective offset in file.
-    let offset = unsafe { libc::lseek(state.fd, 0, SEEK_CUR) };
-    if offset == -1 {
-        return -1;
-    }
-
-    // When reading, don't count buffered input.
-    match state.mode {
-        GzMode::GZ_READ => offset - state.stream.avail_in as z_off_t,
-        GzMode::GZ_NONE | GzMode::GZ_WRITE | GzMode::GZ_APPEND => offset,
-    }
+    z_off_t::try_from(unsafe { gzoffset64(file) }).unwrap_or(-1)
 }
 
 /// Compress and write `c`, converted to an unsigned 8-bit char, into `file`.
@@ -2452,13 +2512,6 @@ pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy
 /// of zeroes up to the new starting position. If a negative `offset` is specified in
 /// write mode, `gzseek` returns -1.
 ///
-/// <div class="warning">
-///
-/// Warning: `gzseek` currently is implemented only for reads. Write support will be added
-/// in the future.
-///
-/// </div>
-///
 /// # Returns
 ///
 /// - The resulting offset location as measured in bytes from the beginning of the uncompressed
@@ -2468,8 +2521,12 @@ pub unsafe extern "C-unwind" fn gzsetparams(file: gzFile, level: c_int, strategy
 /// # Safety
 ///
 /// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
-#[export_name = crate::prefix!(gzseek)]
-pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_int) -> z_off_t {
+#[export_name = crate::prefix!(gzseek64)]
+pub unsafe extern "C-unwind" fn gzseek64(
+    file: gzFile,
+    offset: z_off64_t,
+    whence: c_int,
+) -> z_off64_t {
     let Some(state) = (unsafe { file.cast::<GzState>().as_mut() }) else {
         return -1;
     };
@@ -2500,7 +2557,11 @@ pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_
 
     // If we are reading non-compressed content, just lseek to the right location.
     if state.mode == GZ_READ && state.how == How::Copy && state.pos + offset >= 0 {
-        let ret = unsafe { libc::lseek(state.fd, offset as off_t - state.have as off_t, SEEK_CUR) };
+        let ret = lseek64(
+            state.fd,
+            offset as z_off64_t - state.have as z_off64_t,
+            SEEK_CUR,
+        );
         if ret == -1 {
             return -1;
         }
@@ -2563,6 +2624,32 @@ pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_
     (state.pos + offset) as _
 }
 
+/// Set the starting position to `offset` relative to `whence` for the next [`gzread`]
+/// or [`gzwrite`] on `file`. The `offset` represents a number of bytes in the
+/// uncompressed data stream. The `whence` parameter is defined as in `lseek(2)`,
+/// but only `SEEK_CUR` (relative to current position) and `SEEK_SET` (absolute from
+/// start of the uncompressed data stream) are supported.
+///
+/// If `file` is open for reading, this function is emulated but can extremely
+/// slow (because it operates on the decompressed data stream).  If `file` is open
+/// for writing, only forward seeks are supported; `gzseek` then compresses a sequence
+/// of zeroes up to the new starting position. If a negative `offset` is specified in
+/// write mode, `gzseek` returns -1.
+///
+/// # Returns
+///
+/// - The resulting offset location as measured in bytes from the beginning of the uncompressed
+///   stream, on success.
+/// - `-1` on error.
+///
+/// # Safety
+///
+/// - `file`, if non-null, must be an open file handle obtained from [`gzopen`] or [`gzdopen`].
+#[export_name = crate::prefix!(gzseek)]
+pub unsafe extern "C-unwind" fn gzseek(file: gzFile, offset: z_off_t, whence: c_int) -> z_off_t {
+    z_off_t::try_from(unsafe { gzseek64(file, offset as z_off64_t, whence) }).unwrap_or(-1)
+}
+
 /// Rewind `file` to the start. This function is supported only for reading.
 ///
 /// Note: `gzrewind(file)` is equivalent to [`gzseek`]`(file, 0, SEEK_SET)`
@@ -2587,7 +2674,7 @@ pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
     }
 
     // Back up and start over.
-    if unsafe { libc::lseek(state.fd, state.start as _, SEEK_SET) } == -1 {
+    if lseek64(state.fd, state.start as _, SEEK_SET) == -1 {
         return -1;
     }
     gz_reset(state);
@@ -2757,6 +2844,18 @@ unsafe fn gz_strcat(strings: &[&str]) -> *mut c_char {
     }
     unsafe { *dst = 0 };
     start
+}
+
+fn lseek64(fd: c_int, offset: z_off64_t, origin: c_int) -> z_off64_t {
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+    {
+        return unsafe { libc::lseek64(fd, offset as _, origin) as z_off64_t };
+    }
+
+    #[allow(unused)]
+    {
+        (unsafe { libc::lseek(fd, offset as _, origin) }) as z_off64_t
+    }
 }
 
 #[cfg(test)]
