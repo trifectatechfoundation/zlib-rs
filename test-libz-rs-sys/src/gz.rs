@@ -2,8 +2,8 @@ use zlib_rs::c_api::*;
 
 use z_rs::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
-    gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzputc, gzputs, gzread,
-    gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
+    gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzopen64, gzputc,
+    gzputs, gzread, gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
 };
 
 use libc::size_t;
@@ -180,7 +180,7 @@ fn gz_error_access() {
     // Open a valid gzip file; the error should be an empty string
     let path = CString::new(crate_path("src/test-data/issue-109.gz")).unwrap();
     let mode = CString::new("r").unwrap();
-    let handle = unsafe { gzopen(path.as_ptr(), mode.as_ptr()) };
+    let handle = unsafe { gzopen64(path.as_ptr(), mode.as_ptr()) };
     assert!(!handle.is_null());
     let mut gz_errno: c_int = UNSET_ERRNO;
     let err = unsafe { gzerror(handle, &mut gz_errno as *mut c_int) };
