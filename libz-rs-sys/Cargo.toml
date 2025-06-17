@@ -22,3 +22,6 @@ semver-prefix = ["export-symbols"] # prefix all symbols in a semver-compatible w
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
+
+[lib]
+crate-type = ["cdylib", "lib", "staticlib"]
