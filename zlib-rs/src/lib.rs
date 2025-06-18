@@ -11,7 +11,6 @@ mod cpu_features;
 pub mod crc32;
 pub mod deflate;
 pub mod inflate;
-pub mod read_buf;
 mod weak_slice;
 
 pub use adler32::{adler32, adler32_combine};
