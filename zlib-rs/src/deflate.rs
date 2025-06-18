@@ -6,7 +6,6 @@ use crate::{
     allocate::Allocator,
     c_api::{gz_header, internal_state, z_checksum, z_stream},
     crc32::{crc32, Crc32Fold},
-    read_buf::ReadBuf,
     trace,
     weak_slice::{WeakArrayMut, WeakSliceMut},
     DeflateFlush, ReturnCode, ADLER32_INITIAL_VALUE, CRC32_INITIAL_VALUE, MAX_WBITS, MIN_WBITS,
@@ -16,6 +15,7 @@ use self::{
     algorithm::CONFIGURATION_TABLE,
     hash_calc::{HashCalcVariant, RollHashCalc, StandardHashCalc},
     pending::Pending,
+    sym_buf::SymBuf,
     trees_tbl::STATIC_LTREE,
     window::Window,
 };
@@ -26,6 +26,7 @@ mod hash_calc;
 mod longest_match;
 mod pending;
 mod slide_hash;
+mod sym_buf;
 mod trees_tbl;
 mod window;
 
@@ -295,7 +296,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
     let pending = Pending::new_in(&alloc, 4 * lit_bufsize);
 
     // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
-    let sym_buf = ReadBuf::new_in(&alloc, 3 * lit_bufsize);
+    let sym_buf = SymBuf::new_in(&alloc, lit_bufsize);
 
     // if any allocation failed, clean up allocations that did succeed
     let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
@@ -306,7 +307,7 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
             // SAFETY: these pointers/structures are discarded after deallocation.
             unsafe {
                 if let Some(mut sym_buf) = sym_buf {
-                    alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
+                    sym_buf.drop_in(&alloc);
                 }
                 if let Some(mut pending) = pending {
                     pending.drop_in(&alloc);
@@ -623,7 +624,7 @@ pub fn copy<'a>(
             // SAFETY: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
             unsafe {
                 if let Some(mut sym_buf) = sym_buf {
-                    alloc.deallocate(sym_buf.as_mut_ptr(), sym_buf.capacity())
+                    sym_buf.drop_in(alloc);
                 }
                 if let Some(mut pending) = pending {
                     pending.drop_in(alloc);
@@ -1166,15 +1167,11 @@ impl<'a> BitWriter<'a> {
         match_bits_len
     }
 
-    fn compress_block_help(&mut self, sym_buf: &[u8], ltree: &[Value], dtree: &[Value]) {
-        for chunk in sym_buf.chunks_exact(3) {
-            let [dist_low, dist_high, lc] = *chunk else {
-                unreachable!("out of bound access on the symbol buffer");
-            };
-
-            match u16::from_le_bytes([dist_low, dist_high]) {
+    fn compress_block_help(&mut self, sym_buf: &SymBuf, ltree: &[Value], dtree: &[Value]) {
+        for (dist, lc) in sym_buf.iter() {
+            match dist {
                 0 => self.emit_lit(ltree, lc) as usize,
-                dist => self.emit_dist(ltree, dtree, lc, dist),
+                _ => self.emit_dist(ltree, dtree, lc, dist),
             };
         }
 
@@ -1322,7 +1319,7 @@ pub(crate) struct State<'a> {
     /// negative when the window is moved backwards.
     pub(crate) block_start: isize,
 
-    pub(crate) sym_buf: ReadBuf<'a>,
+    pub(crate) sym_buf: SymBuf<'a>,
 
     _cache_line_1: (),
 
@@ -1467,9 +1464,9 @@ impl<'a> State<'a> {
         Self::tally_lit_help(&mut self.sym_buf, &mut self.l_desc, unmatched)
     }
 
-    #[inline(always)]
+    // This helper is to work around an ownership issue in algorithm/medium.
     pub(crate) fn tally_lit_help(
-        sym_buf: &mut ReadBuf<'a>,
+        sym_buf: &mut SymBuf,
         l_desc: &mut TreeDesc<HEAP_SIZE>,
         unmatched: u8,
     ) -> bool {
@@ -1483,7 +1480,7 @@ impl<'a> State<'a> {
         );
 
         // signal that the current block should be flushed
-        sym_buf.len() == sym_buf.capacity() - 3
+        sym_buf.should_flush_block()
     }
 
     const fn d_code(dist: usize) -> u8 {
@@ -1509,7 +1506,7 @@ impl<'a> State<'a> {
         *self.d_desc.dyn_tree[Self::d_code(dist) as usize].freq_mut() += 1;
 
         // signal that the current block should be flushed
-        self.sym_buf.len() == self.sym_buf.capacity() - 3
+        self.sym_buf.should_flush_block()
     }
 
     fn detect_data_type(dyn_tree: &[Value]) -> DataType {
@@ -1543,14 +1540,10 @@ impl<'a> State<'a> {
 
     fn compress_block_static_trees(&mut self) {
         let ltree = self::trees_tbl::STATIC_LTREE.as_slice();
-        for chunk in self.sym_buf.filled().chunks_exact(3) {
-            let [dist_low, dist_high, lc] = *chunk else {
-                unreachable!("out of bound access on the symbol buffer");
-            };
-
-            match u16::from_le_bytes([dist_low, dist_high]) {
+        for (dist, lc) in self.sym_buf.iter() {
+            match dist {
                 0 => self.bit_writer.emit_lit(ltree, lc) as usize,
-                dist => self.bit_writer.emit_dist_static(lc, dist),
+                _ => self.bit_writer.emit_dist_static(lc, dist),
             };
         }
 
@@ -1559,7 +1552,7 @@ impl<'a> State<'a> {
 
     fn compress_block_dynamic_trees(&mut self) {
         self.bit_writer.compress_block_help(
-            self.sym_buf.filled(),
+            &self.sym_buf,
             &self.l_desc.dyn_tree,
             &self.d_desc.dyn_tree,
         );

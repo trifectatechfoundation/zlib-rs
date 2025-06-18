@@ -1,44 +1,34 @@
 // taken from https://docs.rs/tokio/latest/src/tokio/io/read_buf.rs.html#23-27
 // based on https://rust-lang.github.io/rfcs/2930-read-buf.html
-use core::fmt;
 
 use crate::allocate::Allocator;
 use crate::weak_slice::WeakSliceMut;
 
-pub struct ReadBuf<'a> {
+pub(crate) struct SymBuf<'a> {
     buf: WeakSliceMut<'a, u8>,
     filled: usize,
 }
 
-impl<'a> ReadBuf<'a> {
-    /// Pointer to the start of the `ReadBuf`
+impl<'a> SymBuf<'a> {
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.buf.as_mut_ptr()
+    pub fn iter(&self) -> impl Iterator<Item = (u16, u8)> + '_ {
+        self.buf.as_slice()[..self.filled]
+            .chunks_exact(3)
+            .map(|chunk| match *chunk {
+                [dist_low, dist_high, lc] => (u16::from_le_bytes([dist_low, dist_high]), lc),
+                _ => unreachable!("chunks are exactly 3 elements wide"),
+            })
     }
 
-    /// Returns the total capacity of the buffer.
     #[inline]
-    pub fn capacity(&self) -> usize {
-        self.buf.len()
-    }
-
-    /// Returns the length of the filled part of the buffer
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.filled
+    pub fn should_flush_block(&self) -> bool {
+        self.filled == self.buf.len() - 3
     }
 
     /// Returns true if there are no bytes in this ReadBuf
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.filled == 0
-    }
-
-    /// Returns a shared reference to the filled portion of the buffer.
-    #[inline]
-    pub fn filled(&self) -> &[u8] {
-        &self.buf.as_slice()[..self.filled]
     }
 
     /// Clears the buffer, resetting the filled region to empty.
@@ -71,16 +61,16 @@ impl<'a> ReadBuf<'a> {
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
-        let ptr = alloc.allocate_zeroed_buffer(len)?;
+        let ptr = alloc.allocate_zeroed_buffer(len * 3)?;
 
         // safety: all elements are now initialized
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len * 3) };
 
         Some(Self { buf, filled: 0 })
     }
 
     pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let mut clone = Self::new_in(alloc, self.buf.len())?;
+        let mut clone = Self::new_in(alloc, self.buf.len() / 3)?;
 
         clone
             .buf
@@ -94,16 +84,7 @@ impl<'a> ReadBuf<'a> {
     pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator<'a>) {
         if !self.buf.is_empty() {
             let mut buf = core::mem::replace(&mut self.buf, WeakSliceMut::empty());
-            alloc.deallocate(buf.as_mut_ptr(), buf.len());
+            unsafe { alloc.deallocate(buf.as_mut_ptr(), buf.len()) }
         }
-    }
-}
-
-impl fmt::Debug for ReadBuf<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ReadBuf")
-            .field("filled", &self.filled)
-            .field("capacity", &self.capacity())
-            .finish()
     }
 }
