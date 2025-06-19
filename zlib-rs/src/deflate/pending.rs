@@ -61,7 +61,7 @@ impl<'a> Pending<'a> {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     #[track_caller]
     pub fn extend(&mut self, buf: &[u8]) {
         assert!(
