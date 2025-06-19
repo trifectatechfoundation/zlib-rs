@@ -8,23 +8,27 @@ use crate::allocate::Allocator;
 pub(crate) struct SymBuf<'a> {
     ptr: *mut u8,
     sym_next: usize,
-    sym_end: usize,
+    symbol_count: usize,
     _marker: PhantomData<&'a mut [u8]>,
 }
 
 impl<'a> SymBuf<'a> {
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (u16, u8)> + '_ {
-        let slice = unsafe { core::slice::from_raw_parts(self.ptr, self.sym_next) };
-        slice.chunks_exact(3).map(|chunk| match *chunk {
-            [dist_low, dist_high, lc] => (u16::from_le_bytes([dist_low, dist_high]), lc),
-            _ => unreachable!("chunks are exactly 3 elements wide"),
-        })
+        let len = unsafe { core::slice::from_raw_parts(self.ptr, self.sym_next) };
+        let dist = unsafe {
+            core::slice::from_raw_parts(
+                self.ptr.add(self.symbol_count).cast::<u16>(),
+                self.sym_next,
+            )
+        };
+
+        dist.iter().copied().zip(len.iter().copied())
     }
 
     #[inline]
     pub fn should_flush_block(&self) -> bool {
-        self.sym_next == self.sym_end
+        self.sym_next == self.symbol_count - 1
     }
 
     /// Returns true if there are no bytes in this ReadBuf
@@ -38,30 +42,32 @@ impl<'a> SymBuf<'a> {
     /// The number of initialized bytes is not changed, and the contents of the buffer are not modified.
     #[inline]
     pub fn clear(&mut self) {
-        unsafe { core::ptr::write_bytes(self.ptr, 0, self.sym_next) };
+        unsafe { core::ptr::write_bytes(self.ptr, 0, self.symbol_count * 3) };
         self.sym_next = 0;
     }
 
     #[inline(always)]
     pub fn push_lit(&mut self, byte: u8) {
         // NOTE: we rely on the buffer being zeroed here!
-        unsafe { self.ptr.add(self.sym_next + 2).write(byte) };
+        unsafe { self.ptr.add(self.sym_next).write(byte) };
 
-        self.sym_next += 3;
+        self.sym_next += 1;
     }
 
     #[inline(always)]
     pub fn push_dist(&mut self, dist: u16, len: u8) {
-        let [dist1, dist2] = dist.to_le_bytes();
-
         unsafe {
             let ptr = self.ptr.add(self.sym_next);
-            ptr.add(0).write(dist1);
-            ptr.add(1).write(dist2);
-            ptr.add(2).write(len);
+            ptr.write(len);
+
+            let ptr = self
+                .ptr
+                .add(self.symbol_count + self.sym_next * 2)
+                .cast::<u16>();
+            ptr.write(dist);
         }
 
-        self.sym_next += 3;
+        self.sym_next += 1;
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
@@ -69,19 +75,19 @@ impl<'a> SymBuf<'a> {
 
         Some(Self {
             ptr: ptr.as_ptr(),
-            sym_end: len * 3 - 3,
+            symbol_count: len,
             sym_next: 0,
             _marker: PhantomData,
         })
     }
 
     pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let mut clone = Self::new_in(alloc, self.sym_end + 3)?;
+        let mut clone = Self::new_in(alloc, self.symbol_count * 3)?;
 
-        unsafe { core::ptr::copy_nonoverlapping(self.ptr, clone.ptr, self.sym_next) };
+        unsafe { core::ptr::copy_nonoverlapping(self.ptr, clone.ptr, self.symbol_count * 3) };
 
         clone.sym_next = self.sym_next;
-        clone.sym_end = self.sym_end;
+        clone.symbol_count = self.symbol_count;
 
         Some(clone)
     }
@@ -89,7 +95,7 @@ impl<'a> SymBuf<'a> {
     pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator<'a>) {
         if !self.ptr.is_null() {
             let buf = core::mem::replace(&mut self.ptr, core::ptr::null_mut());
-            unsafe { alloc.deallocate(buf, self.sym_end + 3) }
+            unsafe { alloc.deallocate(buf, self.symbol_count * 3) }
         }
     }
 }
