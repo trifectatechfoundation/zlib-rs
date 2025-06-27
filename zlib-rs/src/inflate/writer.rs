@@ -350,9 +350,7 @@ mod test {
         assert_eq!(
             buf[M..][..length],
             naive[M..][..length],
-            "{} {}",
-            offset_from_end,
-            length
+            "{offset_from_end} {length}"
         );
     }
 

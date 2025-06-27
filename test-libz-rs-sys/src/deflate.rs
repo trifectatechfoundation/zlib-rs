@@ -2334,7 +2334,7 @@ fn copy_uninitialized_window_section() {
 
                     left -= avail - stream.avail_in;
                 }
-                err => panic!("fatal {:?}", err),
+                err => panic!("fatal {err:?}"),
             }
         }
 
@@ -2364,7 +2364,7 @@ fn copy_uninitialized_window_section() {
                 }
             }
             ReturnCode::StreamEnd => { /* do nothing, we're done */ }
-            err => panic!("fatal {:?}", err),
+            err => panic!("fatal {err:?}"),
         }
 
         dest.truncate(stream.total_out as usize);
@@ -2458,7 +2458,7 @@ fn crc32_hash_calc_uninitialized_memory() {
                 let err = unsafe { deflateParams(stream, new_level, config.strategy as _) };
                 assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
             }
-            err => panic!("fatal {:?}", err),
+            err => panic!("fatal {err:?}"),
         }
 
         // Deflate the rest in chunks.
@@ -2483,7 +2483,7 @@ fn crc32_hash_calc_uninitialized_memory() {
 
                     left -= avail - stream.avail_in;
                 }
-                err => panic!("fatal {:?}", err),
+                err => panic!("fatal {err:?}"),
             }
         }
 

@@ -53,7 +53,7 @@ pub fn main() {
             let input = std::fs::read(path).unwrap();
 
             let h = zlib_rs::adler32(42, &input);
-            println!("{:#x}", h);
+            println!("{h:#x}");
         }
 
         other => panic!(
