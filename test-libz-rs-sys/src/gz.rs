@@ -477,7 +477,7 @@ fn gzread_direct() {
         bytes_read += ret as usize;
     }
     let Ok(size) = file_size(path.as_str()) else {
-        panic!("Could not find size of file {}", path);
+        panic!("Could not find size of file {path}");
     };
     assert_eq!(bytes_read, size);
 

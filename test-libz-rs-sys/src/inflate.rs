@@ -347,7 +347,7 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
         if matches!(ret, Z_NEED_DICT) {
             let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 1) };
-            println!("{:?}", ret);
+            println!("{ret:?}");
             assert_eq!(ret, Z_DATA_ERROR);
 
             mem_limit(&mut stream, 1);
@@ -1778,7 +1778,7 @@ fn window_match_bug() {
                     stream.avail_out = buf.len() as _;
                 }
                 ReturnCode::StreamEnd => break,
-                other => panic!("unexpected {:?}", other),
+                other => panic!("unexpected {other:?}"),
             }
         }
 
@@ -1985,12 +1985,12 @@ fn issue_172() {
                 ret = inflate(strm, Z_NO_FLUSH);
             }
             if ret != Z_STREAM_END {
-                eprintln!("Finished with {} at chunk size {}\n", ret, chunk);
+                eprintln!("Finished with {ret} at chunk size {chunk}\n");
                 exitcode = 1;
             }
 
             if &out[..strm.total_out as usize] != b"expected output" {
-                eprintln!("Output did not match at chunk size {}\n", chunk);
+                eprintln!("Output did not match at chunk size {chunk}\n");
                 exitcode = 1;
             }
 
@@ -2165,7 +2165,7 @@ fn issue_232() {
                 stream.avail_out += add_space;
             }
             err => {
-                panic!("{:?}", err);
+                panic!("{err:?}");
             }
         }
     }

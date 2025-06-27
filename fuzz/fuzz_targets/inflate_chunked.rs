@@ -103,10 +103,10 @@ fuzz_target!(|input: (String, usize)| {
             ReturnCode::StreamEnd => continue,
             _ => {
                 if stream.msg.is_null() {
-                    panic!("{:?}: <no error message>", return_code)
+                    panic!("{return_code:?}: <no error message>")
                 } else {
                     let msg = unsafe { std::ffi::CStr::from_ptr(stream.msg) };
-                    panic!("{:?}: {:?}", return_code, msg)
+                    panic!("{return_code:?}: {msg:?}")
                 }
             }
         }

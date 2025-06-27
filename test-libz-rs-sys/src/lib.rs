@@ -1821,7 +1821,7 @@ fn deflate_stored_window_out_of_bounds() {
                 let err = unsafe { deflateParams(strm, new_level, new_strategy) };
                 assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
             }
-            err => panic!("fatal {:?}", err),
+            err => panic!("fatal {err:?}"),
         }
 
         // Deflate the rest in chunks.
@@ -1846,7 +1846,7 @@ fn deflate_stored_window_out_of_bounds() {
 
                     left -= avail - strm.avail_in;
                 }
-                err => panic!("fatal {:?}", err),
+                err => panic!("fatal {err:?}"),
             }
         }
 

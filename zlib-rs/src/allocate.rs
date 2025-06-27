@@ -335,7 +335,7 @@ impl Allocator<'_> {
             // Special case for the Rust `alloc` backed allocator
             #[cfg(feature = "rust-allocator")]
             if self.zfree == Allocator::RUST.zfree {
-                assert_ne!(len, 0, "invalid size for {:?}", ptr);
+                assert_ne!(len, 0, "invalid size for {ptr:?}");
                 let mut size = core::mem::size_of::<T>() * len;
                 return (Allocator::RUST.zfree)(&mut size as *mut usize as *mut c_void, ptr.cast());
             }
