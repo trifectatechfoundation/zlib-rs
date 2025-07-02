@@ -20,6 +20,7 @@ rust-allocator = [] # expose a rust global alloctor
 __internal-fuzz = ["arbitrary"]
 __internal-fuzz-disable-checksum = [] # disable checksum validation on inflate
 __internal-test = ["quickcheck"]
+__internal-intel-cpu-bug = []
 ZLIB_DEBUG = []
 
 

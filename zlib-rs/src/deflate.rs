@@ -1169,6 +1169,12 @@ impl<'a> BitWriter<'a> {
 
     fn compress_block_help(&mut self, sym_buf: &SymBuf, ltree: &[Value], dtree: &[Value]) {
         for (dist, lc) in sym_buf.iter() {
+            if cfg!(feature = "__internal-intel-cpu-bug") {
+                assert!(
+                    (if dist < 256 { dist } else { 256 + (dist >> 7) } as usize)
+                        < self::trees_tbl::DIST_CODE.len()
+                );
+            }
             match dist {
                 0 => self.emit_lit(ltree, lc) as usize,
                 _ => self.emit_dist(ltree, dtree, lc, dist),
@@ -1483,6 +1489,15 @@ impl<'a> State<'a> {
         sym_buf.should_flush_block()
     }
 
+    #[cfg(feature = "__internal-intel-cpu-bug")]
+    #[inline(never)]
+    #[no_mangle]
+    const fn d_code(dist: usize) -> u8 {
+        let index = if dist < 256 { dist } else { 256 + (dist >> 7) };
+        self::trees_tbl::DIST_CODE[index]
+    }
+
+    #[cfg(not(feature = "__internal-intel-cpu-bug"))]
     const fn d_code(dist: usize) -> u8 {
         let index = if dist < 256 { dist } else { 256 + (dist >> 7) };
         self::trees_tbl::DIST_CODE[index]
