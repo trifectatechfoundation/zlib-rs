@@ -1,4 +1,5 @@
 #![allow(unpredictable_function_pointer_comparisons)]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 #[cfg(unix)]
 use core::ffi::c_int;
@@ -6,6 +7,7 @@ use core::{
     alloc::Layout,
     ffi::{c_uint, c_void},
     marker::PhantomData,
+    mem,
     ptr::NonNull,
 };
 
@@ -16,6 +18,9 @@ use alloc::alloc::GlobalAlloc;
 type size_t = usize;
 
 const ALIGN: u8 = 64;
+// posix_memalign requires that the alignment be a power of two and a multiple of sizeof(void*).
+const _: () = assert!(crate::allocate::ALIGN.count_ones() == 1);
+const _: () = assert!(crate::allocate::ALIGN as usize % mem::size_of::<*mut c_void>() == 0);
 
 /// # Safety
 ///
@@ -29,7 +34,8 @@ unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) 
     }
 
     let mut ptr = core::ptr::null_mut();
-    match posix_memalign(&mut ptr, ALIGN.into(), items as size_t * size as size_t) {
+    // SAFETY: ALIGN is a power of 2 and multiple of sizeof(void*), as required by posix_memalign
+    match unsafe { posix_memalign(&mut ptr, ALIGN.into(), items as size_t * size as size_t) } {
         0 => ptr,
         _ => core::ptr::null_mut(),
     }

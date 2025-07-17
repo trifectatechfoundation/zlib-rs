@@ -1,3 +1,5 @@
+#![allow(unsafe_op_in_unsafe_fn)] // FIXME
+
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::Range;
@@ -18,6 +20,10 @@ impl<'a> Writer<'a> {
     }
 
     /// Creates a new `Writer` from an uninitialized buffer.
+    ///
+    /// # Safety
+    ///
+    /// The arguments must satisfy the requirements of [`core::slice::from_raw_parts_mut`].
     #[inline]
     pub unsafe fn new_uninit(ptr: *mut u8, len: usize) -> Writer<'a> {
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len) };

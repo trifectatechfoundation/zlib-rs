@@ -20,6 +20,9 @@ panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
 [profile.release]
 panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
 [features]
 default = ["c-allocator"] # when used as a cdylib crate, use the c allocator
 c-allocator = ["libz-rs-sys/c-allocator"] # by default, use malloc/free for memory allocation
