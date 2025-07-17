@@ -114,10 +114,16 @@ impl<'a> BitReader<'a> {
     }
 
     #[inline(always)]
-    pub fn refill(&mut self) {
+    /// Copy enough bytes from the BitReader's underlying slice to fill the internal
+    /// bit buffer with 7 bytes of data.
+    ///
+    /// Safety:
+    ///
+    /// `self.ptr` must point to at least 8 readable bytes, as indicated by `bytes_remaining()`
+    pub unsafe fn refill(&mut self) {
         debug_assert!(self.bytes_remaining() >= 8);
 
-        // SAFETY: assertion above ensures we have 8 bytes to read for a u64.
+        // SAFETY: caller ensures we have 8 bytes to read for a u64.
         let read = unsafe { core::ptr::read_unaligned(self.ptr.cast::<u64>()) }.to_le();
         self.bit_buffer |= read << self.bits_used;
         // this xor was previously a subtraction but was changed for performance reasons.
