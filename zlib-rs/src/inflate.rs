@@ -1862,7 +1862,19 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
     let mut bad = None;
 
     if bit_reader.bits_in_buffer() < 10 {
-        bit_reader.refill();
+        if bit_reader.bytes_remaining() >= 8 {
+            // Safety: bytes_remaining >= 8 satisfies the precondition for refill
+            unsafe { bit_reader.refill() };
+        } else {
+            return;
+        }
+    }
+
+    // The first iteration of the loop will call bit_reader.refill(), so pre-check the
+    // safety requirements for that. (The check for subsequent loop iterations will happen
+    // in the continuation check logic at the end of the outer loop.)
+    if bit_reader.bytes_remaining() < 8 {
+        return;
     }
 
     'outer: loop {
@@ -1870,7 +1882,11 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
             let bits = bit_reader.bits_in_buffer();
             let hold = bit_reader.hold();
 
-            bit_reader.refill();
+            // Safety: For the 1st loop iteration, we verified above that the bit_reader
+            // has enough data left over for the refill operation. For subsequent iterations,
+            // we verified this as part of the loop continuation check at the end of the
+            // outer loop.
+            unsafe { bit_reader.refill() };
 
             // in most cases, the read can be interleaved with the logic
             // based on benchmarks this matters in practice. wild.
@@ -1909,7 +1925,8 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
                 // we have two fast-path loads: 10+10 + 15+5 = 40,
                 // but we may need to refill here in the worst case
                 if bit_reader.bits_in_buffer() < MAX_BITS + MAX_DIST_EXTRA_BITS {
-                    bit_reader.refill();
+                    // Safety: TODO
+                    unsafe { bit_reader.refill() };
                 }
 
                 'dodist: loop {
@@ -2031,7 +2048,11 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
         // include the bits in the bit_reader buffer in the count of available bytes
         let remaining = bit_reader.bytes_remaining_including_buffer();
         if remaining >= INFLATE_FAST_MIN_HAVE && writer.remaining() >= INFLATE_FAST_MIN_LEFT {
-            continue;
+            // The next loop iteration will call bit_reader.refill(), so verify that there
+            // are enough bytes available for that.
+            if bit_reader.bytes_remaining() >= 8 {
+                continue;
+            }
         }
 
         break 'outer;
