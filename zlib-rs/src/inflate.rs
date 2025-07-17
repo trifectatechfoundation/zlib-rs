@@ -92,7 +92,7 @@ impl<'a> InflateStream<'a> {
         }
 
         // Safety: InflateStream has an equivalent layout as z_stream
-        strm.cast::<InflateStream>().as_ref()
+        unsafe { strm.cast::<InflateStream>().as_ref() }
     }
 
     /// # Safety
@@ -119,7 +119,7 @@ impl<'a> InflateStream<'a> {
         }
 
         // Safety: InflateStream has an equivalent layout as z_stream
-        strm.cast::<InflateStream>().as_mut()
+        unsafe { strm.cast::<InflateStream>().as_mut() }
     }
 
     fn as_z_stream_mut(&mut self) -> &mut z_stream {
@@ -2243,7 +2243,8 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
             .bit_reader
             .update_slice(stream.next_in, stream.avail_in as usize)
     };
-    state.writer = Writer::new_uninit(stream.next_out.cast(), stream.avail_out as usize);
+    // Safety: `stream.next_out` is non-null and points to at least `stream.avail_out` bytes.
+    state.writer = unsafe { Writer::new_uninit(stream.next_out.cast(), stream.avail_out as usize) };
 
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
@@ -2468,7 +2469,7 @@ pub unsafe fn copy<'a>(
     if !state.window.is_empty() {
         let Some(window) = state.window.clone_in(&source.alloc) else {
             // SAFETY: state_allocation is not used again.
-            source.alloc.deallocate(state_allocation.as_ptr(), 1);
+            unsafe { source.alloc.deallocate(state_allocation.as_ptr(), 1) };
             return ReturnCode::MemError;
         };
 

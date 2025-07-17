@@ -1,4 +1,3 @@
-#![warn(unsafe_op_in_unsafe_fn)]
 use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(target_arch = "aarch64")]

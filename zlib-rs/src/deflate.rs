@@ -1,4 +1,3 @@
-#![warn(unsafe_op_in_unsafe_fn)]
 use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 
 use crate::{
