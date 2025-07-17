@@ -515,7 +515,8 @@ impl State<'_> {
         let avail_out = self.writer.remaining();
 
         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
-            inflate_fast_help(self, 0);
+            // SAFETY: INFLATE_FAST_MIN_HAVE is enough bytes remaining to satisfy the precondition.
+            unsafe { inflate_fast_help(self, 0) };
             match self.mode {
                 Mode::Len => {}
                 _ => return ControlFlow::Continue(()),
@@ -571,7 +572,10 @@ impl State<'_> {
                         // bytes
                         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
                             restore!();
-                            inflate_fast_help(self, 0);
+                            // SAFETY: INFLATE_FAST_MIN_HAVE >= 15.
+                            // Note that the restore macro does not do anything that would
+                            // reduce the number of bytes available.
+                            unsafe { inflate_fast_help(self, 0) };
                             return ControlFlow::Continue(());
                         }
 
@@ -1817,32 +1821,52 @@ impl State<'_> {
     }
 }
 
-fn inflate_fast_help(state: &mut State, start: usize) {
+/// # Safety
+///
+/// `state.bit_reader` must have at least 15 bytes available to read, as
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+unsafe fn inflate_fast_help(state: &mut State, start: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if crate::cpu_features::is_enabled_avx2_and_bmi2() {
-        // SAFETY: we've verified the target features
+        // SAFETY: we've verified the target features and the caller ensured enough bytes_remaining
         return unsafe { inflate_fast_help_avx2(state, start) };
     }
 
-    inflate_fast_help_vanilla(state, start);
+    // SAFETY: The caller ensured enough bytes_remaining
+    unsafe { inflate_fast_help_vanilla(state, start) };
 }
 
+/// # Safety
+///
+/// `state.bit_reader` must have at least 15 bytes available to read, as
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[target_feature(enable = "avx2")]
 #[target_feature(enable = "bmi2")]
 #[target_feature(enable = "bmi1")]
 unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
-    inflate_fast_help_impl::<{ CpuFeatures::AVX2 }>(state, start);
+    // SAFETY: `bytes_remaining` checked by our caller
+    unsafe { inflate_fast_help_impl::<{ CpuFeatures::AVX2 }>(state, start) };
 }
 
-fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
-    inflate_fast_help_impl::<{ CpuFeatures::NONE }>(state, start);
+/// # Safety
+///
+/// `state.bit_reader` must have at least 15 bytes available to read, as
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+unsafe fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
+    // SAFETY: `bytes_remaining` checked by our caller
+    unsafe { inflate_fast_help_impl::<{ CpuFeatures::NONE }>(state, start) };
 }
 
+/// # Safety
+///
+/// `state.bit_reader` must have at least 15 bytes available to read, as
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`
 #[inline(always)]
-fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usize) {
+unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usize) {
     let mut bit_reader = BitReader::new(&[]);
     core::mem::swap(&mut bit_reader, &mut state.bit_reader);
+    debug_assert!(bit_reader.bytes_remaining() >= 15);
 
     let mut writer = Writer::new(&mut []);
     core::mem::swap(&mut writer, &mut state.writer);
@@ -1862,15 +1886,40 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
     let mut bad = None;
 
     if bit_reader.bits_in_buffer() < 10 {
-        bit_reader.refill();
+        debug_assert!(bit_reader.bytes_remaining() >= 15);
+        // Safety: Caller ensured that bit_reader has >= 15 bytes available; refill only needs 8.
+        unsafe { bit_reader.refill() };
     }
+    // We had at least 15 bytes in the slice, plus whatever was in the buffer. After filling the
+    // buffer from the slice, we now have at least 8 bytes remaining in the slice, plus a full buffer.
+    debug_assert!(
+        bit_reader.bytes_remaining() >= 8 && bit_reader.bytes_remaining_including_buffer() >= 15
+    );
 
     'outer: loop {
+        // This condition is ensured above for the first iteration of the `outer` loop. For
+        // subsequent iterations, the loop continuation condition is
+        // `bit_reader.bytes_remaining_including_buffer() > 15`. And because the buffer
+        // contributes at most 7 bytes to the result of bit_reader.bytes_remaining_including_buffer(),
+        // that means that the slice contains at least 8 bytes.
+        debug_assert!(
+            bit_reader.bytes_remaining() >= 8
+                && bit_reader.bytes_remaining_including_buffer() >= 15
+        );
+
         let mut here = {
             let bits = bit_reader.bits_in_buffer();
             let hold = bit_reader.hold();
 
-            bit_reader.refill();
+            // Safety: As described in the comments for the debug_assert at the start of
+            // the `outer` loop, it is guaranteed that `bit_reader.bytes_remaining() >= 8` here,
+            // which satisfies the safety precondition for `refill`. And, because the total
+            // number of bytes in `bit_reader`'s buffer plus its slice is at least 15, and
+            // `refill` moves at most 7 bytes from the slice to the buffer, the slice will still
+            // contain at least 8 bytes after this `refill` call.
+            unsafe { bit_reader.refill() };
+            // After the refill, there will be at least 8 bytes left in the bit_reader's slice.
+            debug_assert!(bit_reader.bytes_remaining() >= 8);
 
             // in most cases, the read can be interleaved with the logic
             // based on benchmarks this matters in practice. wild.
@@ -1909,7 +1958,14 @@ fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usiz
                 // we have two fast-path loads: 10+10 + 15+5 = 40,
                 // but we may need to refill here in the worst case
                 if bit_reader.bits_in_buffer() < MAX_BITS + MAX_DIST_EXTRA_BITS {
-                    bit_reader.refill();
+                    debug_assert!(bit_reader.bytes_remaining() >= 8);
+                    // Safety: On the first iteration of the `dolen` loop, we can rely on the
+                    // invariant documented for the previous `refill` call above: after that
+                    // operation, `bit_reader.bytes_remining >= 8`, which satisfies the safety
+                    // precondition for this call. For subsequent iterations, this invariant
+                    // remains true because nothing else within the `dolen` loop consumes data
+                    // from the slice.
+                    unsafe { bit_reader.refill() };
                 }
 
                 'dodist: loop {
