@@ -1,5 +1,3 @@
-#![warn(unsafe_op_in_unsafe_fn)]
-
 use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 

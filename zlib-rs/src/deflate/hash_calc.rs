@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::deflate::{State, HASH_SIZE, STD_MIN_MATCH};
 
 #[derive(Debug, Clone, Copy)]
