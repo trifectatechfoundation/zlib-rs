@@ -386,7 +386,7 @@ jobs:
         run: |
           cargo build --release --target ${{matrix.target}} --features=semver-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
-      - run: sudo apt-get install -y valgrind
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
       - name: "cdylib: example.c"
         env:
           LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
