@@ -41,10 +41,24 @@ macro_rules! assert_eq_rs_ng {
                 ) -> core::ffi::c_int;
 
                 #[allow(unused)]
+                fn crc32_z(
+                    crc: core::ffi::c_ulong,
+                    buf: *const Bytef,
+                    len: libz_rs_sys::size_t,
+                ) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
                 fn crc32_combine64(
                     crc1: core::ffi::c_ulong,
                     crc2: core::ffi::c_ulong,
                     len2: libz_rs_sys::z_off64_t,
+                ) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
+                fn adler32_z(
+                    crc: core::ffi::c_ulong,
+                    buf: *const Bytef,
+                    len: libz_rs_sys::size_t,
                 ) -> core::ffi::c_ulong;
 
                 #[allow(unused)]
@@ -1857,6 +1871,13 @@ fn deflate_stored_window_out_of_bounds() {
 }
 
 #[test]
+fn test_crc32_z() {
+    assert_eq_rs_ng!({ crc32_z(0, core::ptr::null(), 0) });
+    assert_eq_rs_ng!({ crc32_z(1, core::ptr::null(), 0) });
+    assert_eq_rs_ng!({ crc32_z(2, core::ptr::null(), 32) });
+}
+
+#[test]
 fn test_crc32_combine64() {
     use libz_rs_sys::z_off64_t;
 
@@ -1870,6 +1891,13 @@ fn test_crc32_combine64() {
     if core::mem::size_of::<z_off64_t>() == 8 {
         assert_eq_rs_ng!({ crc32_combine64(a, b, i64::MAX as z_off64_t) });
     }
+}
+
+#[test]
+fn test_adler32_z() {
+    assert_eq_rs_ng!({ adler32_z(0, core::ptr::null(), 0) });
+    assert_eq_rs_ng!({ adler32_z(1, core::ptr::null(), 0) });
+    assert_eq_rs_ng!({ adler32_z(2, core::ptr::null(), 32) });
 }
 
 #[test]
