@@ -38,6 +38,9 @@ use zlib_rs::{
 
 pub use zlib_rs::c_api::*;
 
+#[allow(non_camel_case_types)]
+pub type size_t = usize;
+
 #[cfg(feature = "custom-prefix")]
 macro_rules! prefix {
     ($name:expr) => {
@@ -122,6 +125,39 @@ pub type z_off64_t = z_off_t;
 /// # Example
 ///
 /// ```
+/// use libz_rs_sys::crc32_z;
+///
+/// unsafe {
+///     assert_eq!(crc32_z(0, core::ptr::null(), 0), 0);
+///     assert_eq!(crc32_z(1, core::ptr::null(), 32), 0);
+///
+///     let input = [1,2,3];
+///     assert_eq!(crc32_z(0, input.as_ptr(), input.len() as _), 1438416925);
+/// }
+/// ```
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_z))]
+pub unsafe extern "C-unwind" fn crc32_z(crc: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
+    match unsafe { slice_from_raw_parts(buf, len) } {
+        Some(buf) => zlib_rs::crc32(crc as u32, buf) as c_ulong,
+        None => 0,
+    }
+}
+
+/// Calculates the [crc32](https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks#CRC-32_algorithm) checksum
+/// of a sequence of bytes.
+///
+/// When the pointer argument is `NULL`, the initial checksum value is returned.
+///
+/// # Safety
+///
+/// The caller must guarantee that either:
+///
+/// - `buf` is `NULL`
+/// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
+///
+/// # Example
+///
+/// ```
 /// use libz_rs_sys::crc32;
 ///
 /// unsafe {
@@ -134,10 +170,7 @@ pub type z_off64_t = z_off_t;
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32))]
 pub unsafe extern "C-unwind" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    match unsafe { slice_from_raw_parts(buf, len as usize) } {
-        Some(buf) => zlib_rs::crc32(crc as u32, buf) as c_ulong,
-        None => 0,
-    }
+    crc32_z(crc, buf, len as size_t)
 }
 
 /// Combines the checksum of two slices into one.
@@ -219,6 +252,43 @@ pub extern "C-unwind" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_o
 /// # Example
 ///
 /// ```
+/// use libz_rs_sys::adler32_z;
+///
+/// unsafe {
+///     assert_eq!(adler32_z(0, core::ptr::null(), 0), 1);
+///     assert_eq!(adler32_z(1, core::ptr::null(), 32), 1);
+///
+///     let input = [1,2,3];
+///     assert_eq!(adler32_z(0, input.as_ptr(), input.len() as _), 655366);
+/// }
+/// ```
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_z))]
+pub unsafe extern "C-unwind" fn adler32_z(
+    adler: c_ulong,
+    buf: *const Bytef,
+    len: size_t,
+) -> c_ulong {
+    match unsafe { slice_from_raw_parts(buf, len) } {
+        Some(buf) => zlib_rs::adler32(adler as u32, buf) as c_ulong,
+        None => 1,
+    }
+}
+
+/// Calculates the [adler32](https://en.wikipedia.org/wiki/Adler-32) checksum
+/// of a sequence of bytes.
+///
+/// When the pointer argument is `NULL`, the initial checksum value is returned.
+///
+/// # Safety
+///
+/// The caller must guarantee that either:
+///
+/// - `buf` is `NULL`
+/// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
+///
+/// # Example
+///
+/// ```
 /// use libz_rs_sys::adler32;
 ///
 /// unsafe {
@@ -231,10 +301,7 @@ pub extern "C-unwind" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_o
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32))]
 pub unsafe extern "C-unwind" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
-    match unsafe { slice_from_raw_parts(buf, len as usize) } {
-        Some(buf) => zlib_rs::adler32(adler as u32, buf) as c_ulong,
-        None => 1,
-    }
+    adler32_z(adler, buf, len as size_t)
 }
 
 /// Combines the checksum of two slices into one.
