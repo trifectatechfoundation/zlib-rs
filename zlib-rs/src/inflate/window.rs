@@ -177,10 +177,8 @@ impl<'a> Window<'a> {
 mod test {
     use super::*;
 
-    use crate::allocate::Allocator;
-
     fn init_window(window_bits_log2: usize) -> Window<'static> {
-        let mut window = Window::new_in(&Allocator::RUST, window_bits_log2).unwrap();
+        let mut window = Window::new_in(&crate::allocate::RUST, window_bits_log2).unwrap();
         window.have = 0;
         window.next = 0;
         window
@@ -209,7 +207,7 @@ mod test {
         assert_eq!(checksum, 6946835);
 
         unsafe {
-            Allocator::RUST.deallocate(
+            crate::allocate::RUST.deallocate(
                 window.buf.as_mut_slice().as_mut_ptr(),
                 window.buf.as_slice().len(),
             )
@@ -239,7 +237,7 @@ mod test {
         assert_eq!(checksum, 1769481);
 
         unsafe {
-            Allocator::RUST.deallocate(
+            crate::allocate::RUST.deallocate(
                 window.buf.as_mut_slice().as_mut_ptr(),
                 window.buf.as_slice().len(),
             )
@@ -263,7 +261,7 @@ mod test {
         assert_eq!(checksum, 10813485);
 
         unsafe {
-            Allocator::RUST.deallocate(
+            crate::allocate::RUST.deallocate(
                 window.buf.as_mut_slice().as_mut_ptr(),
                 window.as_slice().len(),
             )

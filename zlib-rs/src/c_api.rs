@@ -113,12 +113,12 @@ impl z_stream {
 
     #[cfg(feature = "rust-allocator")]
     pub fn configure_default_rust_allocator(&mut self) {
-        self.configure_allocator(Allocator::RUST)
+        self.configure_allocator(crate::allocate::RUST)
     }
 
     #[cfg(feature = "c-allocator")]
     pub fn configure_default_c_allocator(&mut self) {
-        self.configure_allocator(Allocator::C)
+        self.configure_allocator(crate::allocate::C)
     }
 }
 
