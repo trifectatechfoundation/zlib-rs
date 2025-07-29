@@ -1,4 +1,3 @@
-use zlib_rs::allocate::*;
 pub use zlib_rs::c_api::*;
 
 use crate::gz::GzMode::GZ_READ;
@@ -174,11 +173,11 @@ enum How {
 const GZBUFSIZE: usize = 128 * 1024;
 
 #[cfg(feature = "rust-allocator")]
-const ALLOCATOR: &Allocator = &Allocator::RUST;
+use zlib_rs::allocate::RUST as ALLOCATOR;
 
 #[cfg(not(feature = "rust-allocator"))]
 #[cfg(feature = "c-allocator")]
-const ALLOCATOR: &Allocator = &Allocator::C;
+use zlib_rs::allocate::C as ALLOCATOR;
 
 #[cfg(not(feature = "rust-allocator"))]
 #[cfg(not(feature = "c-allocator"))]

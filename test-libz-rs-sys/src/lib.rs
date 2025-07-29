@@ -1121,12 +1121,12 @@ mod null {
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
-                zlib_rs::allocate::Allocator::C.zalloc,
+                zlib_rs::allocate::C.zalloc,
             );
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
-                zlib_rs::allocate::Allocator::C.zfree,
+                zlib_rs::allocate::C.zfree,
             );
 
             core::ptr::write(
@@ -1158,12 +1158,12 @@ mod null {
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
-                zlib_rs::allocate::Allocator::C.zalloc,
+                zlib_rs::allocate::C.zalloc,
             );
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
-                zlib_rs::allocate::Allocator::C.zfree,
+                zlib_rs::allocate::C.zfree,
             );
 
             core::ptr::write(
@@ -1294,12 +1294,12 @@ mod coverage {
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zalloc).cast(),
-                zlib_rs::allocate::Allocator::C.zalloc,
+                zlib_rs::allocate::C.zalloc,
             );
 
             core::ptr::write(
                 core::ptr::addr_of_mut!((*strm.as_mut_ptr()).zfree).cast(),
-                zlib_rs::allocate::Allocator::C.zfree,
+                zlib_rs::allocate::C.zfree,
             );
 
             let err = deflateInit2_(
