@@ -1,5 +1,3 @@
-#![allow(unsafe_op_in_unsafe_fn)] // FIXME
-
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::Range;
@@ -16,6 +14,18 @@ impl<'a> Writer<'a> {
     /// Creates a new `Writer` from a fully initialized buffer.
     #[inline]
     pub fn new(buf: &'a mut [u8]) -> Writer<'a> {
+        // SAFETY: Because buf is a slice, most of the preconditions for
+        // core::slice::from_raw_parts_mut are satisfied:
+        // * buf.as_mut_ptr() is non-null.
+        // * The memory range is within a single allocated object.
+        // * buf is mutable, so the range is valid for both reads
+        //   and writes of up to buf.len() * size_of::<u8>() bytes.
+        // * The contents of the slice are initialized.
+        // * buf.as_mut_ptr() + buf.len() does not wrap around
+        //   the end of the address space.
+        // The remaining precondition is enforced by the borrow checker when this function is called:
+        // * The memory range cannot be accessed through any other pointer for the
+        //   duration of lifetime 'a.
         unsafe { Self::new_uninit(buf.as_mut_ptr(), buf.len()) }
     }
 
@@ -26,6 +36,9 @@ impl<'a> Writer<'a> {
     /// The arguments must satisfy the requirements of [`core::slice::from_raw_parts_mut`].
     #[inline]
     pub unsafe fn new_uninit(ptr: *mut u8, len: usize) -> Writer<'a> {
+        // SAFETY: The preconditions for WeakSliceMut::from_raw_parts_mut are the same
+        // as for core::slice::from_raw_parts_mut, and the caller is responsible for
+        // ensuring the latter.
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len) };
         Writer { buf, filled: 0 }
     }
@@ -150,7 +163,7 @@ impl<'a> Writer<'a> {
         let len = range.end - range.start;
 
         if self.remaining() >= len + N {
-            // SAFETY: we know that our window has at least a core::mem::size_of::<C>() extra bytes
+            // SAFETY: we know that our window has at least a core::mem::size_of::<N>() extra bytes
             // at the end, making it always safe to perform an (unaligned) Chunk read anywhere in
             // the window slice.
             //
@@ -326,28 +339,48 @@ impl<'a> Writer<'a> {
 
     /// # Safety
     ///
-    /// `src` must be safe to perform unaligned reads in `core::mem::size_of::<C>()` chunks until
-    /// `end` is reached. `dst` must be safe to (unalingned) write that number of chunks.
+    /// `src` must be safe to perform unaligned reads in `core::mem::size_of::<N>()` chunks until
+    /// `end` is reached. `dst` must be safe to (unaligned) write that number of chunks.
     #[inline(always)]
     unsafe fn copy_chunk_unchecked<const N: usize>(
         mut src: *const MaybeUninit<u8>,
         mut dst: *mut MaybeUninit<u8>,
         length: usize,
     ) {
-        let end = src.add(length);
+        if length == 0 {
+            return;
+        }
 
-        let chunk = load_chunk::<N>(src);
-        store_chunk::<N>(dst, chunk);
+        // SAFETY: The caller ensured that src + length is within (or just at the end of)
+        // a readable range of bytes.
+        // FIXME: The other safety precondition for `add` is that the amount being added
+        // must fit in an `isize`. Should that be part of the documented safety preconditions
+        // for this function, so that our caller is responsible for ensuring it?
+        let end = unsafe { src.add(length) };
 
-        src = src.add(N);
-        dst = dst.add(N);
+        // SAFETY: We checked above that length != 0, so there is at least one chunk remaining.
+        let chunk = unsafe { load_chunk::<N>(src) };
+        unsafe { store_chunk::<N>(dst, chunk) };
+
+        // SAFETY: src and dest haven't been modified yet, and we checked above that
+        // length != 0, so adding one chunk (N bytes) to both src and dst will result in
+        // a pointer in (or just at the end of) each of the underlying buffers.
+        src = unsafe { src.add(N) };
+        dst = unsafe { dst.add(N) };
 
         while src < end {
-            let chunk = load_chunk::<N>(src);
-            store_chunk::<N>(dst, chunk);
+            // SAFETY: The caller ensured that src and dst contain enough bytes to support
+            // reads (from src) or writes (to dst) up to and including the chunk that contains
+            // end. Note that, if length is not a multiple of N, we will copy up to N-1 bytes
+            // past end.
+            let chunk = unsafe { load_chunk::<N>(src) };
+            unsafe { store_chunk::<N>(dst, chunk) };
 
-            src = src.add(N);
-            dst = dst.add(N);
+            // SAFETY: Because src is currently < end, we have at least one more chunk available
+            // to copy, so there is room to advance the pointers by N within both the src and
+            // dst bufs.
+            src = unsafe { src.add(N) };
+            dst = unsafe { dst.add(N) };
         }
     }
 }
@@ -357,7 +390,8 @@ impl<'a> Writer<'a> {
 /// Must be valid to read a `[u8; N]` value from `from` with an unaligned read.
 #[inline(always)]
 unsafe fn load_chunk<const N: usize>(from: *const MaybeUninit<u8>) -> [MaybeUninit<u8>; N] {
-    core::ptr::read_unaligned(from.cast::<[MaybeUninit<u8>; N]>())
+    // SAFETY: Checked by the caller.
+    unsafe { core::ptr::read_unaligned(from.cast::<[MaybeUninit<u8>; N]>()) }
 }
 
 /// # Safety
@@ -365,7 +399,8 @@ unsafe fn load_chunk<const N: usize>(from: *const MaybeUninit<u8>) -> [MaybeUnin
 /// Must be valid to write a `[u8; N]` value to `out` with an unaligned write.
 #[inline(always)]
 unsafe fn store_chunk<const N: usize>(out: *mut MaybeUninit<u8>, chunk: [MaybeUninit<u8>; N]) {
-    core::ptr::write_unaligned(out.cast(), chunk)
+    // SAFETY: checked by the caller.
+    unsafe { core::ptr::write_unaligned(out.cast(), chunk) }
 }
 
 impl fmt::Debug for Writer<'_> {
