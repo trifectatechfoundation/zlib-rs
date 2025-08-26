@@ -2376,6 +2376,7 @@ fn zng_tr_flush_block(
         static_lenb = stored_len as usize + 5;
     }
 
+    #[allow(clippy::unnecessary_unwrap)]
     if stored_len as usize + 4 <= opt_lenb && window_offset.is_some() {
         /* 4: two words for the lengths
          * The test buf != NULL is only necessary if LIT_BUFSIZE > WSIZE.
