@@ -21,6 +21,8 @@ jobs:
   build:
     name: Build and test
     runs-on: "${{ matrix.os }}"
+    env:
+      RUST_BACKTRACE: 1
     strategy:
       matrix:
         include:
@@ -28,76 +30,84 @@ jobs:
             rust: stable
             os: ubuntu-latest
             features: ""
+            codecov: true
+
           - target: "x86_64-unknown-linux-gnu"
             rust: msrv
             os: ubuntu-latest
             features: ""
+            codecov: false
+
           - target: "x86_64-unknown-linux-gnu"
             rust: beta
             os: ubuntu-latest
             features: ""
+            codecov: false
+
           - target: "x86_64-apple-darwin"
             rust: "stable"
             os: macos-latest
             features: ""
+            codecov: true
+
           - target: "aarch64-apple-darwin"
             rust: "stable"
             os: macos-14
             features: ""
+            codecov: true
+
           - target: "x86_64-pc-windows-gnu"
             rust: stable-x86_64-gnu
             os: windows-2022
             features: ""
+            codecov: false
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
+
+      # Install the correct rust toolchain/version
       - name: Set target rust version
         run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
-        if: matrix.os != 'windows-2022'
+        if: ${{ !contains(matrix.target, 'windows') }}
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
-          toolchain: "${TARGET_RUST_VERSION}"
+          toolchain: ${{ env.TARGET_RUST_VERSION || matrix.rust }}
           targets: "${{ matrix.target }}"
-        if: matrix.os != 'windows-2022'
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: "${{matrix.rust}}"
-          targets: "${{ matrix.target }}"
-        if: matrix.os == 'windows-2022'
       - name: target
         run: "rustc -vV | sed -n 's|host: ||p'"
-        if: matrix.os != 'windows-2022'
+        if: ${{ !contains(matrix.target, 'windows') }}
+
+      # Install dependencies
       - name: Install cargo-llvm-cov & cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
           tool: cargo-llvm-cov,cargo-nextest
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
+
+      # run tests
       - name: cargo llvm-cov nextest
-        if: matrix.os != 'windows-2022'
-        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
-        env:
-          RUST_BACKTRACE: 1
+        if: matrix.codecov
+        run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
       - name: cargo nextest
-        if: matrix.os == 'windows-2022'
+        if: matrix.codecov == false
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
-        env:
-          RUST_BACKTRACE: 1
+
       - name: cargo nextest cdylib
-        if: matrix.os != 'windows-2022'
+        if: matrix.codecov
         working-directory: libz-rs-sys-cdylib
         run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --features="gz,__internal-test" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
       - name: cargo nextest cdylib
-        if: matrix.os == 'windows-2022'
+        if: matrix.codecov == false
         working-directory: libz-rs-sys-cdylib
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --features="gz,__internal-test" --no-fail-fast
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
-        if: matrix.os != 'windows-2022' && matrix.rust == 'stable'
+        if: matrix.codecov
         with:
           files: |
             ./lcov.info
