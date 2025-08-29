@@ -90,6 +90,11 @@ jobs:
             rust: stable-x86_64-gnu
             os: windows-2022
             codecov: false
+
+          - target: "aarch64-pc-windows-msvc"
+            rust: stable
+            os: windows-11-arm
+            codecov: false
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
