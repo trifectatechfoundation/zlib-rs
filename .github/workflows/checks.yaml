@@ -23,6 +23,11 @@ jobs:
     runs-on: "${{ matrix.os }}"
     env:
       RUST_BACKTRACE: 1
+      # i686-unknown-linux-gnu
+      CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER: i686-linux-gnu-gcc
+      # s390x-unknown-linux-gnu
+      CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER: s390x-linux-gnu-gcc
+      CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER: qemu-s390x -L /usr/s390x-linux-gnu
     strategy:
       matrix:
         include:
@@ -43,6 +48,26 @@ jobs:
             os: ubuntu-latest
             features: ""
             codecov: false
+
+          - target: "aarch64-unknown-linux-gnu"
+            rust: stable
+            os: ubuntu-24.04-arm
+            features: ""
+            codecov: true
+
+          - target: "i686-unknown-linux-gnu"
+            rust: stable
+            os: ubuntu-latest
+            features: ""
+            codecov: true
+            packages: gcc-i686-linux-gnu
+
+          - target: "s390x-unknown-linux-gnu"
+            rust: stable
+            os: ubuntu-latest
+            features: ""
+            codecov: false
+            packages: gcc-s390x-linux-gnu qemu-user qemu-user-static
 
           - target: "x86_64-apple-darwin"
             rust: "stable"
@@ -85,6 +110,14 @@ jobs:
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
           tool: cargo-llvm-cov,cargo-nextest
+      - name: Cache apt packages
+        if: matrix.packages != ''
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: "${{ matrix.packages }}"
+          version: 2
+
+      # build
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
 
@@ -117,54 +150,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           name: test
           verbose: true
-
-  build-qemu:
-    name: QEMU build & test
-    runs-on: "${{ matrix.os }}"
-    strategy:
-      matrix:
-        include:
-          - rust: stable
-            os: ubuntu-latest
-            features: ""
-            target: "s390x-unknown-linux-gnu"
-            gcc: "s390x-linux-gnu-gcc"
-          - rust: stable
-            os: ubuntu-latest
-            features: ""
-            target: "i686-unknown-linux-gnu"
-            gcc: "i686-linux-gnu-gcc"
-    steps:
-      - uses: awalsh128/cache-apt-pkgs-action@v1.4.3
-        with:
-          packages: qemu-user qemu-user-static qemu-system-s390x gcc-s390x-linux-gnu gcc-i686-linux-gnu g++-s390x-linux-gnu
-          version: 1.0
-      - name: Checkout sources
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
-        with:
-          persist-credentials: false
-      - name: Copy QEMU Cargo Config
-        run: |
-          mkdir -p .cargo
-          cp qemu-cargo-config.toml .cargo/config.toml
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: "stable"
-          targets: "${{ matrix.target }}"
-      - name: target
-        run: "rustc -vV | sed -n 's|host: ||p'"
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
-        with:
-          tool: cargo-nextest
-      - name: cargo build
-        run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
-      - name: cargo nextest # reports segfaults in a helpful way
-        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }}
-        env:
-          RUST_BACKTRACE: 1
-          CC: ${{matrix.gcc}}
 
   clippy:
     name: Clippy
