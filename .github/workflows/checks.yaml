@@ -38,61 +38,53 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: "x86_64-unknown-linux-gnu"
-            rust: stable
+          - rust: stable
+            target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
             codecov: true
 
-          - target: "x86_64-unknown-linux-gnu"
-            rust: msrv
+          - rust: msrv
+            target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
             codecov: false
 
-          - target: "x86_64-unknown-linux-gnu"
-            rust: beta
+          - rust: beta
+            target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
             codecov: false
 
           - target: "aarch64-unknown-linux-gnu"
-            rust: stable
             os: ubuntu-24.04-arm
             codecov: true
 
           - target: "i686-unknown-linux-gnu"
-            rust: stable
             os: ubuntu-latest
             codecov: true
             packages: gcc-i686-linux-gnu
 
           - target: "s390x-unknown-linux-gnu"
-            rust: stable
             os: ubuntu-latest
             codecov: false
             packages: gcc-s390x-linux-gnu qemu-user qemu-user-static
 
           - target: "wasm32-wasip1"
-            rust: stable
             os: ubuntu-latest
             flags: "-p zlib-rs -p libz-rs-sys -p test-libz-rs-sys"
             codecov: false
 
           - target: "x86_64-apple-darwin"
-            rust: "stable"
             os: macos-latest
             codecov: true
 
           - target: "aarch64-apple-darwin"
-            rust: "stable"
             os: macos-14
             codecov: true
 
           - target: "x86_64-pc-windows-gnu"
-            rust: stable-x86_64-gnu
             os: windows-2022
             codecov: false
 
           - target: "aarch64-pc-windows-msvc"
-            rust: stable
             os: windows-11-arm
             codecov: false
     steps:
@@ -103,16 +95,13 @@ jobs:
 
       # Install the correct rust toolchain/version
       - name: Set target rust version
-        run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
-        if: ${{ !contains(matrix.target, 'windows') }}
+        run: echo "MSRV=$(grep rust-version Cargo.toml | grep MSRV | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
+        if: ${{ matrix.rust == 'msrv' }}
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
         with:
-          toolchain: ${{ env.TARGET_RUST_VERSION || matrix.rust }}
+          toolchain: ${{ env.MSRV || matrix.rust || 'stable' }}
           targets: "${{ matrix.target }}"
-      - name: target
-        run: "rustc -vV | sed -n 's|host: ||p'"
-        if: ${{ !contains(matrix.target, 'windows') }}
 
       # Install dependencies
       - name: Install cargo-llvm-cov & cargo-nextest
