@@ -28,63 +28,67 @@ jobs:
       # s390x-unknown-linux-gnu
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER: s390x-linux-gnu-gcc
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER: qemu-s390x -L /usr/s390x-linux-gnu
+      # wasm32-wasip1 (std for wasip2 is unstable)
+      WASI_SDK_PATH: /tmp/wasi-sdk-24.0-x86_64-linux
+      CC_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/clang
+      AR_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/llvm-ar
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: "wasmtime --dir /home/runner/work/zlib-rs/zlib-rs/test-libz-rs-sys --dir /tmp/"
+      CARGO_TARGET_WASM32_WASIP1_RUSTFLAGS: "-Ctarget-feature=+simd128"
+      BINDGEN_EXTRA_CLANG_ARGS_wasm32_wasip1: "--sysroot=/tmp/wasi-sdk-24.0-x86_64-linux/share/wasi-sysroot"
     strategy:
       matrix:
         include:
           - target: "x86_64-unknown-linux-gnu"
             rust: stable
             os: ubuntu-latest
-            features: ""
             codecov: true
 
           - target: "x86_64-unknown-linux-gnu"
             rust: msrv
             os: ubuntu-latest
-            features: ""
             codecov: false
 
           - target: "x86_64-unknown-linux-gnu"
             rust: beta
             os: ubuntu-latest
-            features: ""
             codecov: false
 
           - target: "aarch64-unknown-linux-gnu"
             rust: stable
             os: ubuntu-24.04-arm
-            features: ""
             codecov: true
 
           - target: "i686-unknown-linux-gnu"
             rust: stable
             os: ubuntu-latest
-            features: ""
             codecov: true
             packages: gcc-i686-linux-gnu
 
           - target: "s390x-unknown-linux-gnu"
             rust: stable
             os: ubuntu-latest
-            features: ""
             codecov: false
             packages: gcc-s390x-linux-gnu qemu-user qemu-user-static
+
+          - target: "wasm32-wasip1"
+            rust: stable
+            os: ubuntu-latest
+            flags: "-p zlib-rs -p libz-rs-sys -p test-libz-rs-sys"
+            codecov: false
 
           - target: "x86_64-apple-darwin"
             rust: "stable"
             os: macos-latest
-            features: ""
             codecov: true
 
           - target: "aarch64-apple-darwin"
             rust: "stable"
             os: macos-14
-            features: ""
             codecov: true
 
           - target: "x86_64-pc-windows-gnu"
             rust: stable-x86_64-gnu
             os: windows-2022
-            features: ""
             codecov: false
     steps:
       - name: Checkout sources
@@ -116,27 +120,33 @@ jobs:
         with:
           packages: "${{ matrix.packages }}"
           version: 2
+      - name: Download wasmtime & wasi-sdk
+        if: ${{ contains(matrix.target, 'wasm') }}
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz | tar xz --directory /tmp
 
       # build
       - name: cargo build
-        run: cargo build --target ${{matrix.target}} ${{ matrix.features }}
+        run: cargo build --target ${{matrix.target}} ${{ matrix.flags }}
 
       # run tests
       - name: cargo llvm-cov nextest
         if: matrix.codecov
-        run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
+        run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.flags }} --no-fail-fast
       - name: cargo nextest
         if: matrix.codecov == false
-        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --no-fail-fast
+        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.flags }} --no-fail-fast
 
       - name: cargo nextest cdylib
         if: matrix.codecov
         working-directory: libz-rs-sys-cdylib
-        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --features="gz,__internal-test" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
+        run: cargo llvm-cov nextest --target ${{matrix.target}} --features="gz,__internal-test" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
       - name: cargo nextest cdylib
         if: matrix.codecov == false
         working-directory: libz-rs-sys-cdylib
-        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.features }} --features="gz,__internal-test" --no-fail-fast
+        run: cargo nextest run --target ${{matrix.target}} --features="gz,__internal-test" --no-fail-fast
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
@@ -438,48 +448,6 @@ jobs:
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
 
-  wasm32:
-    name: "wasm32"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
-        with:
-          persist-credentials: false
-      - name: Install wasmtime
-        run: curl https://wasmtime.dev/install.sh -sSf | bash
-      - name: Copy .cargo/config.toml
-        run: |
-          mkdir -p .cargo
-          cp qemu-cargo-config.toml .cargo/config.toml
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: "stable"
-          targets: "wasm32-wasip1"
-      - name: target
-        run: "rustc -vV | sed -n 's|host: ||p'"
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
-        with:
-          tool: cargo-nextest
-      - name: Download wasi-sdk
-        run: |
-          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz | tar xz
-      - name: cargo nextest (without SIMD)
-        run: |
-          export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
-          cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
-        env:
-          RUST_BACKTRACE: 1
-          RUSTFLAGS: ""
-      - name: cargo nextest (with SIMD)
-        run: |
-          export CMAKE_TOOLCHAIN_FILE="$(pwd)/wasi-sdk-24.0-x86_64-linux/share/cmake/wasi-sdk.cmake"
-          cargo nextest run -p zlib-rs -p test-libz-rs-sys --target wasm32-wasip1
-        env:
-          RUST_BACKTRACE: 1
-          RUSTFLAGS: "-Ctarget-feature=+simd128"
 
   miri:
     name: "Miri"
