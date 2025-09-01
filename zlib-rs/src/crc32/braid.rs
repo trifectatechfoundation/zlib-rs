@@ -103,10 +103,7 @@ pub fn crc32_braid<const N: usize>(start: u32, data: &[u8]) -> u32 {
 
         crcs.fill(0);
         for j in 0..W {
-            for k in 0..N {
-                crcs[k] ^= Crc32BraidTable::<N>::TABLE[j][buffer[k] & 0xff];
-                buffer[k] >>= 8;
-            }
+            braid_core(&mut crcs, &mut buffer, j);
         }
     }
 
@@ -114,6 +111,24 @@ pub fn crc32_braid<const N: usize>(start: u32, data: &[u8]) -> u32 {
     let crc = crc32_words_inner(&words[blocks * N..], crc, &crcs);
     let crc = crc32_naive_inner(suffix, crc);
     !crc
+}
+
+// A workaround for https://github.com/trifectatechfoundation/zlib-rs/issues/407.
+//
+// We're seeing misoptimization with rust versions that use LLVM 20, earlier LLVMs are fine, and
+// LLVM 21 similarly appears to do fine. The offending feature is `+avx512vl`,  the
+// "Vector Length Extension", which extends some instructions operating on 512-bit operands with
+// variants that support 256-bit or 128-bit operands.
+//
+// The avx512vl target feature only became stable in 1.89.0: before that, we can't detect it
+// statically. Therefore we use avx2 as a proxy, it is implied by avx512vl.
+#[cfg_attr(all(target_arch = "x86_64", target_feature = "avx2"), inline(never))]
+#[cfg_attr(not(target_arch = "x86_64"), inline(always))]
+fn braid_core<const N: usize>(crcs: &mut [u32; N], buffer: &mut [usize; N], j: usize) {
+    for k in 0..N {
+        crcs[k] ^= Crc32BraidTable::<N>::TABLE[j][buffer[k] & 0xff];
+        buffer[k] >>= 8;
+    }
 }
 
 #[cfg(test)]
