@@ -67,6 +67,9 @@ macro_rules! assert_eq_rs_ng {
                     adler2: core::ffi::c_ulong,
                     len2: libz_rs_sys::z_off64_t,
                 ) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
+                fn get_crc_table() -> *const [u32; 256];
             }
 
             $tt
@@ -1911,4 +1914,9 @@ fn test_adler32_combine64() {
     assert_eq_rs_ng!({ adler32_combine64(a, b, 0 as z_off64_t) });
     assert_eq_rs_ng!({ adler32_combine64(a, b, 32 as z_off64_t) });
     assert_eq_rs_ng!({ adler32_combine64(a, b, i64::MAX as z_off64_t) });
+}
+
+#[test]
+fn test_get_crc_table() {
+    assert_eq_rs_ng!({ get_crc_table().read() });
 }

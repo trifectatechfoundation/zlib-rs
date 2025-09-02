@@ -23,6 +23,11 @@ static CRC32_BYTE_TABLE: [[u32; 256]; 1] = build_crc32_table::<256, 1, 1>();
 // CRC32_WORD_TABLE is MulWordByXpowD.
 static CRC32_WORD_TABLE: [[u32; 256]; W] = build_crc32_table::<256, W, 1>();
 
+// FIXME: make const fn when msrv allows.
+pub(crate) fn get_crc_table() -> &'static [u32; 256] {
+    &CRC32_BYTE_TABLE[0]
+}
+
 // Work-around for not being able to define generic consts or statics
 // Crc32BraidTable::<N>::TABLE is the generic table for any braid size N.
 struct Crc32BraidTable<const N: usize>;

@@ -25,6 +25,10 @@ pub fn crc32_braid(start: u32, buf: &[u8]) -> u32 {
     braid::crc32_braid::<5>(start, buf)
 }
 
+pub fn get_crc_table() -> &'static [u32; 256] {
+    braid::get_crc_table()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Crc32Fold {
     #[cfg(target_arch = "x86_64")]
