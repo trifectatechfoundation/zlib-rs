@@ -45,7 +45,7 @@
 extern "C" {
 #endif
 
-#define ZLIB_VERSION "1.3.0.zlib-rs-0.5.1"
+#define ZLIB_VERSION "1.3.0.zlib-rs-0.5.2"
 #define ZLIB_VERNUM 0x131f
 #define ZLIB_VER_MAJOR 1
 #define ZLIB_VER_MINOR 3
