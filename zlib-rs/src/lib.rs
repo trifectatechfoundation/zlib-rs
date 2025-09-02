@@ -14,7 +14,7 @@ pub mod inflate;
 mod weak_slice;
 
 pub use adler32::{adler32, adler32_combine};
-pub use crc32::{crc32, crc32_combine};
+pub use crc32::{crc32, crc32_combine, get_crc_table};
 
 #[macro_export]
 macro_rules! trace {

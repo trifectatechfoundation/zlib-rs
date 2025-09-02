@@ -237,6 +237,12 @@ pub extern "C-unwind" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_o
     zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
+/// The CRC table used by the crc32 checksum algorithm.
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(get_crc_table))]
+pub extern "C" fn get_crc_table() -> *const [u32; 256] {
+    zlib_rs::get_crc_table()
+}
+
 /// Calculates the [adler32](https://en.wikipedia.org/wiki/Adler-32) checksum
 /// of a sequence of bytes.
 ///
