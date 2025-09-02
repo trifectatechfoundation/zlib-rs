@@ -4,25 +4,28 @@
 use crate::allocate::Allocator;
 use crate::weak_slice::WeakSliceMut;
 
+#[derive(Clone, Copy, Default)]
+#[repr(C)]
+pub(crate) struct Symbol {
+    pub len: u8,
+    _padding: u8,
+    pub dist: u16,
+}
+
 pub(crate) struct SymBuf<'a> {
-    buf: WeakSliceMut<'a, u8>,
+    buf: WeakSliceMut<'a, Symbol>,
     filled: usize,
 }
 
 impl<'a> SymBuf<'a> {
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (u16, u8)> + '_ {
-        self.buf.as_slice()[..self.filled]
-            .chunks_exact(3)
-            .map(|chunk| match *chunk {
-                [dist_low, dist_high, lc] => (u16::from_le_bytes([dist_low, dist_high]), lc),
-                _ => unreachable!("chunks are exactly 3 elements wide"),
-            })
+    pub fn iter(&self) -> impl Iterator<Item = Symbol> + '_ {
+        self.buf.as_slice()[..self.filled].iter().copied()
     }
 
     #[inline]
     pub fn should_flush_block(&self) -> bool {
-        self.filled == self.buf.len() - 3
+        self.filled == self.buf.len() - 1
     }
 
     /// Returns true if there are no bytes in this ReadBuf
@@ -36,41 +39,43 @@ impl<'a> SymBuf<'a> {
     /// The number of initialized bytes is not changed, and the contents of the buffer are not modified.
     #[inline]
     pub fn clear(&mut self) {
-        self.buf.as_mut_slice().fill(0);
+        self.buf.as_mut_slice().fill(Symbol::default());
         self.filled = 0;
     }
 
     #[inline(always)]
-    pub fn push_lit(&mut self, byte: u8) {
-        // NOTE: we rely on the buffer being zeroed here!
-        self.buf.as_mut_slice()[self.filled + 2] = byte;
+    pub fn push_lit(&mut self, len: u8) {
+        // NOTE: we rely on the value being zeroed here!
+        self.buf.as_mut_slice()[self.filled] = Symbol {
+            len,
+            ..Symbol::default()
+        };
 
-        self.filled += 3;
+        self.filled += 1;
     }
 
     #[inline(always)]
     pub fn push_dist(&mut self, dist: u16, len: u8) {
-        let buf = &mut self.buf.as_mut_slice()[self.filled..][..3];
-        let [dist1, dist2] = dist.to_le_bytes();
+        self.buf.as_mut_slice()[self.filled] = Symbol {
+            len,
+            dist,
+            ..Symbol::default()
+        };
 
-        buf[0] = dist1;
-        buf[1] = dist2;
-        buf[2] = len;
-
-        self.filled += 3;
+        self.filled += 1;
     }
 
     pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
-        let ptr = alloc.allocate_zeroed_buffer(len * 3)?;
+        let ptr = alloc.allocate_zeroed_buffer(len * 4)?;
 
         // safety: all elements are now initialized
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len * 3) };
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr().cast(), len) };
 
         Some(Self { buf, filled: 0 })
     }
 
     pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let mut clone = Self::new_in(alloc, self.buf.len() / 3)?;
+        let mut clone = Self::new_in(alloc, self.buf.len())?;
 
         clone
             .buf
