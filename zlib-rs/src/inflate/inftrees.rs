@@ -10,26 +10,6 @@ pub(crate) enum CodeType {
 
 const MAX_BITS: usize = 15;
 
-fn min_max<const N: usize>(count: [u16; N]) -> (usize, usize) {
-    let mut max = MAX_BITS;
-    while max >= 1 {
-        if count[max] != 0 {
-            break;
-        }
-        max -= 1;
-    }
-
-    let mut min = 1;
-    while min < max {
-        if count[min] != 0 {
-            break;
-        }
-        min += 1;
-    }
-
-    (min, max)
-}
-
 /// Length codes 257..285 base
 const LBASE: [u16; 31] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
@@ -70,15 +50,14 @@ pub(crate) fn inflate_table(
     // number of codes of each length
     let mut count = [0u16; MAX_BITS + 1];
 
-    for len in lens[0..codes].iter().copied() {
-        count[len as usize] += 1;
+    let (mut min, mut max) = (MAX_BITS, 0);
+    for &len in &lens[0..codes] {
+        if len > 0 {
+            count[len as usize] += 1;
+            max = Ord::max(max, usize::from(len));
+            min = Ord::min(min, usize::from(len));
+        }
     }
-
-    let mut root = bits;
-
-    let (min, max) = min_max(count);
-    root = Ord::min(root, max);
-    root = Ord::max(root, min);
 
     if max == 0 {
         // no symbols to code at all
@@ -93,6 +72,9 @@ pub(crate) fn inflate_table(
 
         return InflateTable::Success { root: 1, used: 2 };
     }
+
+    // NOTE: if max != 0, then min has been set to a value <= max.
+    let root = bits.clamp(min, max);
 
     /* check for an over-subscribed or incomplete set of lengths */
     let mut left = 1i32;
