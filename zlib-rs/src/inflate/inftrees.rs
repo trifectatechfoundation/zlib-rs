@@ -77,16 +77,12 @@ pub(crate) fn inflate_table(
     let root = bits.clamp(min, max);
 
     /* check for an over-subscribed or incomplete set of lengths */
-    let mut left = 1i32;
-    let mut len = 1;
-    while len <= MAX_BITS {
-        left <<= 1;
-        left -= count[len] as i32;
-        if left < 0 {
-            // over-subscribed
-            return InflateTable::InvalidCode;
-        }
-        len += 1;
+    let mut left = 1u32;
+    for &sym in &count[1..] {
+        left = match (left << 1).checked_sub(u32::from(sym)) {
+            None => return InflateTable::InvalidCode, // over-subscribed
+            Some(v) => v,
+        };
     }
 
     if left > 0 && (matches!(codetype, CodeType::Codes) || max != 1) {
