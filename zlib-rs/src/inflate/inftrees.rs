@@ -159,11 +159,16 @@ pub(crate) fn inflate_table(
 
         // replicate for those indices with low len bits equal to huff
         let incr = 1 << (len - drop_);
-        let min = 1 << curr; // also has the name 'fill' in the C code
+        let mut fill = 1 << curr;
+        let min = fill;
 
-        let base = &mut table[next + (huff >> drop_)..];
-        for fill in (0..min).step_by(incr) {
-            base[fill] = here;
+        loop {
+            fill -= incr;
+            table[next + (huff >> drop_) + fill] = here;
+
+            if fill == 0 {
+                break;
+            }
         }
 
         // backwards increment the len-bit code huff
