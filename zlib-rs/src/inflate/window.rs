@@ -173,7 +173,7 @@ impl<'a> Window<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rust-allocator"))]
 mod test {
     use super::*;
 
