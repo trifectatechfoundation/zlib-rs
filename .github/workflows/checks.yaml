@@ -125,6 +125,13 @@ jobs:
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.flags }}
 
+      # ensure tests for "real" features work standalone
+      - name: cargo test --no-default-features --features ...
+        run: |
+          cargo test --target ${{matrix.target}} ${{ matrix.flags }} --no-default-features --features c-allocator
+          cargo test --target ${{matrix.target}} ${{ matrix.flags }} --no-default-features --features rust-allocator
+
+
       # run tests
       - name: cargo llvm-cov nextest
         if: matrix.codecov
