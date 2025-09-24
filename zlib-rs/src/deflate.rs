@@ -3309,6 +3309,7 @@ mod test {
         }
     }
 
+    #[cfg(feature = "c-allocator")]
     unsafe extern "C" fn fail_nth_allocation<const N: usize>(
         opaque: crate::c_api::voidpf,
         items: crate::c_api::uInt,
@@ -3327,6 +3328,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "c-allocator")]
     fn init_invalid_allocator() {
         {
             let atomic = AtomicUsize::new(0);
@@ -3371,6 +3373,7 @@ mod test {
         }
     }
 
+    #[cfg(feature = "c-allocator")]
     mod copy_invalid_allocator {
         use super::*;
 
