@@ -1,5 +1,4 @@
 #![allow(unpredictable_function_pointer_comparisons)]
-#![allow(unsafe_op_in_unsafe_fn)]
 
 #[cfg(unix)]
 use core::ffi::c_int;
@@ -34,8 +33,14 @@ unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) 
     }
 
     let mut ptr = core::ptr::null_mut();
-    // SAFETY: ALIGN is a power of 2 and multiple of sizeof(void*), as required by posix_memalign
-    match unsafe { posix_memalign(&mut ptr, ALIGN.into(), items as size_t * size as size_t) } {
+    let size = items as size_t * size as size_t;
+    if size == 0 {
+        return ptr;
+    }
+    // SAFETY: ALIGN is a power of 2 and multiple of sizeof(void*), as required by posix_memalign.
+    // In addition, since posix_memalign is allowed to return a unique but non-null pointer when
+    // called with a size of zero, we returned above if the size was zero.
+    match unsafe { posix_memalign(&mut ptr, ALIGN.into(), size) } {
         0 => ptr,
         _ => core::ptr::null_mut(),
     }
@@ -48,11 +53,19 @@ unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) 
 unsafe extern "C" fn zalloc_c(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
     let _ = opaque;
 
+    let size = items as size_t * size as size_t;
+    if size == 0 {
+        return core::ptr::null_mut();
+    }
+
     extern "C" {
         fn malloc(size: size_t) -> *mut c_void;
     }
 
-    malloc(items as size_t * size as size_t)
+    // SAFETY: malloc is allowed to return a unique but non-null pointer when given a size
+    // of zero. To prevent potentially undefined behavior from such a pointer reaching Rust code
+    // and being dereferenced, we handled the zero-size case separately above.
+    unsafe { malloc(size) }
 }
 
 /// # Safety
@@ -69,7 +82,15 @@ unsafe extern "C" fn zalloc_c_calloc(
         fn calloc(nitems: size_t, size: size_t) -> *mut c_void;
     }
 
-    calloc(items as size_t, size as size_t)
+    if items as size_t * size as size_t == 0 {
+        return core::ptr::null_mut();
+    }
+
+    // SAFETY: When the item count or size is zero, calloc is allowed to return either
+    // null or some non-null value that is safe to free but not safe to dereference.
+    // To avoid the possibility of exposing such a pointer to Rust code, we check for
+    // zero above and avoid calling calloc.
+    unsafe { calloc(items as size_t, size as size_t) }
 }
 
 /// # Safety
@@ -82,6 +103,8 @@ unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
         fn free(p: *mut c_void);
     }
 
+    // SAFETY: The caller ensured that ptr was obtained from the same allocator. Also,
+    // free properly handles the case where ptr == NULL.
     unsafe { free(ptr) }
 }
 
@@ -91,11 +114,16 @@ unsafe extern "C" fn zfree_c(opaque: *mut c_void, ptr: *mut c_void) {
 #[cfg(feature = "rust-allocator")]
 unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_uint) -> *mut c_void {
     let size = count as usize * size as usize;
+    if size == 0 {
+        return core::ptr::null_mut();
+    }
 
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
     let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
 
-    let ptr = std::alloc::System.alloc(layout);
+    // SAFETY: System.alloc requires that the layout have a nonzero size, so we return null
+    // above (and never reach this call) if the requested count * size is zero.
+    let ptr = unsafe { std::alloc::System.alloc(layout) };
 
     ptr as *mut c_void
 }
@@ -110,11 +138,16 @@ unsafe extern "C" fn zalloc_rust_calloc(
     size: c_uint,
 ) -> *mut c_void {
     let size = count as usize * size as usize;
+    if size == 0 {
+        return core::ptr::null_mut();
+    }
 
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
     let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
 
-    let ptr = std::alloc::System.alloc_zeroed(layout);
+    // SAFETY: System.alloc_zeroed requires that the layout have a nonzero size, so we return
+    // null above (and never reach this call) if the requested count * size is zero.
+    let ptr = unsafe { std::alloc::System.alloc_zeroed(layout) };
 
     ptr as *mut c_void
 }
@@ -135,12 +168,24 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
         return;
     }
 
-    let size = *(opaque as *mut usize);
+    // SAFETY: The caller ensured that *opaque is valid to dereference.
+    let size = unsafe { *(opaque as *mut usize) };
+
+    // zalloc_rust and zalloc_rust_calloc bypass the Rust allocator and just return
+    // null when asked to allocate something of zero size. So if a caller tries to
+    // free something of zero size, we return here rather than trying to call the
+    // Rust deallocator.
+    if size == 0 {
+        return;
+    }
 
     let layout = Layout::from_size_align(size, ALIGN.into());
     let layout = layout.unwrap();
 
-    std::alloc::System.dealloc(ptr.cast(), layout);
+    // SAFETY: The caller ensured that ptr was allocated with the alloc::System allocator,
+    // and the size check above ensures that we are not trying to use a zero-size layout
+    // that would produce undefined behavior in the allocator.
+    unsafe { std::alloc::System.dealloc(ptr.cast(), layout) };
 }
 
 #[cfg(test)]
@@ -343,14 +388,22 @@ impl Allocator<'_> {
             if self.zfree == RUST.zfree {
                 assert_ne!(len, 0, "invalid size for {ptr:?}");
                 let mut size = core::mem::size_of::<T>() * len;
-                return (RUST.zfree)(&mut size as *mut usize as *mut c_void, ptr.cast());
+                // SAFETY: The caller ensured that ptr was allocated with this allocator, and
+                // we initialized size above.
+                return unsafe { (RUST.zfree)(&mut size as *mut usize as *mut c_void, ptr.cast()) };
             }
 
             // General case for c-style allocation
-            let original_ptr = (ptr as *mut u8).sub(core::mem::size_of::<*const c_void>());
-            let free_ptr = core::ptr::read_unaligned(original_ptr as *mut *mut c_void);
+            // SAFETY: allocate_layout allocates extra space at the start so that *ptr is preceded
+            // by a pointer holding the pointer to the actual allocation. Therefore, it is safe to
+            // subtract size_of::<*const c_void> from pointer, dereference the resulting address,
+            // and use that as the argument to the low-level free function.
+            unsafe {
+                let original_ptr = (ptr as *mut u8).sub(core::mem::size_of::<*const c_void>());
+                let free_ptr = core::ptr::read_unaligned(original_ptr as *mut *mut c_void);
 
-            (self.zfree)(self.opaque, free_ptr)
+                (self.zfree)(self.opaque, free_ptr)
+            }
         }
     }
 }
@@ -358,6 +411,7 @@ impl Allocator<'_> {
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::{AtomicPtr, Ordering};
+    use std::ptr;
     use std::sync::Mutex;
 
     use super::*;
@@ -502,6 +556,21 @@ mod tests {
             (C.zfree)(core::ptr::null_mut(), core::ptr::null_mut());
 
             (FAIL.zfree)(core::ptr::null_mut(), core::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn test_allocate_zero_size() {
+        // Verify that zero-size allocation requests return a null pointer.
+        unsafe {
+            assert!(zalloc_c(ptr::null_mut(), 1, 0).is_null());
+            assert!(zalloc_c(ptr::null_mut(), 0, 1).is_null());
+            assert!(zalloc_c_calloc(ptr::null_mut(), 1, 0).is_null());
+            assert!(zalloc_c_calloc(ptr::null_mut(), 0, 1).is_null());
+            assert!(zalloc_rust(ptr::null_mut(), 1, 0).is_null());
+            assert!(zalloc_rust(ptr::null_mut(), 0, 1).is_null());
+            assert!(zalloc_rust_calloc(ptr::null_mut(), 1, 0).is_null());
+            assert!(zalloc_rust_calloc(ptr::null_mut(), 0, 1).is_null());
         }
     }
 }
