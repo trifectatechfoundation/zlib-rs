@@ -804,7 +804,14 @@ fn lm_init(state: &mut State) {
     state.window_size = 2 * state.w_size;
 
     // zlib uses CLEAR_HASH here
-    state.head.as_mut_slice().fill(0);
+    //state.head.as_mut_slice().fill(0);
+    unsafe {
+        core::ptr::write_bytes(
+            state.head.as_mut_ptr().cast::<u8>(),
+            0u8,
+            2 * state.head.len(),
+        )
+    };
 
     // Set the default configuration parameters:
     lm_set_level(state, state.level);

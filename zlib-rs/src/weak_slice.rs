@@ -81,6 +81,10 @@ impl<'a, T, const N: usize> WeakArrayMut<'a, T, N> {
         }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        N
+    }
+
     pub(crate) fn as_slice(&self) -> &'a [T] {
         unsafe { core::slice::from_raw_parts(self.ptr.cast(), N) }
     }

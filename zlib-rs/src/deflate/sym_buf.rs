@@ -36,7 +36,8 @@ impl<'a> SymBuf<'a> {
     /// The number of initialized bytes is not changed, and the contents of the buffer are not modified.
     #[inline]
     pub fn clear(&mut self) {
-        self.buf.as_mut_slice().fill(0);
+        // self.buf.as_mut_slice().fill(0u8);
+        unsafe { core::ptr::write_bytes(self.buf.as_mut_ptr(), 0u8, self.buf.len()) };
         self.filled = 0;
     }
 
