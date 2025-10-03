@@ -453,7 +453,6 @@ mod null {
             ..Default::default()
         };
 
-        #[cfg(not(miri))]
         assert_eq_rs_ng!({
             let mut extra = *b"banana\0";
             let mut name = *b"apple\0";
@@ -835,7 +834,6 @@ mod null {
     fn deflate_params() {
         assert_eq_rs_ng!({ deflateParams(core::ptr::null_mut(), 6, 0) });
 
-        #[cfg(not(miri))]
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
             deflateInit_(
@@ -868,7 +866,6 @@ mod null {
             deflateSetHeader(core::ptr::null_mut(), head.as_mut_ptr())
         });
 
-        #[cfg(not(miri))]
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
 
@@ -899,7 +896,6 @@ mod null {
             )
         });
 
-        #[cfg(not(miri))]
         assert_eq_rs_ng!({
             let mut strm = MaybeUninit::<z_stream>::zeroed();
             deflateInit_(
@@ -939,7 +935,6 @@ mod null {
             );
         }
 
-        #[cfg(not(miri))]
         assert_eq!(
             unsafe {
                 use libz_rs_sys::*;
@@ -967,7 +962,6 @@ mod null {
     pub const FERRIS_BYTES: [u8; 14] = [120u8, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108];
 
     #[test]
-    #[cfg_attr(miri, ignore = "slow")]
     fn ferris_bytes() {
         let input = b"Ferris";
         let mut buf = [0; 64];
@@ -1152,7 +1146,6 @@ mod null {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "slow")]
     fn deflate_init_uninitialized() {
         use libz_rs_sys::*;
 
