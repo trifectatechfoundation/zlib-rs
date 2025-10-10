@@ -81,8 +81,13 @@ pub fn is_enabled_pclmulqdq() -> bool {
 #[inline(always)]
 pub fn is_enabled_neon() -> bool {
     #[cfg(target_arch = "aarch64")]
-    #[cfg(feature = "std")]
-    return std::arch::is_aarch64_feature_detected!("neon");
+    {
+        #[cfg(target_feature = "neon")]
+        return true;
+
+        #[cfg(feature = "std")]
+        return std::arch::is_aarch64_feature_detected!("neon");
+    }
 
     false
 }
