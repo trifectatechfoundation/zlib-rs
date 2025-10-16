@@ -804,16 +804,7 @@ fn lm_init(state: &mut State) {
     state.window_size = 2 * state.w_size;
 
     // zlib uses CLEAR_HASH here
-    crate::cfg_select!(
-        miri => {
-            // Miri does not turn `.fill(0)` into a memset
-            // See https://github.com/rust-lang/rust/issues/147271.
-            unsafe { core::ptr::write_bytes(state.head.as_mut_ptr(), 0u8, 1) };
-        }
-        _ => {
-            state.head.as_mut_slice().fill(0);
-        }
-    );
+    state.head.as_mut_slice().fill(0);
 
     // Set the default configuration parameters:
     lm_set_level(state, state.level);
