@@ -36,16 +36,7 @@ impl<'a> SymBuf<'a> {
     /// The number of initialized bytes is not changed, and the contents of the buffer are not modified.
     #[inline]
     pub fn clear(&mut self) {
-        crate::cfg_select!(
-            miri => {
-                // Miri does not turn `.fill(0)` into a memset
-                // See https://github.com/rust-lang/rust/issues/147271.
-                unsafe { core::ptr::write_bytes(self.buf.as_mut_ptr(), 0u8, self.buf.len()) };
-            }
-            _ => {
-                self.buf.as_mut_slice().fill(0);
-            }
-        );
+        self.buf.as_mut_slice().fill(0);
         self.filled = 0;
     }
 

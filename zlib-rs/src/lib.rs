@@ -26,27 +26,6 @@ macro_rules! trace {
     };
 }
 
-#[macro_export]
-macro_rules! cfg_select {
-    ({ $($tt:tt)* }) => {{
-        $crate::cfg_select! { $($tt)* }
-    }};
-    (_ => { $($output:tt)* }) => {
-        $($output)*
-    };
-    (
-        $cfg:meta => $output:tt
-        $($( $rest:tt )+)?
-    ) => {
-        #[cfg($cfg)]
-        $crate::cfg_select! { _ => $output }
-        $(
-            #[cfg(not($cfg))]
-            $crate::cfg_select! { $($rest)+ }
-        )?
-    }
-}
-
 /// Maximum size of the dynamic table.  The maximum number of code structures is
 /// 1924, which is the sum of 1332 for literal/length codes and 592 for distance
 /// codes.  These values were found by exhaustive searches using the program
