@@ -43,6 +43,9 @@ libc = { version = "0.2.171", optional = true }
 version = "1.3.0" # the zlib api version we match
 name = "z_rs"
 
+[package.metadata.capi.library.target.'cfg(target_os = "linux")']
+rustflags = "-Clink-arg=-Wl,--no-whole-archive -Clink-arg=-Wl,--version-script=include/zlib.map -Clink-arg=-Wl,--undefined-version"
+
 [package.metadata.capi.header]
 enabled = false
 
