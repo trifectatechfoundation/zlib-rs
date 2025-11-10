@@ -1,6 +1,5 @@
-use core::arch::x86_64::__m128i;
 use core::arch::x86_64::{
-    _mm_and_si128, _mm_clmulepi64_si128, _mm_cvtsi32_si128, _mm_extract_epi32, _mm_load_si128,
+    __m128i, _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128,
     _mm_loadu_si128, _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128,
     _mm_storeu_si128, _mm_xor_si128,
 };
@@ -24,7 +23,7 @@ const fn reg(input: [u32; 4]) -> __m128i {
 #[derive(Debug, Clone, Copy)]
 #[cfg(target_arch = "x86_64")]
 pub(crate) struct Accumulator {
-    fold: [__m128i; 4],
+    pub(super) fold: [__m128i; 4],
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -249,7 +248,7 @@ impl Accumulator {
         // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
         // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
         // by definition can be up to 15 bytes + one full vector load. */
-        let xmm_initial = _mm_cvtsi32_si128(init_crc as i32);
+        let xmm_initial = reg([init_crc, 0, 0, 0]);
         let first = init_crc != CRC32_INITIAL_VALUE;
         assert!(src.len() >= 31 || !first);
 
@@ -302,19 +301,17 @@ impl Accumulator {
                 src = &src[before.len()..];
             }
 
-            // if is_x86_feature_detected!("vpclmulqdq") {
-            //     if src.len() >= 256 {
-            //         if COPY {
-            //             // size_t n = fold_16_vpclmulqdq_copy(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, dst, src, len);
-            //             // dst += n;
-            //         } else {
-            //             // size_t n = fold_16_vpclmulqdq(&xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, src, len, xmm_initial, first);
-            //             // first = false;
-            //         }
-            //         // len -= n;
-            //         // src += n;
-            //     }
-            // }
+            #[cfg(feature = "vpclmulqdq")]
+            #[cfg(all(target_feature = "vpclmulqdq", target_feature = "avx512f"))]
+            if src.len() >= 256 {
+                let n;
+                if COPY {
+                    n = unsafe { self.fold_16_vpclmulqdq_copy(dst, &mut src) };
+                    dst = &mut dst[n..];
+                } else {
+                    unsafe { self.fold_16_vpclmulqdq(dst, &mut src, &mut init_crc) };
+                }
+            }
 
             while src.len() >= 64 {
                 let n = unsafe { self.progress::<4, COPY>(dst, &mut src, &mut init_crc) };
