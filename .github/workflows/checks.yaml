@@ -480,6 +480,10 @@ jobs:
         run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} null::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1"
+      - name: Test avx512 crc32 implementation
+        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=vpclmulqdq crc32::"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+vpclmulqdq,+avx512f"
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz logic with miri

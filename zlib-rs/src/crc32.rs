@@ -6,6 +6,9 @@ mod braid;
 mod combine;
 #[cfg(target_arch = "x86_64")]
 mod pclmulqdq;
+#[cfg(target_arch = "x86_64")]
+#[cfg(feature = "vpclmulqdq")]
+mod vpclmulqdq;
 
 pub use combine::crc32_combine;
 
