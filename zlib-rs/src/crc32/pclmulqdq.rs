@@ -248,7 +248,6 @@ impl Accumulator {
         // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
         // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
         // by definition can be up to 15 bytes + one full vector load. */
-        let xmm_initial = reg([init_crc, 0, 0, 0]);
         let first = init_crc != CRC32_INITIAL_VALUE;
         assert!(src.len() >= 31 || !first);
 
@@ -280,6 +279,7 @@ impl Accumulator {
                     let is_initial = init_crc == CRC32_INITIAL_VALUE;
 
                     if !is_initial {
+                        let xmm_initial = reg([init_crc, 0, 0, 0]);
                         xmm_crc_part = unsafe { _mm_xor_si128(xmm_crc_part, xmm_initial) };
                         init_crc = CRC32_INITIAL_VALUE;
                     }
