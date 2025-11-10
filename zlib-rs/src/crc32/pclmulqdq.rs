@@ -1,8 +1,8 @@
 use core::arch::x86_64::__m128i;
 use core::arch::x86_64::{
-    _mm_and_si128, _mm_clmulepi64_si128, _mm_extract_epi32, _mm_load_si128, _mm_loadu_si128,
-    _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128, _mm_storeu_si128,
-    _mm_xor_si128,
+    _mm_and_si128, _mm_clmulepi64_si128, _mm_cvtsi32_si128, _mm_extract_epi32, _mm_load_si128,
+    _mm_loadu_si128, _mm_or_si128, _mm_shuffle_epi8, _mm_slli_si128, _mm_srli_si128,
+    _mm_storeu_si128, _mm_xor_si128,
 };
 
 use crate::CRC32_INITIAL_VALUE;
@@ -249,21 +249,22 @@ impl Accumulator {
         // bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
         // carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
         // by definition can be up to 15 bytes + one full vector load. */
-        assert!(src.len() >= 31 || init_crc == CRC32_INITIAL_VALUE);
+        let xmm_initial = _mm_cvtsi32_si128(init_crc as i32);
+        let first = init_crc != CRC32_INITIAL_VALUE;
+        assert!(src.len() >= 31 || !first);
 
         if COPY {
             assert_eq!(dst.len(), src.len(), "dst and src must be the same length")
         }
 
         if src.len() < 16 {
-            if COPY {
-                if src.is_empty() {
-                    return;
-                }
+            if src.is_empty() {
+                return;
+            }
 
-                partial_buf.0[..src.len()].copy_from_slice(src);
-                xmm_crc_part =
-                    unsafe { _mm_load_si128(partial_buf.0.as_mut_ptr() as *mut __m128i) };
+            partial_buf.0[..src.len()].copy_from_slice(src);
+            xmm_crc_part = unsafe { _mm_load_si128(partial_buf.0.as_mut_ptr() as *mut __m128i) };
+            if COPY {
                 dst[..src.len()].copy_from_slice(&partial_buf.0[..src.len()]);
             }
         } else {
@@ -280,7 +281,6 @@ impl Accumulator {
                     let is_initial = init_crc == CRC32_INITIAL_VALUE;
 
                     if !is_initial {
-                        let xmm_initial = reg([init_crc, 0, 0, 0]);
                         xmm_crc_part = unsafe { _mm_xor_si128(xmm_crc_part, xmm_initial) };
                         init_crc = CRC32_INITIAL_VALUE;
                     }
