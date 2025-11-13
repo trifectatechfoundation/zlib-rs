@@ -1,10 +1,9 @@
-use zlib_rs::c_api::*;
-
 use z_rs::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzopen64, gzputc,
     gzputs, gzread, gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
 };
+use zlib_rs::c_api::*;
 
 use libc::size_t;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
