@@ -1974,7 +1974,7 @@ mod fuzz_based_tests {
             &input,
             DeflateConfig::default(),
             &[
-                120, 156, 19, 99, 24, 5, 12, 12, 12, 172, 32, 18, 0, 24, 45, 0, 28,
+                120, 156, 19, 99, 24, 5, 12, 12, 12, 172, 160, 80, 0, 0, 24, 45, 0, 28,
             ],
         )
     }
@@ -2600,7 +2600,7 @@ fn test_gzip_deflate_config() {
 	            0,
 	        ],
 	        name: CString::default(),
-	        comment: CString::from(c"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"),
+	        comment: CString::new(b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff").unwrap(),
 	        hcrc: 1548508252,
 	    },
 	};
@@ -2626,7 +2626,7 @@ fn test_gzip_deflate_config() {
                 config.mem_level,
                 config.strategy as i32,
                 zlibVersion(),
-                size_of::<z_stream>() as c_int,
+                core::mem::size_of::<z_stream>() as c_int,
             )
         };
 

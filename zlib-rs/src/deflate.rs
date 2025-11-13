@@ -1302,7 +1302,7 @@ pub(crate) struct State<'a> {
     //
     // Insert new strings in the hash table only if the match length is not
     // greater than this length. This saves time but degrades compression.
-    // max_insert_length is used only for compression levels <= 3.
+    // max_insert_length is used only for compression levels <= 6.
     // define max_insert_length  max_lazy_match
     /// Attempt to find a better match only when the current match is strictly smaller
     /// than this value. This mechanism is used only for compression levels >= 4.

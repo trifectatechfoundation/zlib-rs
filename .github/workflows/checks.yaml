@@ -31,6 +31,7 @@ jobs:
       # wasm32-wasip1 (std for wasip2 is unstable)
       WASI_SDK_PATH: /tmp/wasi-sdk-24.0-x86_64-linux
       CC_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/clang
+      CXX_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/clang++
       AR_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/llvm-ar
       CARGO_TARGET_WASM32_WASIP1_RUNNER: "wasmtime --dir /home/runner/work/zlib-rs/zlib-rs/test-libz-rs-sys --dir /tmp/"
       CARGO_TARGET_WASM32_WASIP1_RUSTFLAGS: "-Ctarget-feature=+simd128"
@@ -60,12 +61,12 @@ jobs:
           - target: "i686-unknown-linux-gnu"
             os: ubuntu-latest
             codecov: true
-            packages: gcc-i686-linux-gnu
+            packages: gcc-i686-linux-gnu g++-i686-linux-gnu
 
           - target: "s390x-unknown-linux-gnu"
             os: ubuntu-latest
             codecov: false
-            packages: gcc-s390x-linux-gnu qemu-user qemu-user-static
+            packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-static
 
           - target: "wasm32-wasip1"
             os: ubuntu-latest
@@ -470,7 +471,7 @@ jobs:
       - name: Install gcc
         if: ${{ contains(matrix.target, 'windows') }}
         run: |
-          sudo apt-get install gcc-mingw-w64-x86-64
+          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
           x86_64-w64-mingw32-gcc --help
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
