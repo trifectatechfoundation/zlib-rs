@@ -2404,3 +2404,148 @@ fn test_dict_inflate() {
         assert_eq!(uncompr[..hello.len()], hello);
     });
 }
+
+mod stable_api {
+    use zlib_rs::{
+        deflate::{compress_slice, DeflateConfig},
+        InflateError, ReturnCode,
+    };
+
+    fn with_window_bits(n: i32) {
+        let config = DeflateConfig {
+            window_bits: n,
+            ..DeflateConfig::default()
+        };
+
+        let mut output = [0u8; 64];
+        let input = "Hello World!";
+        let (compressed, ret) = compress_slice(&mut output, input.as_bytes(), config);
+        assert_eq!(ret, ReturnCode::Ok);
+
+        let mut decompressed = [0u8; 64];
+        let mut inflate = zlib_rs::Inflate::new(n >= 0, n.unsigned_abs() as u8);
+        inflate
+            .decompress(compressed, &mut decompressed, zlib_rs::InflateFlush::Finish)
+            .unwrap();
+
+        assert_eq!(inflate.total_in() as usize, compressed.len());
+
+        assert_eq!(
+            &decompressed[..inflate.total_out() as usize],
+            input.as_bytes()
+        );
+    }
+
+    #[test]
+    fn raw() {
+        with_window_bits(-15);
+    }
+
+    #[test]
+    fn zlib_header() {
+        with_window_bits(15);
+    }
+
+    #[test]
+    fn gz_header() {
+        with_window_bits(16 + 15);
+    }
+
+    #[test]
+    #[should_panic = "StreamError"]
+    fn invalid_config() {
+        zlib_rs::Inflate::new(true, 123);
+    }
+
+    #[test]
+    fn invalid_data() {
+        let mut inflate = zlib_rs::Inflate::new(true, 15);
+
+        // Clearly invalid input.
+        let compressed = [0xAA; 64];
+        let mut decompressed = [0u8; 64];
+
+        let ret = inflate.decompress(
+            &compressed,
+            &mut decompressed,
+            zlib_rs::InflateFlush::Finish,
+        );
+
+        assert_eq!(ret, Err(InflateError::DataError));
+    }
+
+    #[test]
+    fn need_dict() {
+        let mut inflate = zlib_rs::Inflate::new(true, 15);
+
+        let compressed = [0x08, 0xb8, 0x0, 0x0, 0x0, 0x1];
+        let mut decompressed = [0u8; 64];
+
+        let ret = inflate.decompress(
+            &compressed,
+            &mut decompressed,
+            zlib_rs::InflateFlush::Finish,
+        );
+
+        assert_eq!(ret, Err(InflateError::NeedDict { dict_id: 1 }));
+    }
+
+    #[test]
+    fn reset_reuse() {
+        let input1 = "Hello World!";
+        let input2 = "Goodbye World!";
+
+        let mut output1 = [0u8; 64];
+        let config1 = DeflateConfig {
+            window_bits: 15,
+            ..DeflateConfig::default()
+        };
+        let (compressed1, ret) = compress_slice(&mut output1, input1.as_bytes(), config1);
+        assert_eq!(ret, ReturnCode::Ok);
+
+        let mut output2 = [0u8; 64];
+        let config2 = DeflateConfig {
+            window_bits: -15,
+            ..DeflateConfig::default()
+        };
+        let (compressed2, ret) = compress_slice(&mut output2, input2.as_bytes(), config2);
+        assert_eq!(ret, ReturnCode::Ok);
+
+        // Start with header enabled.
+        let zlib_header_first = true;
+        let mut inflate = zlib_rs::Inflate::new(zlib_header_first, 15);
+
+        let mut decompressed1 = [0u8; 64];
+        inflate
+            .decompress(
+                compressed1,
+                &mut decompressed1,
+                zlib_rs::InflateFlush::Finish,
+            )
+            .unwrap();
+
+        assert_eq!(inflate.total_in() as usize, compressed1.len());
+        assert_eq!(
+            &decompressed1[..inflate.total_out() as usize],
+            input1.as_bytes()
+        );
+
+        // Reset for a *raw* stream: swap the zlib_header flag.
+        inflate.reset(!zlib_header_first);
+
+        let mut decompressed2 = [0u8; 64];
+        inflate
+            .decompress(
+                compressed2,
+                &mut decompressed2,
+                zlib_rs::InflateFlush::Finish,
+            )
+            .unwrap();
+
+        assert_eq!(inflate.total_in() as usize, compressed2.len());
+        assert_eq!(
+            &decompressed2[..inflate.total_out() as usize],
+            input2.as_bytes()
+        );
+    }
+}

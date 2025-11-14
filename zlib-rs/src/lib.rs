@@ -4,14 +4,18 @@
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
 
-mod adler32;
 pub mod allocate;
 pub mod c_api;
-mod cpu_features;
 pub mod crc32;
 pub mod deflate;
 pub mod inflate;
+
+mod adler32;
+mod cpu_features;
+mod stable;
 mod weak_slice;
+
+pub use stable::{Deflate, DeflateError, Inflate, InflateError, Status};
 
 pub use adler32::{adler32, adler32_combine};
 pub use crc32::{crc32, crc32_combine, get_crc_table};
@@ -188,7 +192,11 @@ impl From<i32> for ReturnCode {
 }
 
 impl ReturnCode {
-    const fn error_message_str(self) -> &'static str {
+    fn error_message_str(self) -> &'static str {
+        self.error_message_str_with_null().trim_end_matches('\0')
+    }
+
+    const fn error_message_str_with_null(self) -> &'static str {
         match self {
             ReturnCode::Ok => "\0",
             ReturnCode::StreamEnd => "stream end\0",
@@ -203,7 +211,7 @@ impl ReturnCode {
     }
 
     pub const fn error_message(self) -> *const core::ffi::c_char {
-        let msg = self.error_message_str();
+        let msg = self.error_message_str_with_null();
         msg.as_ptr().cast::<core::ffi::c_char>()
     }
 

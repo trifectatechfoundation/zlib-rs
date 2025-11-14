@@ -2703,3 +2703,94 @@ fn test_gzip_deflate_config() {
         Some(dest)
     });
 }
+
+mod stable_api {
+    use zlib_rs::{
+        inflate::{uncompress_slice, InflateConfig},
+        DeflateFlush, ReturnCode, Status,
+    };
+
+    #[test]
+    #[should_panic = "StreamError"]
+    fn invalid_config() {
+        zlib_rs::Deflate::new(9000, true, 15);
+    }
+
+    fn with_window_bits(window_bits: i32) {
+        let input = "Hello World!";
+
+        let mut deflate =
+            zlib_rs::Deflate::new(9, window_bits >= 0, window_bits.unsigned_abs() as u8);
+        let mut compressed = [0u8; 64];
+        let ret = deflate.compress(input.as_bytes(), &mut compressed, DeflateFlush::Finish);
+        assert_eq!(ret, Ok(Status::StreamEnd));
+
+        assert_eq!(deflate.total_in() as usize, input.len());
+
+        let compressed = &compressed[..deflate.total_out() as usize];
+        let mut decompressed = [0u8; 64];
+        let (decompressed, ret) =
+            uncompress_slice(&mut decompressed, compressed, InflateConfig { window_bits });
+        assert_eq!(ret, ReturnCode::Ok);
+
+        assert_eq!(decompressed, input.as_bytes());
+    }
+
+    #[test]
+    fn raw() {
+        with_window_bits(-15);
+    }
+
+    #[test]
+    fn zlib_header() {
+        with_window_bits(15);
+    }
+
+    #[test]
+    fn gz_header() {
+        with_window_bits(16 + 15);
+    }
+
+    #[test]
+    fn reset_reuse_stream() {
+        let input1 = "Hello World!";
+        let input2 = "Goodbye World!";
+
+        let mut deflate = zlib_rs::Deflate::new(9, true, 15);
+
+        let mut compressed1 = [0u8; 64];
+        let ret = deflate.compress(input1.as_bytes(), &mut compressed1, DeflateFlush::Finish);
+        assert_eq!(ret, Ok(Status::StreamEnd));
+        assert_eq!(deflate.total_in() as usize, input1.len());
+
+        let compressed1 = &compressed1[..deflate.total_out() as usize];
+
+        deflate.reset();
+
+        let mut compressed2 = [0u8; 64];
+        let ret = deflate.compress(input2.as_bytes(), &mut compressed2, DeflateFlush::Finish);
+        assert_eq!(ret, Ok(Status::StreamEnd));
+        // After reset, total_in should reflect only the second input
+        assert_eq!(deflate.total_in() as usize, input2.len());
+
+        let compressed2 = &compressed2[..deflate.total_out() as usize];
+
+        let mut decompressed1 = [0u8; 64];
+        let (decompressed1, ret) = uncompress_slice(
+            &mut decompressed1,
+            compressed1,
+            InflateConfig { window_bits: 15 },
+        );
+        assert_eq!(ret, ReturnCode::Ok);
+        assert_eq!(decompressed1, input1.as_bytes());
+
+        let mut decompressed2 = [0u8; 64];
+        let (decompressed2, ret) = uncompress_slice(
+            &mut decompressed2,
+            compressed2,
+            InflateConfig { window_bits: 15 },
+        );
+        assert_eq!(ret, ReturnCode::Ok);
+        assert_eq!(decompressed2, input2.as_bytes());
+    }
+}

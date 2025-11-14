@@ -121,6 +121,27 @@ impl<'a> DeflateStream<'a> {
             self.state.bit_writer.bits_used,
         )
     }
+
+    pub fn new(level: i32, zlib_header: bool, window_bits: u8) -> Self {
+        let mut inner = crate::c_api::z_stream::default();
+
+        let config = DeflateConfig {
+            window_bits: if zlib_header {
+                i32::from(window_bits)
+            } else {
+                -i32::from(window_bits)
+            },
+            level,
+            method: Method::Deflated,
+            mem_level: DEF_MEM_LEVEL,
+            strategy: Strategy::Default,
+        };
+
+        let ret = crate::deflate::init(&mut inner, config);
+        assert_eq!(ret, ReturnCode::Ok);
+
+        unsafe { core::mem::transmute(inner) }
+    }
 }
 
 /// number of elements in hash table
