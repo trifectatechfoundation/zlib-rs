@@ -27,7 +27,7 @@ const DOT3V: __m256i = __m256i_literal([
     1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
 ]);
 
-const ZERO: __m256i = __m256i_literal([0; 32]);
+const ZERO: __m256i = __m256i_literal([0u8; 32]);
 
 /// 32 bit horizontal sum, adapted from Agner Fog's vector library.
 #[target_feature(enable = "avx2")]
