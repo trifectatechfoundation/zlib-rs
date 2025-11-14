@@ -126,6 +126,23 @@ impl<'a> InflateStream<'a> {
         // safety: a valid &mut InflateStream is also a valid &mut z_stream
         unsafe { &mut *(self as *mut _ as *mut z_stream) }
     }
+
+    pub fn new(zlib_header: bool, window_bits: u8) -> Self {
+        let mut inner = crate::c_api::z_stream::default();
+
+        let config = InflateConfig {
+            window_bits: if zlib_header {
+                i32::from(window_bits)
+            } else {
+                -i32::from(window_bits)
+            },
+        };
+
+        let ret = crate::inflate::init(&mut inner, config);
+        assert_eq!(ret, ReturnCode::Ok);
+
+        unsafe { core::mem::transmute(inner) }
+    }
 }
 
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
@@ -2616,7 +2633,7 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
     ReturnCode::Ok
 }
 
-pub fn end<'a>(stream: &'a mut InflateStream<'a>) -> &'a mut z_stream {
+pub fn end<'a>(stream: &'a mut InflateStream<'_>) -> &'a mut z_stream {
     let alloc = stream.alloc;
 
     let mut window = Window::empty();
