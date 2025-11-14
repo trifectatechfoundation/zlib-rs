@@ -24,7 +24,8 @@ __internal-fuzz = ["arbitrary"]
 __internal-fuzz-disable-checksum = [] # disable checksum validation on inflate
 __internal-test = ["quickcheck"]
 ZLIB_DEBUG = []
-vpclmulqdq = [] # use avx512 to speed up crc32. Only stable from 1.89.0 onwards
+vpclmulqdq = [] # use avx512 to speed up crc32. Only stable from 1.89.0 onwards.
+avx512 = ["vpclmulqdq"] # use avx512 to speed up crc32 and adler32. Only stable from 1.89.0 onwards.
 
 
 [dependencies]
