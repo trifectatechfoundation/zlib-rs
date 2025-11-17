@@ -114,7 +114,11 @@ unsafe fn adler32_avx2_help(adler: u32, src: &[u8]) -> u32 {
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn helper_32_bytes(mut adler0: u32, mut adler1: u32, src: &[__m256i]) -> (u32, u32) {
+pub(super) unsafe fn helper_32_bytes(
+    mut adler0: u32,
+    mut adler1: u32,
+    src: &[__m256i],
+) -> (u32, u32) {
     unsafe {
         let mut vs1 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler0 as i32));
         let mut vs2 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler1 as i32));
