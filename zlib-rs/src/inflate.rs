@@ -7,6 +7,7 @@ use core::mem::MaybeUninit;
 use core::ops::ControlFlow;
 
 mod bitreader;
+mod infback;
 mod inffixed_tbl;
 mod inftrees;
 mod window;
@@ -24,10 +25,11 @@ use crate::{
 
 use crate::crc32::{crc32, Crc32Fold};
 
+pub use self::infback::{back, back_end, back_init};
+pub use self::window::Window;
 use self::{
     bitreader::BitReader,
     inftrees::{inflate_table, CodeType, InflateTable},
-    window::Window,
 };
 
 const INFLATE_STRICT: bool = false;
@@ -62,6 +64,14 @@ pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State
 pub unsafe fn set_mode_dict(strm: &mut z_stream) {
     unsafe {
         (*(strm.state as *mut State)).mode = Mode::Dict;
+    }
+}
+
+#[cfg(feature = "__internal-test")]
+#[doc(hidden)]
+pub unsafe fn set_mode_sync(strm: *mut z_stream) {
+    unsafe {
+        (*((*strm).state as *mut State)).mode = Mode::Sync;
     }
 }
 
@@ -2096,7 +2106,7 @@ unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _star
             break 'dolen;
         }
 
-        // include the bits in the bit_reader buffer in the count of available bytes
+        // For normal `inflate`, include the bits in the bit_reader buffer in the count of available bytes.
         let remaining = bit_reader.bytes_remaining_including_buffer();
         if remaining >= INFLATE_FAST_MIN_HAVE && writer.remaining() >= INFLATE_FAST_MIN_LEFT {
             continue;

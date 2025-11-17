@@ -6,6 +6,8 @@ pub mod end_to_end;
 mod gz;
 mod helpers;
 #[cfg(test)]
+mod infback;
+#[cfg(test)]
 mod inflate;
 #[cfg(test)]
 mod zlib_ng_cve;
