@@ -564,13 +564,29 @@ pub unsafe extern "C-unwind" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///     - `opaque`
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBackInit_))]
 pub unsafe extern "C-unwind" fn inflateBackInit_(
-    _strm: z_streamp,
-    _windowBits: c_int,
-    _window: *mut c_uchar,
-    _version: *const c_char,
-    _stream_size: c_int,
+    strm: z_streamp,
+    windowBits: c_int,
+    window: *mut c_uchar,
+    version: *const c_char,
+    stream_size: c_int,
 ) -> c_int {
-    todo!("inflateBack is not implemented yet")
+    if !is_version_compatible(version, stream_size) {
+        return ReturnCode::VersionError as _;
+    }
+
+    let Some(strm) = (unsafe { strm.as_mut() }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let config = InflateConfig {
+        window_bits: windowBits,
+    };
+
+    // NOTE: normally we allocate a window with some additional padding. That doesn't happen here,
+    // so the `infback` function uses `Window::buffer_size` instead of `Window::size`.
+    let window = unsafe { zlib_rs::inflate::Window::from_raw_parts(window, 1usize << windowBits) };
+
+    zlib_rs::inflate::back_init(strm, config, window) as _
 }
 
 /// Decompresses as much data as possible, and stops when the input buffer becomes empty or the output buffer becomes full.
@@ -584,13 +600,25 @@ pub unsafe extern "C-unwind" fn inflateBackInit_(
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBack))]
 pub unsafe extern "C-unwind" fn inflateBack(
-    _strm: z_streamp,
-    _in: in_func,
-    _in_desc: *mut c_void,
-    _out: out_func,
-    _out_desc: *mut c_void,
+    strm: z_streamp,
+    in_: Option<in_func>,
+    in_desc: *mut c_void,
+    out: Option<out_func>,
+    out_desc: *mut c_void,
 ) -> c_int {
-    todo!("inflateBack is not implemented yet")
+    let Some(strm) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let Some(in_) = in_ else {
+        return ReturnCode::StreamError as _;
+    };
+
+    let Some(out) = out else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::inflate::back(strm, in_, in_desc, out, out_desc) as _
 }
 
 /// Deallocates all dynamically allocated data structures for this stream.
@@ -610,8 +638,14 @@ pub unsafe extern "C-unwind" fn inflateBack(
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBackEnd))]
-pub unsafe extern "C-unwind" fn inflateBackEnd(_strm: z_streamp) -> c_int {
-    todo!("inflateBack is not implemented yet")
+pub unsafe extern "C-unwind" fn inflateBackEnd(strm: z_streamp) -> c_int {
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::inflate::back_end(stream);
+
+    ReturnCode::Ok as _
 }
 
 /// Sets the destination stream as a complete copy of the source stream.

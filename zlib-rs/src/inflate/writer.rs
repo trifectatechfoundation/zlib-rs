@@ -30,6 +30,13 @@ impl<'a> Writer<'a> {
         Writer { buf, filled: 0 }
     }
 
+    #[inline]
+    pub unsafe fn new_uninit_raw(ptr: *mut u8, len: usize, capacity: usize) -> Writer<'a> {
+        let buf =
+            unsafe { WeakSliceMut::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, capacity) };
+        Writer { buf, filled: len }
+    }
+
     /// Pointer to where the next byte will be written
     #[inline]
     pub fn next_out(&mut self) -> *mut MaybeUninit<u8> {
@@ -165,6 +172,24 @@ impl<'a> Writer<'a> {
         self.filled += len;
     }
 
+    /// Variant of `extend_from_window` used with `inflateBack`. It does not attempt a chunked
+    /// copy, because there is no padding at the end and the window and output buffer alias.
+    /// So a standard `memmove` will have to do.
+    #[inline(always)]
+    pub fn extend_from_window_back(&mut self, window: &super::window::Window, range: Range<usize>) {
+        let len = range.end - range.start;
+
+        unsafe {
+            core::ptr::copy(
+                window.as_ptr().add(range.start),
+                self.buf.as_mut_ptr().add(self.filled).cast(),
+                len,
+            );
+        }
+
+        self.filled += len;
+    }
+
     #[inline(always)]
     pub fn copy_match(&mut self, offset_from_end: usize, length: usize) {
         self.copy_match_with_features::<{ CpuFeatures::NONE }>(offset_from_end, length)
@@ -245,7 +270,37 @@ impl<'a> Writer<'a> {
                 }
             }
         } else {
-            Self::copy_chunked_within::<N>(buf, capacity, current, offset_from_end, length)
+            Self::copy_chunked_within::<N>(buf, capacity, current, offset_from_end, length);
+        }
+    }
+
+    /// Variant of `copy_match` used with `inflateBack`. It does not attempt a chunked
+    /// copy, because there is no padding at the end.
+    #[inline(always)]
+    pub fn copy_match_back(&mut self, offset_from_end: usize, length: usize) {
+        let capacity = self.buf.len();
+        let len = Ord::min(self.filled + length, capacity);
+        let buf = &mut self.buf.as_mut_slice()[..len];
+
+        let current = self.filled;
+        self.filled += length;
+
+        // Note also that the referenced string may overlap the current
+        // position; for example, if the last 2 bytes decoded have values
+        // X and Y, a string reference with <length = 5, distance = 2>
+        // adds X,Y,X,Y,X to the output stream.
+
+        match offset_from_end {
+            1 => {
+                // this will just repeat this value many times
+                let element = buf[current - 1];
+                buf[current..][..length].fill(element);
+            }
+            _ => {
+                for i in 0..length {
+                    buf[current + i] = buf[current - offset_from_end + i];
+                }
+            }
         }
     }
 
@@ -316,6 +371,7 @@ unsafe fn store_chunk<const N: usize>(out: *mut MaybeUninit<u8>, chunk: [MaybeUn
 impl fmt::Debug for Writer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Writer")
+            .field("ptr", &self.buf.as_ptr())
             .field("filled", &self.filled)
             .field("capacity", &self.capacity())
             .finish()

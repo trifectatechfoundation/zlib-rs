@@ -1,7 +1,9 @@
-use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr};
+use core::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, CStr};
 use core::mem::{ManuallyDrop, MaybeUninit};
 
-use zlib_rs::c_api::{Z_DATA_ERROR, Z_ERRNO, Z_NEED_DICT, Z_OK, Z_STREAM_END, Z_STREAM_ERROR};
+use zlib_rs::c_api::{
+    Z_DATA_ERROR, Z_ERRNO, Z_NEED_DICT, Z_OK, Z_STREAM_END, Z_STREAM_ERROR, Z_VERSION_ERROR,
+};
 use zlib_rs::deflate::{compress_slice, DeflateConfig};
 use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
@@ -640,7 +642,7 @@ fn compute_adler32() {
 }
 
 /* do a raw inflate of data in hexadecimal with both inflate and inflateBack */
-fn try_inflate(input: &[u8], err: c_int) -> c_int {
+fn try_inflate(input: &[u8], expected_err: c_int) -> c_int {
     use libz_rs_sys::*;
 
     let len = input.len();
@@ -648,7 +650,6 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     /* allocate work areas */
     let size = len << 3;
     let mut out = vec![0; size];
-    // let mut win = vec![0; 32768];
 
     //    /* first with inflate */
     //    strcpy(prefix, id);
@@ -661,7 +662,7 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
     let mut ret = unsafe {
         inflateInit2_(
             &mut strm,
-            if err < 0 { 47 } else { -15 },
+            if expected_err < 0 { 47 } else { -15 },
             VERSION,
             STREAM_SIZE,
         )
@@ -686,31 +687,57 @@ fn try_inflate(input: &[u8], err: c_int) -> c_int {
         }
     }
 
-    if err != Z_OK {
+    if expected_err != Z_OK {
         assert_eq!(ret, Z_DATA_ERROR);
     }
 
     unsafe { inflateEnd(&mut strm) };
     mem_done(&mut strm);
 
-    //    /* then with inflateBack */
-    //    if (err >= 0) {
-    //        strcpy(prefix, id);
-    //        strcat(prefix, "-back");
-    //        mem_setup(&strm);
-    //        ret = PREFIX(inflateBackInit)(&strm, 15, win);
-    //        assert(ret == Z_OK);
-    //        strm.avail_in = len;
-    //        strm.next_in = in;
-    //        ret = PREFIX(inflateBack)(&strm, pull, NULL, push, NULL);
-    //        assert(ret != Z_STREAM_ERROR);
-    //        if (err && ret != Z_BUF_ERROR) {
-    //            assert(ret == Z_DATA_ERROR);
-    //            assert(strcmp(id, strm.msg) == 0);
-    //        }
-    //        PREFIX(inflateBackEnd)(&strm);
-    //        mem_done(&strm, prefix);
-    //    }
+    /* then with inflateBack */
+    if expected_err >= 0 {
+        ret = try_inflate_back(input, expected_err);
+    }
+
+    ret
+}
+
+fn try_inflate_back(input: &[u8], expected_err: c_int) -> c_int {
+    use libz_rs_sys::*;
+
+    let len = input.len();
+
+    /* allocate work areas */
+    let mut win = vec![0; 32768];
+
+    // re-setup the stream for inflateBack
+    let mut strm = mem_setup();
+
+    let mut ret =
+        unsafe { inflateBackInit_(&mut strm, 15, win.as_mut_ptr(), VERSION, STREAM_SIZE) };
+    assert_eq!(ret, Z_OK);
+
+    strm.avail_in = len as _;
+    strm.next_in = input.as_ptr() as *mut u8;
+
+    // assumes you have `pull` and `push` extern "C" functions defined
+    ret = unsafe {
+        inflateBack(
+            &mut strm,
+            Some(pull),
+            std::ptr::null_mut(),
+            Some(push),
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(ret, Z_STREAM_ERROR);
+
+    if expected_err != Z_OK && ret != Z_BUF_ERROR {
+        assert_eq!(ret, Z_DATA_ERROR);
+    }
+
+    unsafe { inflateBackEnd(&mut strm) };
+    mem_done(&mut strm);
 
     ret
 }
@@ -863,6 +890,14 @@ fn window_end() {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x6,
         ],
         Z_OK,
+    );
+}
+
+#[test]
+fn back_too_far() {
+    try_inflate_back(
+        &[75, 39, 108, 46, 8, 59, 81, 81, 0, 81, 81, 0, 0, 0, 10, 10],
+        Z_DATA_ERROR,
     );
 }
 
@@ -2547,5 +2582,137 @@ mod stable_api {
             &decompressed2[..inflate.total_out() as usize],
             input2.as_bytes()
         );
+    }
+}
+
+extern "C" fn push(desc: *mut c_void, _buf: *mut c_uchar, _len: c_uint) -> c_int {
+    (!desc.is_null()) as _
+}
+
+unsafe extern "C" fn pull(desc: *mut c_void, buf: *mut *const c_uchar) -> c_uint {
+    static mut NEXT: c_uint = 0;
+    static DAT: [c_uchar; 4] = [0x63 /* 99 */, 0, 2, 0];
+
+    let strm = desc.cast::<libz_rs_sys::z_stream>();
+    if strm.is_null() {
+        NEXT = 0;
+        return 0; // no input (already provided at next_in)
+    };
+
+    // In `infback` this is an unreachable state, triggering a StreamError.
+    zlib_rs::inflate::set_mode_sync(strm);
+
+    if (NEXT as usize) < DAT.len() {
+        *buf = DAT.as_ptr().add(NEXT as usize);
+        NEXT += 1;
+
+        1
+    } else {
+        0
+    }
+}
+
+/// Cover `inflateBack` edge cases.
+#[test]
+fn cover_back() {
+    let mut window = [0u8; 32768];
+
+    let ret = assert_eq_rs_ng!({
+        inflateBackInit_(
+            core::ptr::null_mut(),
+            0,
+            window.as_mut_ptr(),
+            core::ptr::null(),
+            0,
+        )
+    });
+    assert_eq!(ret, Z_VERSION_ERROR);
+
+    let ret = assert_eq_rs_ng!({
+        inflateBackInit_(
+            core::ptr::null_mut(),
+            0,
+            window.as_mut_ptr(),
+            VERSION,
+            STREAM_SIZE,
+        )
+    });
+    assert_eq!(ret, Z_STREAM_ERROR);
+
+    let ret = unsafe {
+        libz_rs_sys::inflateBack(
+            core::ptr::null_mut(),
+            None,
+            core::ptr::null_mut(),
+            None,
+            core::ptr::null_mut(),
+        )
+    };
+    assert_eq!(ret, Z_STREAM_ERROR);
+
+    let ret = assert_eq_rs_ng!({ inflateBackEnd(core::ptr::null_mut(),) });
+    assert_eq!(ret, Z_STREAM_ERROR);
+
+    unsafe {
+        use libz_rs_sys::*;
+
+        let mut stream = mem_setup();
+        let ret = inflateBackInit_(&mut stream, 15, window.as_mut_ptr(), VERSION, STREAM_SIZE);
+        assert_eq!(ret, Z_OK);
+
+        let mut input = *b"\x03\0";
+        stream.avail_in = input.len() as _;
+        stream.next_in = input.as_mut_ptr();
+
+        let ret = libz_rs_sys::inflateBack(
+            &mut stream,
+            Some(pull),
+            core::ptr::null_mut(),
+            Some(push),
+            core::ptr::null_mut(),
+        );
+        assert_eq!(ret, Z_STREAM_END);
+
+        // Force output error.
+        let mut input = *b"\x63\0\0";
+        stream.avail_in = input.len() as _;
+        stream.next_in = input.as_mut_ptr();
+        let ret = {
+            let ptr = &mut stream as *mut z_stream;
+            libz_rs_sys::inflateBack(
+                ptr,
+                Some(pull),
+                core::ptr::null_mut(),
+                Some(push),
+                ptr.cast(), // Cursed!
+            )
+        };
+        assert_eq!(ret, Z_BUF_ERROR);
+
+        // Force mode error by mucking with state. We pass a pointer to the stream state twice, so
+        // this test is actually UB (violating aliasing), which miri will detect.
+        #[cfg(not(miri))]
+        {
+            let ret = {
+                let ptr = { &mut stream as *mut z_stream };
+                libz_rs_sys::inflateBack(
+                    ptr,
+                    Some(pull),
+                    ptr.cast(), // Cursed!
+                    Some(push),
+                    core::ptr::null_mut(),
+                )
+            };
+            assert_eq!(ret, Z_STREAM_ERROR);
+        }
+
+        let ret = { inflateBackEnd(&mut stream) };
+        assert_eq!(ret, Z_OK);
+        mem_done(&mut stream);
+
+        let ret = inflateBackInit_(&mut stream, 15, window.as_mut_ptr(), VERSION, STREAM_SIZE);
+        assert_eq!(ret, Z_OK);
+        let ret = { inflateBackEnd(&mut stream) };
+        assert_eq!(ret, Z_OK);
     }
 }
