@@ -87,3 +87,9 @@ name = "checksum"
 path = "fuzz_targets/checksum.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "infback"
+path = "fuzz_targets/infback.rs"
+test = false
+doc = false
