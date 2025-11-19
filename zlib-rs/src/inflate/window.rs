@@ -24,8 +24,23 @@ impl<'a> Window<'a> {
         self.buf.into_raw_parts()
     }
 
+    pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
+        Self {
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            have: 0,
+            next: 0,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.size() == 0
+    }
+
+    /// The size of the underlying buffer. For inflate, use `size` instead. This function is used
+    /// in `inflateBack` which does not consider the padding.
+    pub fn buffer_size(&self) -> usize {
+        assert!(self.buf.len().is_power_of_two());
+        self.buf.len()
     }
 
     pub fn size(&self) -> usize {
@@ -37,6 +52,10 @@ impl<'a> Window<'a> {
     /// number of bytes in the window. Saturates at `Self::capacity`.
     pub fn have(&self) -> usize {
         self.have
+    }
+
+    pub unsafe fn set_have(&mut self, have: usize) {
+        self.have = have;
     }
 
     /// Position where the next byte will be written
