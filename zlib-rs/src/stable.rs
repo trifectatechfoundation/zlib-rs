@@ -1,3 +1,4 @@
+use crate::deflate::DeflateConfig;
 use crate::inflate::InflateConfig;
 use crate::ReturnCode;
 pub use crate::{DeflateFlush, InflateFlush};
@@ -85,8 +86,18 @@ impl Inflate {
     }
 
     /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
+    ///
+    /// The `window_bits` must be in the range `8..=15`, with `15` being most common.
     pub fn new(zlib_header: bool, window_bits: u8) -> Self {
-        Self(crate::inflate::InflateStream::new(zlib_header, window_bits))
+        let config = InflateConfig {
+            window_bits: if zlib_header {
+                i32::from(window_bits)
+            } else {
+                -i32::from(window_bits)
+            },
+        };
+
+        Self(crate::inflate::InflateStream::new(config))
     }
 
     /// Reset the state to allow handling a new stream.
@@ -203,12 +214,20 @@ impl Deflate {
     }
 
     /// Create a new instance - this allocates so should be done with care.
+    ///
+    /// The `window_bits` must be in the range `8..=15`, with `15` being most common.
     pub fn new(level: i32, zlib_header: bool, window_bits: u8) -> Self {
-        Self(crate::deflate::DeflateStream::new(
+        let config = DeflateConfig {
+            window_bits: if zlib_header {
+                i32::from(window_bits)
+            } else {
+                -i32::from(window_bits)
+            },
             level,
-            zlib_header,
-            window_bits,
-        ))
+            ..DeflateConfig::default()
+        };
+
+        Self(crate::deflate::DeflateStream::new(config))
     }
 
     /// Prepare the instance for a new stream.

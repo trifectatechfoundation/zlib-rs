@@ -127,16 +127,8 @@ impl<'a> InflateStream<'a> {
         unsafe { &mut *(self as *mut _ as *mut z_stream) }
     }
 
-    pub fn new(zlib_header: bool, window_bits: u8) -> Self {
+    pub fn new(config: InflateConfig) -> Self {
         let mut inner = crate::c_api::z_stream::default();
-
-        let config = InflateConfig {
-            window_bits: if zlib_header {
-                i32::from(window_bits)
-            } else {
-                -i32::from(window_bits)
-            },
-        };
 
         let ret = crate::inflate::init(&mut inner, config);
         assert_eq!(ret, ReturnCode::Ok);
