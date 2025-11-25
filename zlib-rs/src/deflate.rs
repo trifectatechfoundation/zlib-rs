@@ -122,20 +122,8 @@ impl<'a> DeflateStream<'a> {
         )
     }
 
-    pub fn new(level: i32, zlib_header: bool, window_bits: u8) -> Self {
+    pub fn new(config: DeflateConfig) -> Self {
         let mut inner = crate::c_api::z_stream::default();
-
-        let config = DeflateConfig {
-            window_bits: if zlib_header {
-                i32::from(window_bits)
-            } else {
-                -i32::from(window_bits)
-            },
-            level,
-            method: Method::Deflated,
-            mem_level: DEF_MEM_LEVEL,
-            strategy: Strategy::Default,
-        };
 
         let ret = crate::deflate::init(&mut inner, config);
         assert_eq!(ret, ReturnCode::Ok);
@@ -151,7 +139,7 @@ const HASH_BITS: usize = 16;
 
 /// Maximum value for memLevel in deflateInit2
 const MAX_MEM_LEVEL: i32 = 9;
-const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
+pub const DEF_MEM_LEVEL: i32 = if MAX_MEM_LEVEL > 8 { 8 } else { MAX_MEM_LEVEL };
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
