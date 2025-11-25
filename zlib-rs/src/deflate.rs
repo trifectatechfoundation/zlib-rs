@@ -50,6 +50,9 @@ pub struct DeflateStream<'a> {
     pub(crate) reserved: crate::c_api::uLong,
 }
 
+unsafe impl Sync for DeflateStream<'_> {}
+unsafe impl Send for DeflateStream<'_> {}
+
 impl<'a> DeflateStream<'a> {
     // z_stream and DeflateStream must have the same layout. Do our best to check if this is true.
     // (imperfect check, but should catch most mistakes.)
