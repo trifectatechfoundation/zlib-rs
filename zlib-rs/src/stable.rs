@@ -67,11 +67,6 @@ impl InflateError {
 /// The state that is used to decompress an input.
 pub struct Inflate(crate::inflate::InflateStream<'static>);
 
-// SAFETY: the stream contains raw pointers, but the `Deflate` API enforces
-// the correct aliasing and mutability constraints.
-unsafe impl Sync for Inflate {}
-unsafe impl Send for Inflate {}
-
 impl Inflate {
     /// The amount of bytes consumed from the input so far.
     pub fn total_in(&self) -> u64 {
@@ -194,11 +189,6 @@ impl From<ReturnCode> for Result<Status, DeflateError> {
 
 /// The state that is used to compress an input.
 pub struct Deflate(crate::deflate::DeflateStream<'static>);
-
-// SAFETY: the stream contains raw pointers, but the `Deflate` API enforces
-// the correct aliasing and mutability constraints.
-unsafe impl Sync for Deflate {}
-unsafe impl Send for Deflate {}
 
 impl Deflate {
     /// The number of bytes that were read from the input.

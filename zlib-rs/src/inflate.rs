@@ -50,6 +50,9 @@ pub struct InflateStream<'a> {
     pub(crate) reserved: crate::c_api::uLong,
 }
 
+unsafe impl Sync for InflateStream<'_> {}
+unsafe impl Send for InflateStream<'_> {}
+
 #[cfg(feature = "__internal-test")]
 #[doc(hidden)]
 pub const INFLATE_STATE_SIZE: usize = core::mem::size_of::<crate::inflate::State>();
