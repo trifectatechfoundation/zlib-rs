@@ -1,5 +1,7 @@
 use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
 
+use sym_buf::Symbol;
+
 use crate::{
     adler32::adler32,
     allocate::Allocator,
@@ -1179,10 +1181,10 @@ impl<'a> BitWriter<'a> {
     }
 
     fn compress_block_help(&mut self, sym_buf: &SymBuf, ltree: &[Value], dtree: &[Value]) {
-        for (dist, lc) in sym_buf.iter() {
+        for Symbol { dist, len, .. } in sym_buf.iter() {
             match dist {
-                0 => self.emit_lit(ltree, lc) as usize,
-                _ => self.emit_dist(ltree, dtree, lc, dist),
+                0 => self.emit_lit(ltree, len) as usize,
+                _ => self.emit_dist(ltree, dtree, len, dist),
             };
         }
 
@@ -1551,10 +1553,10 @@ impl<'a> State<'a> {
 
     fn compress_block_static_trees(&mut self) {
         let ltree = self::trees_tbl::STATIC_LTREE.as_slice();
-        for (dist, lc) in self.sym_buf.iter() {
+        for Symbol { dist, len, .. } in self.sym_buf.iter() {
             match dist {
-                0 => self.bit_writer.emit_lit(ltree, lc) as usize,
-                _ => self.bit_writer.emit_dist_static(lc, dist),
+                0 => self.bit_writer.emit_lit(ltree, len) as usize,
+                _ => self.bit_writer.emit_dist_static(len, dist),
             };
         }
 
