@@ -1786,8 +1786,10 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
             let (old, new) = state.window.filled_mut()[..2 * wsize].split_at_mut(wsize);
             old.copy_from_slice(new);
 
-            state.match_start = state.match_start.saturating_sub(wsize as u16);
-            if state.match_start == 0 {
+            if state.match_start >= wsize as u16 {
+                state.match_start -= wsize as u16;
+            } else {
+                state.match_start = 0;
                 state.prev_length = 0;
             }
 
