@@ -89,7 +89,7 @@ impl<'a, T, const N: usize> WeakArrayMut<'a, T, N> {
         unsafe { core::slice::from_raw_parts_mut(self.ptr.cast(), N) }
     }
 
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut [T; N] {
+    pub(crate) fn as_ptr(&self) -> *const [T; N] {
         self.ptr
     }
 }
