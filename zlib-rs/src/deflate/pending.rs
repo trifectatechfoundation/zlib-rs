@@ -1,6 +1,6 @@
 use core::{marker::PhantomData, mem::MaybeUninit};
 
-use crate::{allocate::Allocator, weak_slice::WeakSliceMut};
+use crate::weak_slice::WeakSliceMut;
 
 pub struct Pending<'a> {
     /// start of the allocation
@@ -77,36 +77,25 @@ impl<'a> Pending<'a> {
         self.pending += buf.len();
     }
 
-    pub(crate) fn new_in(alloc: &Allocator<'a>, len: usize) -> Option<Self> {
-        let ptr = alloc.allocate_slice_raw::<MaybeUninit<u8>>(len)?;
-        // SAFETY: freshly allocated buffer
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
+    pub(crate) unsafe fn from_raw_parts(ptr: *mut MaybeUninit<u8>, len: usize) -> Self {
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
-        Some(Self {
+        Self {
             buf,
             out: 0,
             pending: 0,
             _marker: PhantomData,
-        })
+        }
     }
 
-    pub(crate) fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let mut clone = Self::new_in(alloc, self.buf.len())?;
-
-        clone
-            .buf
-            .as_mut_slice()
-            .copy_from_slice(self.buf.as_slice());
-        clone.out = self.out;
-        clone.pending = self.pending;
-
-        Some(clone)
-    }
-
-    /// # Safety
-    ///
-    /// [`Self`] must not be used after calling this function.
-    pub(crate) unsafe fn drop_in(&mut self, alloc: &Allocator) {
-        unsafe { alloc.deallocate(self.buf.as_mut_ptr(), self.buf.len()) };
+    pub(crate) unsafe fn clone_to(&self, ptr: *mut u8) -> Self {
+        let ptr = ptr.cast::<MaybeUninit<u8>>();
+        unsafe { ptr.copy_from_nonoverlapping(self.buf.as_ptr(), self.buf.len()) };
+        Self {
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, self.buf.len()) },
+            out: self.out,
+            pending: self.pending,
+            _marker: PhantomData,
+        }
     }
 }

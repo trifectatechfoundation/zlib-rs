@@ -1,4 +1,4 @@
-use crate::{allocate::Allocator, weak_slice::WeakSliceMut};
+use crate::weak_slice::WeakSliceMut;
 
 #[derive(Debug)]
 pub struct Window<'a> {
@@ -10,38 +10,15 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
-    pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
-        let len = 2 * ((1 << window_bits) + Self::padding());
-        let ptr = alloc.allocate_zeroed_buffer(len)?;
-        // SAFETY: freshly allocated buffer
-        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) };
+    pub unsafe fn from_raw_parts(ptr: *mut u8, window_bits: usize) -> Self {
+        let len = (1 << window_bits) * 2;
+        let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
-        Some(Self { buf, window_bits })
-    }
-
-    pub fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let mut clone = Self::new_in(alloc, self.window_bits)?;
-
-        clone
-            .buf
-            .as_mut_slice()
-            .copy_from_slice(self.buf.as_slice());
-
-        Some(clone)
+        Self { buf, window_bits }
     }
 
     pub fn as_ptr(&self) -> *const u8 {
         self.buf.as_ptr()
-    }
-
-    /// # Safety
-    ///
-    /// [`Self`] must not be used after calling this function.
-    pub unsafe fn drop_in(&mut self, alloc: &Allocator) {
-        if !self.buf.is_empty() {
-            let mut buf = core::mem::replace(&mut self.buf, WeakSliceMut::empty());
-            unsafe { alloc.deallocate(buf.as_mut_ptr(), buf.len()) };
-        }
     }
 
     pub fn capacity(&self) -> usize {
@@ -70,14 +47,5 @@ impl<'a> Window<'a> {
 
         let dst = self.buf.as_mut_slice()[range].as_mut_ptr();
         unsafe { core::ptr::copy_nonoverlapping(src, dst, end - start) };
-    }
-
-    // padding required so that SIMD operations going out-of-bounds are not a problem
-    pub fn padding() -> usize {
-        if crate::cpu_features::is_enabled_pclmulqdq() {
-            8
-        } else {
-            0
-        }
     }
 }
