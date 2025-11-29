@@ -429,6 +429,9 @@ pub(crate) struct State<'a> {
     lens: [u16; 320],
     /// work area for code table building
     work: [u16; 288],
+
+    allocation_start: *mut u8,
+    total_allocation_size: usize,
 }
 
 impl<'a> State<'a> {
@@ -484,6 +487,9 @@ impl<'a> State<'a> {
             codes_codes: [Code::default(); crate::ENOUGH_LENS],
             len_codes: [Code::default(); crate::ENOUGH_LENS],
             dist_codes: [Code::default(); crate::ENOUGH_DISTS],
+
+            allocation_start: core::ptr::null_mut(),
+            total_allocation_size: 0,
         }
     }
 
@@ -2147,6 +2153,43 @@ pub fn prime(stream: &mut InflateStream, bits: i32, value: i32) -> ReturnCode {
     ReturnCode::Ok
 }
 
+struct InflateAllocOffsets {
+    total_size: usize,
+    state_pos: usize,
+    window_pos: usize,
+}
+
+impl InflateAllocOffsets {
+    fn new() -> Self {
+        use core::mem::size_of;
+
+        // 64B padding for SIMD operations
+        const WINDOW_PAD_SIZE: usize = 64;
+
+        let mut curr_size = 0usize;
+
+        /* Define sizes */
+        let window_size = (1 << MAX_WBITS) + WINDOW_PAD_SIZE;
+        let state_size = size_of::<State>();
+
+        /* Calculate relative buffer positions and paddings */
+        let window_pos = curr_size.next_multiple_of(WINDOW_PAD_SIZE);
+        curr_size += window_pos + window_size;
+
+        let state_pos = curr_size.next_multiple_of(64);
+        curr_size += state_pos + state_size;
+
+        /* Add 64-1 or 4096-1 to allow window alignment, and round size of buffer up to multiple of 64 */
+        let total_size = (curr_size + (WINDOW_PAD_SIZE - 1)).next_multiple_of(64);
+
+        Self {
+            total_size,
+            state_pos,
+            window_pos,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct InflateConfig {
     pub window_bits: i32,
@@ -2192,31 +2235,38 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
         opaque: stream.opaque,
         _marker: PhantomData,
     };
+    let allocs = InflateAllocOffsets::new();
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
+    let Some(allocation_start) = alloc.allocate_slice_raw::<u8>(allocs.total_size) else {
         return ReturnCode::MemError;
     };
 
-    // FIXME: write is stable for NonNull since 1.80.0
-    unsafe { state_allocation.as_ptr().write(state) };
-    stream.state = state_allocation.as_ptr() as *mut internal_state;
+    let address = allocation_start.as_ptr() as usize;
+    let align_offset = address.next_multiple_of(64) - address;
+    let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
+
+    let window_allocation = unsafe { buf.add(allocs.window_pos) };
+    let window = unsafe { Window::from_raw_parts(window_allocation, (1 << MAX_WBITS) + 64) };
+    state.window = window;
+
+    let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
+    unsafe { state_allocation.write(state) };
+    stream.state = state_allocation.cast::<internal_state>();
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
-    let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
-        reset_with_config(stream, config)
+    if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
+        stream.state.allocation_start = allocation_start.as_ptr();
+        stream.state.total_allocation_size = allocs.total_size;
+        let ret = reset_with_config(stream, config);
+
+        if ret != ReturnCode::Ok {
+            end(stream);
+        }
+
+        ret
     } else {
         ReturnCode::StreamError
-    };
-
-    if ret != ReturnCode::Ok {
-        let ptr = stream.state;
-        stream.state = core::ptr::null_mut();
-        // SAFETY: we assume deallocation does not cause UB
-        unsafe { alloc.deallocate(ptr, 1) };
     }
-
-    ret
 }
 
 pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> ReturnCode {
@@ -2243,16 +2293,6 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
         #[cfg(feature = "std")]
         eprintln!("invalid windowBits");
         return ReturnCode::StreamError;
-    }
-
-    if stream.state.window.size() != 0 && stream.state.wbits as i32 != window_bits {
-        let mut window = Window::empty();
-        core::mem::swap(&mut window, &mut stream.state.window);
-
-        let (ptr, len) = window.into_raw_parts();
-        assert_ne!(len, 0);
-        // SAFETY: window is discarded after this deallocation.
-        unsafe { stream.alloc.deallocate(ptr, len) };
     }
 
     stream.state.wrap = wrap as u8;
@@ -2333,7 +2373,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     state.in_available = stream.avail_in as _;
     state.out_available = stream.avail_out as _;
 
-    let mut err = state.dispatch();
+    let err = state.dispatch();
 
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.out_available - (state.writer.capacity() - state.writer.len());
@@ -2366,27 +2406,13 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let update_checksum = state.wrap & 4 != 0;
 
     if must_update_window {
-        'blk: {
-            // initialize the window if needed
-            if state.window.size() == 0 {
-                match Window::new_in(&stream.alloc, state.wbits as usize) {
-                    Some(window) => state.window = window,
-                    None => {
-                        state.mode = Mode::Mem;
-                        err = ReturnCode::MemError;
-                        break 'blk;
-                    }
-                }
-            }
-
-            state.window.extend(
-                &state.writer.filled()[..out_written],
-                state.gzip_flags,
-                update_checksum,
-                &mut state.checksum,
-                &mut state.crc_fold,
-            );
-        }
+        state.window.extend(
+            &state.writer.filled()[..out_written],
+            state.gzip_flags,
+            update_checksum,
+            &mut state.checksum,
+            &mut state.crc_fold,
+        );
     }
 
     if let Some(msg) = state.error_message {
@@ -2497,83 +2523,39 @@ pub unsafe fn copy<'a>(
 
     // Safety: source and dest are both mutable references, so guaranteed not to overlap.
     // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
-    unsafe {
-        core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
-    }
+    unsafe { core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1) };
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = source.alloc.allocate_raw::<State>() else {
+    // Allocate space.
+    let allocs = InflateAllocOffsets::new();
+    debug_assert_eq!(allocs.total_size, source.state.total_allocation_size);
+
+    let Some(allocation_start) = source.alloc.allocate_slice_raw::<u8>(allocs.total_size) else {
         return ReturnCode::MemError;
     };
 
-    let state = &source.state;
+    let address = allocation_start.as_ptr() as usize;
+    let align_offset = address.next_multiple_of(64) - address;
+    let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
 
-    // SAFETY: an initialized Writer is a valid MaybeUninit<Writer>.
-    let writer: MaybeUninit<Writer> =
-        unsafe { core::ptr::read(&state.writer as *const _ as *const MaybeUninit<Writer>) };
-
-    let mut copy = State {
-        mode: state.mode,
-        flags: state.flags,
-        wrap: state.wrap,
-        len_table: state.len_table,
-        dist_table: state.dist_table,
-        wbits: state.wbits,
-        window: Window::empty(),
-        head: None,
-        ncode: state.ncode,
-        nlen: state.nlen,
-        ndist: state.ndist,
-        have: state.have,
-        next: state.next,
-        bit_reader: state.bit_reader,
-        writer: Writer::new(&mut []),
-        total: state.total,
-        length: state.length,
-        offset: state.offset,
-        extra: state.extra,
-        back: state.back,
-        was: state.was,
-        chunksize: state.chunksize,
-        in_available: state.in_available,
-        out_available: state.out_available,
-        lens: state.lens,
-        work: state.work,
-        error_message: state.error_message,
-        flush: state.flush,
-        checksum: state.checksum,
-        crc_fold: state.crc_fold,
-        dmax: state.dmax,
-        gzip_flags: state.gzip_flags,
-        codes_codes: state.codes_codes,
-        len_codes: state.len_codes,
-        dist_codes: state.dist_codes,
+    let window_allocation = unsafe { buf.add(allocs.window_pos) };
+    let window = unsafe {
+        source
+            .state
+            .window
+            .clone_to(window_allocation, (1 << MAX_WBITS) + 64)
     };
 
-    if !state.window.is_empty() {
-        let Some(window) = state.window.clone_in(&source.alloc) else {
-            // SAFETY: state_allocation is not used again.
-            unsafe { source.alloc.deallocate(state_allocation.as_ptr(), 1) };
-            return ReturnCode::MemError;
-        };
+    let copy = unsafe { buf.add(allocs.state_pos).cast::<State>() };
+    unsafe { core::ptr::copy_nonoverlapping(source.state, copy, 1) };
 
-        copy.window = window;
-    }
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*copy).window) };
+    unsafe { core::ptr::write(field_ptr, window) };
 
-    // write the cloned state into state_ptr
-    unsafe { state_allocation.as_ptr().write(copy) }; // FIXME: write is stable for NonNull since 1.80.0
+    let field_ptr = unsafe { core::ptr::addr_of_mut!((*copy).allocation_start) };
+    unsafe { core::ptr::write(field_ptr, allocation_start.as_ptr()) };
 
-    // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation.as_ptr()) };
-
-    // update the writer; it cannot be cloned so we need to use some shennanigans
-    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.writer) };
-    unsafe { core::ptr::copy(writer.as_ptr(), field_ptr, 1) };
-
-    // update the gzhead field (it contains a mutable reference so we need to be careful
-    let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.head) };
-    unsafe { core::ptr::copy(&source.state.head, field_ptr, 1) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, copy) };
 
     ReturnCode::Ok
 }
@@ -2614,30 +2596,13 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
         }
     }
 
-    let err = 'blk: {
-        // initialize the window if needed
-        if stream.state.window.size() == 0 {
-            match Window::new_in(&stream.alloc, stream.state.wbits as usize) {
-                None => break 'blk ReturnCode::MemError,
-                Some(window) => stream.state.window = window,
-            }
-        }
-
-        stream.state.window.extend(
-            dictionary,
-            stream.state.gzip_flags,
-            false,
-            &mut stream.state.checksum,
-            &mut stream.state.crc_fold,
-        );
-
-        ReturnCode::Ok
-    };
-
-    if err != ReturnCode::Ok {
-        stream.state.mode = Mode::Mem;
-        return ReturnCode::MemError;
-    }
+    stream.state.window.extend(
+        dictionary,
+        stream.state.gzip_flags,
+        false,
+        &mut stream.state.checksum,
+        &mut stream.state.crc_fold,
+    );
 
     stream.state.flags.update(Flags::HAVE_DICT, true);
 
@@ -2646,22 +2611,16 @@ pub fn set_dictionary(stream: &mut InflateStream, dictionary: &[u8]) -> ReturnCo
 
 pub fn end<'a>(stream: &'a mut InflateStream<'_>) -> &'a mut z_stream {
     let alloc = stream.alloc;
+    let allocation_start = stream.state.allocation_start;
+    let total_allocation_size = stream.state.total_allocation_size;
 
     let mut window = Window::empty();
     core::mem::swap(&mut window, &mut stream.state.window);
 
-    // safety: window is not used again
-    if !window.is_empty() {
-        let (ptr, len) = window.into_raw_parts();
-        unsafe { alloc.deallocate(ptr, len) };
-    }
-
     let stream = stream.as_z_stream_mut();
+    let _ = core::mem::replace(&mut stream.state, core::ptr::null_mut());
 
-    let state_ptr = core::mem::replace(&mut stream.state, core::ptr::null_mut());
-
-    // safety: state_ptr is not used again
-    unsafe { alloc.deallocate(state_ptr as *mut State, 1) };
+    unsafe { alloc.deallocate(allocation_start, total_allocation_size) };
 
     stream
 }

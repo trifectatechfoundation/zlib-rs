@@ -1,6 +1,5 @@
 use crate::{
     adler32::{adler32, adler32_fold_copy},
-    allocate::Allocator,
     crc32::Crc32Fold,
     weak_slice::WeakSliceMut,
 };
@@ -164,7 +163,8 @@ impl<'a> Window<'a> {
         }
     }
 
-    pub fn new_in(alloc: &Allocator<'a>, window_bits: usize) -> Option<Self> {
+    #[cfg(test)]
+    pub fn new_in(alloc: &crate::inflate::Allocator<'a>, window_bits: usize) -> Option<Self> {
         let len = (1 << window_bits) + Self::padding();
         let ptr = alloc.allocate_zeroed_buffer(len)?;
 
@@ -175,15 +175,16 @@ impl<'a> Window<'a> {
         })
     }
 
-    pub fn clone_in(&self, alloc: &Allocator<'a>) -> Option<Self> {
-        let len = self.buf.len();
-        let ptr = alloc.allocate_zeroed_buffer(len)?;
+    pub unsafe fn clone_to(&self, ptr: *mut u8, len: usize) -> Self {
+        debug_assert_eq!(self.buf.len(), len);
 
-        Some(Self {
-            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
+        unsafe { core::ptr::copy_nonoverlapping(self.buf.as_ptr(), ptr, len) };
+
+        Self {
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
             have: self.have,
             next: self.next,
-        })
+        }
     }
 
     // padding required so that SIMD operations going out-of-bounds are not a problem
