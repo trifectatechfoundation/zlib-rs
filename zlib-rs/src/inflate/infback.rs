@@ -6,8 +6,8 @@ use crate::c_api::{in_func, internal_state, out_func};
 use crate::inflate::bitreader::BitReader;
 use crate::inflate::inftrees::{inflate_table, CodeType, InflateTable};
 use crate::inflate::{
-    Codes, Flags, InflateConfig, InflateStream, Mode, State, Table, Window, INFLATE_FAST_MIN_HAVE,
-    INFLATE_FAST_MIN_LEFT, INFLATE_STRICT, MAX_BITS, MAX_DIST_EXTRA_BITS,
+    Codes, Flags, InflateAllocOffsets, InflateConfig, InflateStream, Mode, State, Table, Window,
+    INFLATE_FAST_MIN_HAVE, INFLATE_FAST_MIN_LEFT, INFLATE_STRICT, MAX_BITS, MAX_DIST_EXTRA_BITS,
 };
 use crate::{c_api::z_stream, inflate::writer::Writer, ReturnCode};
 
@@ -56,19 +56,28 @@ pub fn back_init(stream: &mut z_stream, config: InflateConfig, window: Window) -
         opaque: stream.opaque,
         _marker: PhantomData,
     };
+    let allocs = InflateAllocOffsets::new();
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
+    let Some(allocation_start) = alloc.allocate_slice_raw::<u8>(allocs.total_size) else {
         return ReturnCode::MemError;
     };
 
-    // FIXME: write is stable for NonNull since 1.80.0
-    unsafe { state_allocation.as_ptr().write(state) };
-    stream.state = state_allocation.as_ptr() as *mut internal_state;
+    let address = allocation_start.as_ptr() as usize;
+    let align_offset = address.next_multiple_of(64) - address;
+    let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
+
+    // NOTE: the window part of the allocation is ignored in this case.
+    state.window = window;
+
+    let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
+    unsafe { state_allocation.write(state) };
+    stream.state = state_allocation.cast::<internal_state>();
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
     let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
-        stream.state.window = window;
+        stream.state.allocation_start = allocation_start.as_ptr();
+        stream.state.total_allocation_size = allocs.total_size;
+
         stream.state.wbits = config.window_bits as u8;
         stream.state.flags.update(Flags::SANE, true);
         ReturnCode::Ok
