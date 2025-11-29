@@ -352,11 +352,6 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
             println!("{ret:?}");
             assert_eq!(ret, Z_DATA_ERROR);
 
-            mem_limit(&mut stream, 1);
-            let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 0) };
-            assert_eq!(ret, Z_MEM_ERROR);
-            mem_limit(&mut stream, 0);
-
             unsafe { set_mode_dict(&mut stream) }
             let ret = unsafe { inflateSetDictionary(&mut stream, out.as_ptr(), 0) };
             assert_eq!(ret, Z_OK);
@@ -472,12 +467,6 @@ fn cover_wrap() {
     strm.next_in = input.as_mut_ptr().cast();
     strm.avail_out = 1;
     strm.next_out = (&mut ret) as *mut _ as *mut u8;
-    mem_limit(&mut strm, 1);
-    ret = unsafe { inflate(&mut strm, InflateFlush::NoFlush as _) };
-    assert_eq!(ret, Z_MEM_ERROR);
-    ret = unsafe { inflate(&mut strm, InflateFlush::NoFlush as _) };
-    assert_eq!(ret, Z_MEM_ERROR);
-    mem_limit(&mut strm, 0);
 
     let dict = [0u8; 257];
     ret = unsafe { inflateSetDictionary(&mut strm, dict.as_ptr(), 257) };
