@@ -36,9 +36,7 @@ fn binary_mode(mode: c_int) -> c_int {
 }
 
 #[cfg(not(miri))]
-unsafe fn write(fd: c_int, buf: *const c_void, count: size_t) -> libc::ssize_t {
-    unsafe { libc::write(fd, buf, count) }
-}
+use libc::write;
 
 /// Deal with miri often not writing the full buffer in one go. That is valid, but zlib assumes
 /// that writes are to true files and succeed unless e.g. the disk is full.
@@ -46,21 +44,21 @@ unsafe fn write(fd: c_int, buf: *const c_void, count: size_t) -> libc::ssize_t {
 unsafe fn write(fd: c_int, buf: *const c_void, count: size_t) -> libc::ssize_t {
     use std::cmp::Ordering;
 
-    let mut total_written = 0isize;
+    let mut total_written: libc::ssize_t = 0;
     loop {
         let ret = unsafe {
             libc::write(
                 fd,
                 buf.add(total_written as usize),
-                count - total_written as usize,
+                (count - total_written as size_t) as _,
             )
         };
 
         match ret.cmp(&0) {
-            Ordering::Less => return ret,
+            Ordering::Less => return ret as libc::ssize_t,
             Ordering::Equal => return total_written,
             Ordering::Greater => {
-                total_written += ret;
+                total_written += ret as libc::ssize_t;
 
                 if total_written as usize == count {
                     break;
