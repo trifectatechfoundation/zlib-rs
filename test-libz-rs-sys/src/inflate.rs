@@ -2716,3 +2716,48 @@ fn cover_back() {
         assert_eq!(ret, Z_OK);
     }
 }
+
+#[test]
+fn done_state_returns_stream_end() {
+    use std::mem::size_of;
+
+    let input = [
+        31u8, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 72, 205, 201, 201, 87, 40, 207, 47, 202, 73, 81,
+        200, 0, 179, 33, 36, 68, 4, 89, 28, 137, 13, 0, 181, 147, 9, 162, 53, 0, 0, 0,
+    ];
+
+    assert_eq_rs_ng!({
+        let mut out: [u8; 64] = [0; 64];
+
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let ret = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                15 + 16,
+                zlibVersion(),
+                size_of::<z_stream>() as _,
+            )
+        };
+        assert_eq!(ret, Z_OK);
+
+        let stream = stream.assume_init_mut();
+
+        // The first call returns Z_STREAM_END
+        stream.avail_in = input.len() as _;
+        stream.next_in = input.as_ptr().cast_mut();
+        stream.avail_out = out.len() as _;
+        stream.next_out = out.as_mut_ptr();
+
+        // The mode will be Mode::Done at this point.
+        assert_eq!(unsafe { inflate(stream, Z_NO_FLUSH) }, Z_STREAM_END);
+
+        // A second call to inflate returns StreamEnd
+        stream.avail_in = input.len() as _;
+        stream.next_in = input.as_ptr().cast_mut();
+        stream.avail_out = out.len() as _;
+        stream.next_out = out.as_mut_ptr();
+
+        assert_eq!(unsafe { inflate(stream, Z_FINISH) }, Z_STREAM_END);
+    });
+}
