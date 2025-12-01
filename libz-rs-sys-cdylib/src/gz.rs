@@ -1808,39 +1808,6 @@ fn gz_init(state: &mut GzState) -> Result<(), ()> {
     Ok(())
 }
 
-#[cfg(not(miri))]
-use libc::write;
-
-/// Deal with miri often not writing the full buffer in one go. That is valid, but zlib assumes
-/// that writes are to true files and succeed unless e.g. the disk is full.
-#[cfg(miri)]
-unsafe fn write(fd: c_int, buf: *const c_void, count: size_t) -> libc::ssize_t {
-    let mut total_written: libc::ssize_t = 0;
-    loop {
-        let ret = unsafe {
-            libc::write(
-                fd,
-                buf.add(total_written as usize),
-                (count - total_written as size_t) as _,
-            )
-        };
-
-        match ret.cmp(&0) {
-            Ordering::Less => return ret as libc::ssize_t,
-            Ordering::Equal => return total_written,
-            Ordering::Greater => {
-                total_written += ret as libc::ssize_t;
-
-                if total_written as usize == count {
-                    break;
-                }
-            }
-        }
-    }
-
-    total_written
-}
-
 // Compress whatever is at avail_in and next_in (unless in direct mode) and write
 // to the output file.
 //
@@ -1857,7 +1824,7 @@ fn gz_comp(state: &mut GzState, flush: c_int) -> Result<(), ()> {
     // Write directly if requested.
     if state.direct {
         let got = unsafe {
-            write(
+            libc::write(
                 state.fd,
                 state.stream.next_in.cast::<c_void>(),
                 state.stream.avail_in as _,
@@ -1901,7 +1868,7 @@ fn gz_comp(state: &mut GzState, flush: c_int) -> Result<(), ()> {
                 return Err(());
             }
             if have != 0 {
-                let ret = unsafe { write(state.fd, state.next.cast::<c_void>(), have as _) };
+                let ret = unsafe { libc::write(state.fd, state.next.cast::<c_void>(), have as _) };
                 if ret != have as _ {
                     unsafe { gz_error(state, Some((Z_ERRNO, "write error"))) };
                     return Err(());
