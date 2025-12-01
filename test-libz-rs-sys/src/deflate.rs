@@ -21,6 +21,10 @@ use crate::assert_eq_rs_ng;
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
 
+const PAPER_100K: &[u8] = include_bytes!("test-data/paper-100k.pdf");
+const FIREWORKS: &[u8] = include_bytes!("test-data/fireworks.jpg");
+const LCET10: &str = include_str!("test-data/lcet10.txt");
+
 pub mod quick {
     use super::*;
 
@@ -1358,17 +1362,31 @@ fn test_deflate_hash_head_0() {
 }
 
 #[test]
-fn test_deflate_copy() {
-    const HELLO: &str = "hello, hello!\0";
+fn test_deflate_copy_small() {
+    test_deflate_copy_help("hello, hello!\0".as_bytes())
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "too slow")]
+fn test_deflate_copy_large() {
+    test_deflate_copy_help(LCET10.as_bytes())
+}
+
+/// This test
+///
+/// - compresses half of the input, flushes, then compresses the remainder
+/// - compresses half of the input, flushes, copies the state, then compresses
+///   the remainder using the copy
+///
+/// It then asserts that the output is the same, testing that the copy was succesful.
+fn test_deflate_copy_help(input: &[u8]) {
     let config = DeflateConfig::default();
 
-    let mut strm = MaybeUninit::zeroed();
+    let _ = assert_eq_rs_ng!({
+        let mut strm_full = MaybeUninit::zeroed();
 
-    unsafe {
-        // first validate the config
-        let err = libz_rs_sys::deflateInit2_(
-            strm.as_mut_ptr(),
+        let err = deflateInit2_(
+            strm_full.as_mut_ptr(),
             config.level,
             config.method as i32,
             config.window_bits,
@@ -1379,46 +1397,163 @@ fn test_deflate_copy() {
         );
         assert_eq!(err, 0);
 
-        let strm = strm.assume_init_mut();
+        let strm_full = strm_full.assume_init_mut();
 
-        let mut compr = [0; 32];
-        strm.next_in = HELLO.as_ptr() as *mut u8;
-        strm.next_out = compr.as_mut_ptr();
+        let mut full_out = vec![0u8; input.len() * 2 + 64];
 
-        for _ in HELLO.as_bytes() {
-            strm.avail_in = 1;
-            strm.avail_out = 1;
+        strm_full.next_out = full_out.as_mut_ptr();
+        strm_full.avail_out = full_out.len() as u32;
 
-            let err = libz_rs_sys::deflate(strm, DeflateFlush::NoFlush as i32);
+        let half_full = input.len() / 2;
+        let mut pos_full = 0;
+
+        while pos_full < half_full {
+            strm_full.next_in = input.as_ptr().add(pos_full) as *mut u8;
+            let before_in = strm_full.total_in;
+            strm_full.avail_in = (half_full - pos_full) as u32;
+
+            let err = deflate(strm_full, DeflateFlush::NoFlush as i32);
             assert_eq!(err, 0);
+            assert_ne!(strm_full.avail_out, 0);
+
+            let used = (strm_full.total_in - before_in) as usize;
+            assert!(used > 0);
+            pos_full += used;
         }
 
-        loop {
-            strm.avail_out = 1;
-            let err = libz_rs_sys::deflate(strm, DeflateFlush::Finish as i32);
+        strm_full.next_in = core::ptr::null_mut();
+        strm_full.avail_in = 0;
+        let err = deflate(strm_full, DeflateFlush::SyncFlush as i32);
+        assert_eq!(err, 0);
+        assert_ne!(strm_full.avail_out, 0);
 
+        while pos_full < input.len() {
+            strm_full.next_in = input.as_ptr().add(pos_full) as *mut u8;
+            let before_in = strm_full.total_in;
+            strm_full.avail_in = (input.len() - pos_full) as u32;
+
+            let err = deflate(strm_full, DeflateFlush::NoFlush as i32);
+            assert_eq!(err, 0);
+            assert_ne!(strm_full.avail_out, 0);
+
+            let used = (strm_full.total_in - before_in) as usize;
+            assert!(used > 0);
+            pos_full += used;
+        }
+
+        strm_full.next_in = core::ptr::null_mut();
+        strm_full.avail_in = 0;
+        let err = deflate(strm_full, DeflateFlush::SyncFlush as i32);
+        assert_eq!(err, 0);
+        assert_ne!(strm_full.avail_out, 0);
+
+        loop {
+            let err = deflate(strm_full, DeflateFlush::Finish as i32);
             if ReturnCode::from(err) == ReturnCode::StreamEnd {
                 break;
             }
-
             assert_eq!(err, 0);
+            assert_ne!(strm_full.avail_out, 0);
         }
 
-        let mut copy = MaybeUninit::uninit();
-        let err = libz_rs_sys::deflateCopy(copy.as_mut_ptr(), strm);
+        let full_total_out = strm_full.total_out as usize;
+        let err = deflateEnd(strm_full);
         assert_eq!(err, 0);
 
-        assert_eq!(
-            *(strm.state as *const u8),
-            *(((*copy.as_mut_ptr()).state) as *const u8),
+        full_out.truncate(full_total_out);
+
+        let mut strm_half = MaybeUninit::zeroed();
+
+        let err = deflateInit2_(
+            strm_half.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
         );
-
-        let err = libz_rs_sys::deflateEnd(strm);
         assert_eq!(err, 0);
 
-        let err = libz_rs_sys::deflateEnd(copy.as_mut_ptr());
+        let strm_half = strm_half.assume_init_mut();
+
+        let mut copy_out = vec![0u8; input.len() * 2 + 64];
+
+        strm_half.next_out = copy_out.as_mut_ptr();
+        strm_half.avail_out = copy_out.len() as u32;
+
+        let half = input.len() / 2;
+        let mut pos = 0;
+
+        while pos < half {
+            strm_half.next_in = input.as_ptr().add(pos) as *mut u8;
+            let before_in = strm_half.total_in;
+            strm_half.avail_in = (half - pos) as u32;
+
+            let err = deflate(strm_half, DeflateFlush::NoFlush as i32);
+            assert_eq!(err, 0);
+            assert_ne!(strm_half.avail_out, 0);
+
+            let used = (strm_half.total_in - before_in) as usize;
+            assert!(used > 0);
+            pos += used;
+        }
+
+        strm_half.next_in = core::ptr::null_mut();
+        strm_half.avail_in = 0;
+        let err = deflate(strm_half, DeflateFlush::SyncFlush as i32);
         assert_eq!(err, 0);
-    }
+        assert_ne!(strm_half.avail_out, 0);
+
+        let mut copy = MaybeUninit::uninit();
+        let err = deflateCopy(copy.as_mut_ptr(), strm_half);
+        assert_eq!(err, 0);
+
+        let err = deflateEnd(strm_half);
+        assert_eq!(err, -3); // still partway through according to your original expectation
+
+        let copy = copy.assume_init_mut();
+
+        while pos < input.len() {
+            copy.next_in = input.as_ptr().add(pos) as *mut u8;
+            let before_in = copy.total_in;
+            copy.avail_in = (input.len() - pos) as u32;
+
+            let err = deflate(copy, DeflateFlush::NoFlush as i32);
+            assert_eq!(err, 0);
+            assert_ne!(copy.avail_out, 0);
+
+            let used = (copy.total_in - before_in) as usize;
+            assert!(used > 0);
+            pos += used;
+        }
+
+        copy.next_in = core::ptr::null_mut();
+        copy.avail_in = 0;
+        let err = deflate(copy, DeflateFlush::SyncFlush as i32);
+        assert_eq!(err, 0);
+        assert_ne!(copy.avail_out, 0);
+
+        loop {
+            let err = deflate(copy, DeflateFlush::Finish as i32);
+            if ReturnCode::from(err) == ReturnCode::StreamEnd {
+                break;
+            }
+            assert_eq!(err, 0);
+            assert_ne!(copy.avail_out, 0);
+        }
+
+        let copy_total_out = copy.total_out as usize;
+        let err = deflateEnd(copy);
+        assert_eq!(err, 0);
+
+        copy_out.truncate(copy_total_out);
+
+        assert_eq!(full_out, copy_out);
+
+        full_out
+    });
 }
 
 #[test]
@@ -1642,6 +1777,7 @@ fn gzip_with_header() {
 }
 
 mod fuzz_based_tests {
+    use super::{FIREWORKS, LCET10, PAPER_100K};
     use crate::helpers::compress_slice_ng;
     use libz_rs_sys::gz_header;
     use zlib_rs::{
@@ -1675,10 +1811,6 @@ mod fuzz_based_tests {
             true
         }
     }
-
-    const PAPER_100K: &[u8] = include_bytes!("test-data/paper-100k.pdf");
-    const FIREWORKS: &[u8] = include_bytes!("test-data/fireworks.jpg");
-    const LCET10: &str = include_str!("test-data/lcet10.txt");
 
     #[test]
     #[cfg_attr(miri, ignore = "too slow")]

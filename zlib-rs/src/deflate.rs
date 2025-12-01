@@ -1,4 +1,4 @@
-use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow};
+use core::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, ops::ControlFlow, ptr::NonNull};
 
 use crate::{
     adler32::adler32,
@@ -292,63 +292,42 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _marker: PhantomData,
     };
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
+    let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
+    let allocs = DeflateAllocOffsets::new(window_bits, lit_bufsize);
+
+    // FIXME: pointer methods on NonNull are stable since 1.80.0
+    let Some(allocation_start) = alloc.allocate_slice_raw::<u8>(allocs.total_size) else {
         return ReturnCode::MemError;
     };
 
     let w_size = 1 << window_bits;
-    let window = Window::new_in(&alloc, window_bits);
+    let align_offset = (allocation_start.as_ptr() as usize).next_multiple_of(64)
+        - (allocation_start.as_ptr() as usize);
+    let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
 
-    let prev = alloc.allocate_slice_raw::<u16>(w_size);
-    let head = alloc.allocate_raw::<[u16; HASH_SIZE]>();
+    let (window, prev, head, pending, sym_buf) = unsafe {
+        let window_ptr: *mut u8 = buf.add(allocs.window_pos);
+        window_ptr.write_bytes(0u8, 2 * w_size);
+        let window = Window::from_raw_parts(window_ptr, window_bits);
 
-    let lit_bufsize = 1 << (mem_level + 6); // 16K elements by default
-    let pending = Pending::new_in(&alloc, 4 * lit_bufsize);
+        // FIXME: write_bytes is stable for NonNull since 1.80.0
+        let prev_ptr = buf.add(allocs.prev_pos).cast::<Pos>();
+        prev_ptr.write_bytes(0, w_size);
+        let prev = WeakSliceMut::from_raw_parts_mut(prev_ptr, w_size);
 
-    // zlib-ng overlays the pending_buf and sym_buf. We cannot really do that safely
-    let sym_buf = SymBuf::new_in(&alloc, lit_bufsize);
+        let head_ptr = buf.add(allocs.head_pos).cast::<[Pos; HASH_SIZE]>();
+        // Zero out the full array. `write_bytes` will write `1 * size_of<[Pos; HASH_SIZE]>` bytes.
+        head_ptr.write_bytes(0, 1);
+        let head = WeakArrayMut::<Pos, HASH_SIZE>::from_ptr(head_ptr);
 
-    // if any allocation failed, clean up allocations that did succeed
-    let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
-        (Some(window), Some(prev), Some(head), Some(pending), Some(sym_buf)) => {
-            (window, prev, head, pending, sym_buf)
-        }
-        (window, prev, head, pending, sym_buf) => {
-            // SAFETY: these pointers/structures are discarded after deallocation.
-            unsafe {
-                if let Some(mut sym_buf) = sym_buf {
-                    sym_buf.drop_in(&alloc);
-                }
-                if let Some(mut pending) = pending {
-                    pending.drop_in(&alloc);
-                }
-                if let Some(head) = head {
-                    alloc.deallocate(head.as_ptr(), 1)
-                }
-                if let Some(prev) = prev {
-                    alloc.deallocate(prev.as_ptr(), w_size)
-                }
-                if let Some(mut window) = window {
-                    window.drop_in(&alloc);
-                }
+        let pending_ptr = buf.add(allocs.pending_pos).cast::<MaybeUninit<u8>>();
+        let pending = Pending::from_raw_parts(pending_ptr, 4 * lit_bufsize);
 
-                alloc.deallocate(state_allocation.as_ptr(), 1);
-            }
+        let sym_buf_ptr = buf.add(allocs.sym_buf_pos);
+        let sym_buf = SymBuf::from_raw_parts(sym_buf_ptr, lit_bufsize);
 
-            return ReturnCode::MemError;
-        }
+        (window, prev, head, pending, sym_buf)
     };
-
-    // zero initialize the memory
-    let prev = prev.as_ptr(); // FIXME: write_bytes is stable for NonNull since 1.80.0
-    unsafe { prev.write_bytes(0, w_size) };
-    let prev = unsafe { WeakSliceMut::from_raw_parts_mut(prev, w_size) };
-
-    // zero out head's first element
-    let head = head.as_ptr(); // FIXME: write_bytes is stable for NonNull since 1.80.0
-    unsafe { head.write_bytes(0, 1) };
-    let head = unsafe { WeakArrayMut::<u16, HASH_SIZE>::from_ptr(head) };
 
     let state = State {
         status: Status::Init,
@@ -406,6 +385,9 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         match_available: false,
         prev_length: 0,
 
+        allocation_start,
+        total_allocation_size: allocs.total_size,
+
         // just provide a valid default; gets set properly later
         hash_calc_variant: HashCalcVariant::Standard,
         _cache_line_0: (),
@@ -415,9 +397,10 @@ pub fn init(stream: &mut z_stream, config: DeflateConfig) -> ReturnCode {
         _padding_0: [0; 16],
     };
 
-    unsafe { state_allocation.as_ptr().write(state) }; // FIXME: write is stable for NonNull since 1.80.0
+    let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
+    unsafe { state_allocation.write(state) };
 
-    stream.state = state_allocation.as_ptr() as *mut internal_state;
+    stream.state = state_allocation.cast::<internal_state>();
 
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(stream) }) else {
         if cfg!(debug_assertions) {
@@ -599,76 +582,50 @@ pub fn copy<'a>(
     dest: &mut MaybeUninit<DeflateStream<'a>>,
     source: &mut DeflateStream<'a>,
 ) -> ReturnCode {
+    let w_size = source.state.w_size;
+    let window_bits = source.state.w_bits() as usize;
+    let lit_bufsize = source.state.lit_bufsize;
+
     // SAFETY: source and dest are both mutable references, so guaranteed not to overlap.
     // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
-    unsafe {
-        core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1);
-    }
+    unsafe { core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1) };
 
+    let source_state = &source.state;
     let alloc = &source.alloc;
 
-    // allocated here to have the same order as zlib
-    let Some(state_allocation) = alloc.allocate_raw::<State>() else {
+    let allocs = DeflateAllocOffsets::new(window_bits, lit_bufsize);
+
+    let Some(allocation_start) = alloc.allocate_slice_raw::<u8>(allocs.total_size) else {
         return ReturnCode::MemError;
     };
 
-    let source_state = &source.state;
+    let align_offset = (allocation_start.as_ptr() as usize).next_multiple_of(64)
+        - (allocation_start.as_ptr() as usize);
+    let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
 
-    let window = source_state.window.clone_in(alloc);
+    let (window, prev, head, pending, sym_buf) = unsafe {
+        let window_ptr: *mut u8 = buf.add(allocs.window_pos);
+        window_ptr
+            .copy_from_nonoverlapping(source_state.window.as_ptr(), source_state.window.capacity());
+        let window = Window::from_raw_parts(window_ptr, window_bits);
 
-    let prev = alloc.allocate_slice_raw::<u16>(source_state.w_size);
-    let head = alloc.allocate_raw::<[u16; HASH_SIZE]>();
+        // FIXME: write_bytes is stable for NonNull since 1.80.0
+        let prev_ptr = buf.add(allocs.prev_pos).cast::<Pos>();
+        prev_ptr.copy_from_nonoverlapping(source_state.prev.as_ptr(), source_state.prev.len());
+        let prev = WeakSliceMut::from_raw_parts_mut(prev_ptr, w_size);
 
-    let pending = source_state.bit_writer.pending.clone_in(alloc);
-    let sym_buf = source_state.sym_buf.clone_in(alloc);
+        // zero out head's first element
+        let head_ptr = buf.add(allocs.head_pos).cast::<[Pos; HASH_SIZE]>();
+        head_ptr.copy_from_nonoverlapping(source_state.head.as_ptr(), 1);
+        let head = WeakArrayMut::<Pos, HASH_SIZE>::from_ptr(head_ptr);
 
-    // if any allocation failed, clean up allocations that did succeed
-    let (window, prev, head, pending, sym_buf) = match (window, prev, head, pending, sym_buf) {
-        (Some(window), Some(prev), Some(head), Some(pending), Some(sym_buf)) => {
-            (window, prev, head, pending, sym_buf)
-        }
-        (window, prev, head, pending, sym_buf) => {
-            // SAFETY: this access is in-bounds
-            let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-            unsafe { core::ptr::write(field_ptr as *mut *mut State, core::ptr::null_mut()) };
+        let pending_ptr = buf.add(allocs.pending_pos);
+        let pending = source_state.bit_writer.pending.clone_to(pending_ptr);
 
-            // SAFETY: it is an assumpion on DeflateStream that (de)allocation does not cause UB.
-            unsafe {
-                if let Some(mut sym_buf) = sym_buf {
-                    sym_buf.drop_in(alloc);
-                }
-                if let Some(mut pending) = pending {
-                    pending.drop_in(alloc);
-                }
-                if let Some(head) = head {
-                    alloc.deallocate(head.as_ptr(), HASH_SIZE)
-                }
-                if let Some(prev) = prev {
-                    alloc.deallocate(prev.as_ptr(), source_state.w_size)
-                }
-                if let Some(mut window) = window {
-                    window.drop_in(alloc);
-                }
+        let sym_buf_ptr = buf.add(allocs.sym_buf_pos);
+        let sym_buf = source_state.sym_buf.clone_to(sym_buf_ptr);
 
-                alloc.deallocate(state_allocation.as_ptr(), 1);
-            }
-
-            return ReturnCode::MemError;
-        }
-    };
-
-    let prev = unsafe {
-        let prev = prev.as_ptr();
-        prev.copy_from_nonoverlapping(source_state.prev.as_ptr(), source_state.prev.len());
-        WeakSliceMut::from_raw_parts_mut(prev, source_state.prev.len())
-    };
-
-    // FIXME: write_bytes is stable for NonNull since 1.80.0
-    let head = unsafe {
-        let head = head.as_ptr();
-        head.write_bytes(0, 1);
-        head.cast::<u16>().write(source_state.head.as_slice()[0]);
-        WeakArrayMut::from_ptr(head)
+        (window, prev, head, pending, sym_buf)
     };
 
     let mut bit_writer = BitWriter::from_pending(pending);
@@ -713,6 +670,8 @@ pub fn copy<'a>(
         crc_fold: source_state.crc_fold,
         gzhead: None,
         gzindex: source_state.gzindex,
+        allocation_start,
+        total_allocation_size: allocs.total_size,
         _cache_line_0: (),
         _cache_line_1: (),
         _cache_line_2: (),
@@ -721,11 +680,12 @@ pub fn copy<'a>(
     };
 
     // write the cloned state into state_ptr
-    unsafe { state_allocation.as_ptr().write(dest_state) }; // FIXME: write is stable for NonNull since 1.80.0
+    let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
+    unsafe { state_allocation.write(dest_state) }; // FIXME: write is stable for NonNull since 1.80.0
 
     // insert the state_ptr into `dest`
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state) };
-    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation.as_ptr()) };
+    unsafe { core::ptr::write(field_ptr as *mut *mut State, state_allocation) };
 
     // update the gzhead field (it contains a mutable reference so we need to be careful
     let field_ptr = unsafe { core::ptr::addr_of_mut!((*dest.as_mut_ptr()).state.gzhead) };
@@ -740,28 +700,14 @@ pub fn copy<'a>(
 /// - Ok otherwise
 pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mut z_stream> {
     let status = stream.state.status;
-
+    let allocation_start = stream.state.allocation_start;
+    let total_allocation_size = stream.state.total_allocation_size;
     let alloc = stream.alloc;
 
-    // deallocate in reverse order of allocations
-    unsafe {
-        // SAFETY: we make sure that these fields are not used (by invalidating the state pointer)
-        stream.state.sym_buf.drop_in(&alloc);
-        stream.state.bit_writer.pending.drop_in(&alloc);
-        alloc.deallocate(stream.state.head.as_mut_ptr(), 1);
-        if !stream.state.prev.is_empty() {
-            alloc.deallocate(stream.state.prev.as_mut_ptr(), stream.state.prev.len());
-        }
-        stream.state.window.drop_in(&alloc);
-    }
-
     let stream = stream.as_z_stream_mut();
-    let state = core::mem::replace(&mut stream.state, core::ptr::null_mut());
+    let _ = core::mem::replace(&mut stream.state, core::ptr::null_mut());
 
-    // SAFETY: `state` is not used later
-    unsafe {
-        alloc.deallocate(state as *mut State, 1);
-    }
+    unsafe { alloc.deallocate(allocation_start.as_ptr(), total_allocation_size) };
 
     match status {
         Status::Busy => Err(stream),
@@ -1379,6 +1325,11 @@ pub(crate) struct State<'a> {
     _cache_line_3: (),
 
     crc_fold: crate::crc32::Crc32Fold,
+
+    /// The (unaligned) address of the state allocation that can be passed to zfree.
+    allocation_start: NonNull<u8>,
+    /// Total size of the allocation in bytes.
+    total_allocation_size: usize,
 
     l_desc: TreeDesc<HEAP_SIZE>,             /* literal and length tree */
     d_desc: TreeDesc<{ 2 * D_CODES + 1 }>,   /* distance tree */
@@ -3270,6 +3221,68 @@ pub unsafe fn get_dictionary(stream: &DeflateStream<'_>, dictionary: *mut u8) ->
     len
 }
 
+struct DeflateAllocOffsets {
+    total_size: usize,
+    state_pos: usize,
+    window_pos: usize,
+    pending_pos: usize,
+    sym_buf_pos: usize,
+    prev_pos: usize,
+    head_pos: usize,
+}
+
+impl DeflateAllocOffsets {
+    fn new(window_bits: usize, lit_bufsize: usize) -> Self {
+        use core::mem::size_of;
+
+        const WINDOW_PAD_SIZE: usize = 64;
+        const LIT_BUFS: usize = 4;
+
+        let mut curr_size = 0usize;
+
+        /* Define sizes */
+        let window_size = (1 << window_bits) * 2;
+        let prev_size = (1 << window_bits) * size_of::<Pos>();
+        let head_size = HASH_SIZE * size_of::<Pos>();
+        let pending_size = lit_bufsize * LIT_BUFS;
+        let sym_buf_size = lit_bufsize * (LIT_BUFS - 1);
+        let state_size = size_of::<State>();
+        // let alloc_size = size_of::<DeflateAlloc>();
+
+        /* Calculate relative buffer positions and paddings */
+        let window_pos = curr_size.next_multiple_of(WINDOW_PAD_SIZE);
+        curr_size = window_pos + window_size;
+
+        let prev_pos = curr_size.next_multiple_of(64);
+        curr_size = prev_pos + prev_size;
+
+        let head_pos = curr_size.next_multiple_of(64);
+        curr_size = head_pos + head_size;
+
+        let pending_pos = curr_size.next_multiple_of(64);
+        curr_size = pending_pos + pending_size;
+
+        let sym_buf_pos = curr_size.next_multiple_of(64);
+        curr_size = sym_buf_pos + sym_buf_size;
+
+        let state_pos = curr_size.next_multiple_of(64);
+        curr_size = state_pos + state_size;
+
+        /* Add 64-1 or 4096-1 to allow window alignment, and round size of buffer up to multiple of 64 */
+        let total_size = (curr_size + (WINDOW_PAD_SIZE - 1)).next_multiple_of(64);
+
+        Self {
+            total_size,
+            state_pos,
+            window_pos,
+            pending_pos,
+            sym_buf_pos,
+            prev_pos,
+            head_pos,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
@@ -3357,108 +3370,30 @@ mod test {
                 ReturnCode::MemError
             );
         }
-
-        {
-            let atomic = AtomicUsize::new(0);
-            let mut stream = z_stream {
-                zalloc: Some(fail_nth_allocation::<3>),
-                zfree: Some(crate::allocate::C.zfree),
-                opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
-                ..z_stream::default()
-            };
-            assert_eq!(
-                init(&mut stream, DeflateConfig::default()),
-                ReturnCode::MemError
-            );
-        }
-
-        {
-            let atomic = AtomicUsize::new(0);
-            let mut stream = z_stream {
-                zalloc: Some(fail_nth_allocation::<5>),
-                zfree: Some(crate::allocate::C.zfree),
-                opaque: &atomic as *const _ as *const core::ffi::c_void as *mut _,
-                ..z_stream::default()
-            };
-            assert_eq!(
-                init(&mut stream, DeflateConfig::default()),
-                ReturnCode::MemError
-            );
-        }
     }
 
+    #[test]
     #[cfg(feature = "c-allocator")]
-    mod copy_invalid_allocator {
-        use super::*;
+    fn copy_invalid_allocator() {
+        let mut stream = z_stream::default();
 
-        #[test]
-        fn fail_0() {
-            let mut stream = z_stream::default();
+        let atomic = AtomicUsize::new(0);
+        stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
+        stream.zalloc = Some(fail_nth_allocation::<1>);
+        stream.zfree = Some(crate::allocate::C.zfree);
 
-            let atomic = AtomicUsize::new(0);
-            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
-            stream.zalloc = Some(fail_nth_allocation::<6>);
-            stream.zfree = Some(crate::allocate::C.zfree);
+        // init performs 6 allocations; we don't want those to fail
+        assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
 
-            // init performs 6 allocations; we don't want those to fail
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
+        let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
+            unreachable!()
+        };
 
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
+        let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
 
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
+        assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
 
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-
-            assert!(end(stream).is_ok());
-        }
-
-        #[test]
-        fn fail_3() {
-            let mut stream = z_stream::default();
-
-            let atomic = AtomicUsize::new(0);
-            stream.zalloc = Some(fail_nth_allocation::<{ 6 + 3 }>);
-            stream.zfree = Some(crate::allocate::C.zfree);
-            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
-
-            // init performs 6 allocations; we don't want those to fail
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
-
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
-
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
-
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-
-            assert!(end(stream).is_ok());
-        }
-
-        #[test]
-        fn fail_5() {
-            let mut stream = z_stream::default();
-
-            let atomic = AtomicUsize::new(0);
-            stream.zalloc = Some(fail_nth_allocation::<{ 6 + 5 }>);
-            stream.zfree = Some(crate::allocate::C.zfree);
-            stream.opaque = &atomic as *const _ as *const core::ffi::c_void as *mut _;
-
-            // init performs 6 allocations; we don't want those to fail
-            assert_eq!(init(&mut stream, DeflateConfig::default()), ReturnCode::Ok);
-
-            let Some(stream) = (unsafe { DeflateStream::from_stream_mut(&mut stream) }) else {
-                unreachable!()
-            };
-
-            let mut stream_copy = MaybeUninit::<DeflateStream>::zeroed();
-
-            assert_eq!(copy(&mut stream_copy, stream), ReturnCode::MemError);
-
-            assert!(end(stream).is_ok());
-        }
+        assert!(end(stream).is_ok());
     }
 
     mod invalid_deflate_config {
