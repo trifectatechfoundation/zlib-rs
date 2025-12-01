@@ -1001,15 +1001,8 @@ fn gzputc_basic() {
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
     // Validate that the file contains the expected bytes.
-    let mode = binary_mode(libc::O_RDONLY);
-    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
-    assert_ne!(fd, -1);
-    // Try to read more than the expected amount of data, to ensure we get everything.
-    let mut buf = [0u8; CONTENT.len() + 1];
-    let bytes_read = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() as _) };
-    assert_ne!(bytes_read, -1);
-    assert_eq!(&buf[..bytes_read as usize], CONTENT);
-    assert_eq!(unsafe { libc::close(fd) }, 0);
+    let actual = std::fs::read(file_name).unwrap();
+    assert_eq!(actual, CONTENT);
 }
 
 #[test]
@@ -1073,15 +1066,8 @@ fn gzputs_basic() {
 
     // Validate that the file contains the expected bytes.
     const EXPECTED: &str = "zlib string larger than the buffer size";
-    let mode = binary_mode(libc::O_RDONLY);
-    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
-    assert_ne!(fd, -1);
-    // Try to read more than the expected amount of data, to ensure we get everything.
-    let mut buf = [0u8; EXPECTED.len() + 1];
-    let bytes_read = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() as _) };
-    assert_ne!(bytes_read, -1);
-    assert_eq!(&buf[..bytes_read as usize], EXPECTED.as_bytes());
-    assert_eq!(unsafe { libc::close(fd) }, 0);
+    let actual = std::fs::read(file_name).unwrap();
+    assert_eq!(actual, EXPECTED.as_bytes());
 }
 
 #[test]
@@ -1526,16 +1512,9 @@ fn gzfwrite_basic() {
     assert_eq!(unsafe { gzclose(file) }, Z_OK);
 
     // Read in the file and verify that the contents match what was passed to gzfwrite.
-    let mode = binary_mode(libc::O_RDONLY);
-    let fd = unsafe { libc::open(CString::new(file_name.as_str()).unwrap().as_ptr(), mode) };
-    assert_ne!(fd, -1);
     const EXPECTED: &[u8] = b"test of gzfwrite";
-    let mut buf = [0u8; EXPECTED.len() + 1];
-    let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len() as _) };
-    assert_eq!(ret, EXPECTED.len() as _);
-    assert_eq!(&buf[..EXPECTED.len()], EXPECTED);
-
-    assert_eq!(unsafe { libc::close(fd) }, 0);
+    let actual = std::fs::read(file_name).unwrap();
+    assert_eq!(actual, EXPECTED);
 }
 
 #[test]
