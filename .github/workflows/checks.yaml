@@ -499,7 +499,7 @@ jobs:
         if: ${{ contains(matrix.target, 'linux') }}
         run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
         env:
-          MIRIFLAGS: "-Zmiri-disable-isolation"
+          MIRIFLAGS: "-Zmiri-no-short-fd-operations -Zmiri-disable-isolation"
 
   miri-avx512:
     name: "Miri avx512"

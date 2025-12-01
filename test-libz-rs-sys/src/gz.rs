@@ -35,41 +35,6 @@ fn binary_mode(mode: c_int) -> c_int {
     }
 }
 
-#[cfg(not(miri))]
-use libc::write;
-
-/// Deal with miri often not writing the full buffer in one go. That is valid, but zlib assumes
-/// that writes are to true files and succeed unless e.g. the disk is full.
-#[cfg(miri)]
-unsafe fn write(fd: c_int, buf: *const c_void, count: size_t) -> libc::ssize_t {
-    use std::cmp::Ordering;
-
-    let mut total_written: libc::ssize_t = 0;
-    loop {
-        let ret = unsafe {
-            libc::write(
-                fd,
-                buf.add(total_written as usize),
-                (count - total_written as size_t) as _,
-            )
-        };
-
-        match ret.cmp(&0) {
-            Ordering::Less => return ret as libc::ssize_t,
-            Ordering::Equal => return total_written,
-            Ordering::Greater => {
-                total_written += ret as libc::ssize_t;
-
-                if total_written as usize == count {
-                    break;
-                }
-            }
-        }
-    }
-
-    total_written
-}
-
 // Try to gzopen a file path with a specified mode, and panic if the result is unexpected.
 // NOTE: This is a macro, instead of a function, so that the test runner will report errors
 // with the line number where it is invoked.
@@ -366,7 +331,7 @@ fn gzread_special_cases() {
     };
     assert_ne!(fd, -1);
     assert_eq!(
-        unsafe { write(fd, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
+        unsafe { libc::write(fd, STRING2.as_ptr().cast::<c_void>(), STRING2.len() as _) },
         STRING2.len() as _
     );
     assert_eq!(unsafe { libc::close(fd) }, 0);
@@ -828,7 +793,7 @@ fn gzoffset_gztell_read() {
     };
     assert_ne!(fd, -1);
     assert_eq!(
-        unsafe { write(fd, PADDING.as_ptr().cast::<c_void>(), OFFSET as _) },
+        unsafe { libc::write(fd, PADDING.as_ptr().cast::<c_void>(), OFFSET as _) },
         OFFSET as _
     );
     let source_name = crate_path("src/test-data/issue-109.gz");
@@ -844,7 +809,7 @@ fn gzoffset_gztell_read() {
             break;
         }
         assert_eq!(
-            unsafe { write(fd, buf.as_ptr().cast(), ret as _) },
+            unsafe { libc::write(fd, buf.as_ptr().cast(), ret as _) },
             ret as _
         );
     }
@@ -1717,7 +1682,7 @@ fn gzseek_read() {
             break;
         }
         assert_eq!(
-            unsafe { write(fd, buf.as_mut_ptr().cast::<c_void>(), ret as _) },
+            unsafe { libc::write(fd, buf.as_mut_ptr().cast::<c_void>(), ret as _) },
             ret as _
         );
     }
