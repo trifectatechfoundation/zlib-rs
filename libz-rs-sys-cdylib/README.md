@@ -148,3 +148,27 @@ RUSTFLAGS="-Cllvm-args=-enable-dfa-jump-thread" cargo build --release ...
 
 This flag gives around a 10% boost when the input arrives in chunks of 16 bytes, and a couple percent when input arrives in chunks of under 1024 bytes. Beyond that, the effect is not significant. Using this flag can lead to longer compile times, but otherwise has no adverse effects.
 
+
+## Symbol versioning
+
+Rust does not natively support symbol versioning. Because the rust compiler does version its own symbols, and most linkers only consider the first version script, applying custom versions to symbols requires post-processing of the binary. Here we use the rust compiler to build a static library, which is then converted by the linker to a dynamic library with versioned symbols.
+
+```sh
+RUSTFLAGS="-Cpanic=abort" cargo +nightly build --release --features=gz,gzprintf
+
+cc -shared \
+  -Wl,--gc-sections \
+  -Wl,--whole-archive target/release/libz_rs.a \
+  -Wl,--no-whole-archive \
+  -Wl,--version-script=include/zlib.map \
+  -Wl,--undefined-version \
+  -Wl,-soname,libz_rs.so.1 \
+  -lc \
+  -o target/release/libz_rs.versioned.so
+
+# To see that it worked:
+objdump -T target/release/libz_rs.versioned.so | grep "ZLIB"
+objdump -T target/release/libz_rs.versioned.so | grep -q -E "ZLIB_1.2.2.3 deflateTune" || (echo "symbol not found!" && exit 1)
+```
+
+The `zlib.map` version script is bundled just like the `zlib.h` header file.
