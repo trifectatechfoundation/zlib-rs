@@ -395,7 +395,7 @@ jobs:
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --features=gz
-          cc -shared -Wl,--whole-archive target/${{matrix.target}}/release/libz_rs.a -Wl,--no-whole-archive -Wl,--version-script=include/zlib.map -Wl,--undefined-version -Wl,-soname,libz_rs.so.1 -lc -o target/${{matrix.target}}/release/libz_rs.versioned.so
+          cc -shared -Wl,--gc-sections -Wl,--whole-archive target/${{matrix.target}}/release/libz_rs.a -Wl,--no-whole-archive -Wl,--version-script=include/zlib.map -Wl,--undefined-version -Wl,-soname,libz_rs.so.1 -lc -o target/${{matrix.target}}/release/libz_rs.versioned.so
           objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep "ZLIB"
           objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1.2.2.3 deflateTune" || (echo "symbol not found!" && exit 1)
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
