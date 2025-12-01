@@ -74,25 +74,17 @@ pub fn back_init(stream: &mut z_stream, config: InflateConfig, window: Window) -
     stream.state = state_allocation.cast::<internal_state>();
 
     // SAFETY: we've correctly initialized the stream to be an InflateStream
-    let ret = if let Some(stream) = unsafe { InflateStream::from_stream_mut(stream) } {
-        stream.state.allocation_start = allocation_start.as_ptr();
-        stream.state.total_allocation_size = allocs.total_size;
-
-        stream.state.wbits = config.window_bits as u8;
-        stream.state.flags.update(Flags::SANE, true);
-        ReturnCode::Ok
-    } else {
-        ReturnCode::StreamError
+    let Some(stream) = (unsafe { InflateStream::from_stream_mut(stream) }) else {
+        return ReturnCode::StreamError;
     };
 
-    if ret != ReturnCode::Ok {
-        let ptr = stream.state;
-        stream.state = core::ptr::null_mut();
-        // SAFETY: we assume deallocation does not cause UB
-        unsafe { alloc.deallocate(ptr, 1) };
-    }
+    stream.state.allocation_start = allocation_start.as_ptr();
+    stream.state.total_allocation_size = allocs.total_size;
 
-    ret
+    stream.state.wbits = config.window_bits as u8;
+    stream.state.flags.update(Flags::SANE, true);
+
+    ReturnCode::Ok
 }
 
 pub unsafe fn back(
