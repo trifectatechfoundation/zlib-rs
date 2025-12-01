@@ -1574,7 +1574,6 @@ impl State<'_> {
                             }
                         }
                     }
-                    Mode::Done => todo!(),
                     Mode::Table => {
                         need_bits!(self, 14);
                         self.nlen = self.bit_reader.bits(5) as usize + 257;
@@ -1770,6 +1769,10 @@ impl State<'_> {
 
                         break 'blk Mode::Dict;
                     }
+                    Mode::Done => {
+                        // Inflate stream terminated properly.
+                        break 'label ReturnCode::StreamEnd;
+                    }
                     Mode::Bad => {
                         let msg = "repeated call with bad state\0";
                         #[cfg(all(feature = "std", test))]
@@ -1788,7 +1791,9 @@ impl State<'_> {
                         // for gzip, last bytes contain LENGTH
                         if self.wrap != 0 && self.gzip_flags != 0 {
                             need_bits!(self, 32);
-                            if (self.wrap & 4) != 0 && self.bit_reader.hold() != self.total as u64 {
+                            if (self.wrap & 0b100) != 0
+                                && self.bit_reader.hold() as u32 != self.total as u32
+                            {
                                 mode = Mode::Bad;
                                 break 'label self.bad("incorrect length check\0");
                             }
@@ -1796,7 +1801,8 @@ impl State<'_> {
                             self.bit_reader.init_bits();
                         }
 
-                        // inflate stream terminated properly
+                        mode = Mode::Done;
+                        // Inflate stream terminated properly.
                         break 'label ReturnCode::StreamEnd;
                     }
                 };
