@@ -349,7 +349,6 @@ fn inf(input: &[u8], _what: &str, step: usize, win: i32, len: usize, err: c_int)
 
         if matches!(ret, Z_NEED_DICT) {
             let ret = unsafe { inflateSetDictionary(&mut stream, input.as_ptr(), 1) };
-            println!("{ret:?}");
             assert_eq!(ret, Z_DATA_ERROR);
 
             unsafe { set_mode_dict(&mut stream) }
@@ -2748,5 +2747,123 @@ fn done_state_returns_stream_end() {
         stream.next_out = out.as_mut_ptr();
 
         assert_eq!(unsafe { inflate(stream, Z_FINISH) }, Z_STREAM_END);
+    });
+}
+
+#[test]
+fn inflate_copy_after_half_input() {
+    let input = include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-9.gz");
+
+    let _ = assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+        let ret = unsafe {
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                16 + 15,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            )
+        };
+        let stream = stream.assume_init_mut();
+        assert_eq!(ret, Z_OK);
+
+        let mut out = vec![0u8; 16 * 1024];
+
+        // First, decompress only the first half of the compressed input.
+        let half = input.len() / 2;
+
+        stream.next_in = input.as_ptr() as *mut _;
+        stream.avail_in = half as _;
+        stream.next_out = out.as_mut_ptr();
+        stream.avail_out = out.len() as _;
+
+        loop {
+            let ret = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
+
+            assert!(
+                matches!(ret, Z_OK | Z_BUF_ERROR | Z_STREAM_END),
+                "unexpected inflate return: {}",
+                ret
+            );
+
+            if matches!(ret, Z_STREAM_END) {
+                unreachable!("we only provide half of the input")
+            }
+
+            if stream.avail_in == 0 {
+                break;
+            }
+
+            if stream.avail_out == 0 {
+                unreachable!("there is enough output space")
+            }
+        }
+
+        // At this point, we’ve decompressed part (or possibly all) of the stream.
+        let prefix_len = stream.total_out as usize;
+
+        // Make a copy of the inflate state *after* half the input has been processed.
+        let mut copy = MaybeUninit::<z_stream>::zeroed();
+        let ret = unsafe { inflateCopy(copy.as_mut_ptr(), stream) };
+        let copy = copy.assume_init_mut();
+        assert_eq!(ret, Z_OK);
+
+        // Prepare a separate output buffer for the copy, and copy the already-produced prefix
+        let mut out_copy = vec![0u8; 16 * 1024];
+        out_copy[..prefix_len].copy_from_slice(&out[..prefix_len]);
+
+        // The original stream already has next_out pointing at out[prefix_len].
+        // For the copy, we need to point it at the corresponding location in out_copy.
+        copy.next_out = unsafe { out_copy.as_mut_ptr().add(prefix_len) };
+        copy.avail_out = (out_copy.len() - prefix_len) as _;
+
+        // Now feed the *remainder* of the compressed input to both streams.
+        let remaining = input.len() - half;
+        if remaining > 0 {
+            stream.next_in = unsafe { input.as_ptr().add(half) as *mut _ };
+            stream.avail_in = remaining as _;
+
+            copy.next_in = stream.next_in;
+            copy.avail_in = stream.avail_in;
+        }
+
+        // Decompress the remainder in lockstep on both the original and the copy.
+        loop {
+            let ret1 = unsafe { inflate(stream, InflateFlush::NoFlush as _) };
+            let ret2 = unsafe { inflate(copy, InflateFlush::NoFlush as _) };
+
+            // Both streams should behave identically
+            assert_eq!(ret1, ret2);
+            assert!(
+                matches!(ret1, Z_OK | Z_BUF_ERROR | Z_STREAM_END),
+                "unexpected inflate return: {ret}",
+            );
+
+            // Their accounting should remain in sync at all times
+            assert_eq!(stream.total_out, copy.total_out);
+            assert_eq!(stream.total_in, copy.total_in);
+
+            if matches!(ret1, Z_STREAM_END) {
+                break;
+            }
+
+            // If we somehow run out of input or output space, bail
+            if stream.avail_in == 0 && copy.avail_in == 0 {
+                break;
+            }
+            if stream.avail_out == 0 || copy.avail_out == 0 {
+                break;
+            }
+        }
+
+        assert_eq!(unsafe { inflateEnd(stream) }, Z_OK);
+        assert_eq!(unsafe { inflateEnd(copy) }, Z_OK);
+
+        let total = stream.total_out as usize;
+        assert_eq!(total, copy.total_out as usize);
+
+        assert_eq!(&out[..total], &out_copy[..total]);
+
+        out[..total].to_vec()
     });
 }
