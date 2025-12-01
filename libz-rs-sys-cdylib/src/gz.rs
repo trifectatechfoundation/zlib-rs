@@ -2588,7 +2588,7 @@ pub unsafe extern "C-unwind" fn gzseek64(
 
         // Rewind, then skip to offset.
         // Safety: `file` points to an initialized `GzState`.
-        if unsafe { gzrewind(file) } == -1 {
+        if unsafe { gzrewind_help(state) } == -1 {
             return -1;
         }
     }
@@ -2665,6 +2665,10 @@ pub unsafe extern "C-unwind" fn gzrewind(file: gzFile) -> c_int {
         return -1;
     };
 
+    unsafe { gzrewind_help(state) }
+}
+
+unsafe fn gzrewind_help(state: &mut GzState) -> c_int {
     // Check that we're reading and that there's no error.
     if state.mode != GzMode::GZ_READ || (state.err != Z_OK && state.err != Z_BUF_ERROR) {
         return -1;
