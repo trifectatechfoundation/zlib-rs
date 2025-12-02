@@ -478,7 +478,48 @@ pub unsafe extern "C-unwind" fn uncompress(
     dest: *mut u8,
     destLen: *mut c_ulong,
     source: *const u8,
-    sourceLen: c_ulong,
+    mut sourceLen: c_ulong,
+) -> c_int {
+    uncompress2(dest, destLen, source, &mut sourceLen)
+}
+
+/// Inflates `source` into `dest` like [`uncompress`], and writes the final inflated size into `destLen` and the number
+/// of source bytes consumed into `sourceLen`.
+///
+/// Upon entry, `destLen` is the total size of the destination buffer, which must be large enough to hold the entire
+/// uncompressed data. (The size of the uncompressed data must have been saved previously by the compressor and
+/// transmitted to the decompressor by some mechanism outside the scope of this compression library.)
+/// Upon exit, `destLen` is the actual size of the uncompressed data.
+///
+/// # Returns
+///
+/// * [`Z_OK`] if success
+/// * [`Z_MEM_ERROR`] if there was not enough memory
+/// * [`Z_BUF_ERROR`] if there was not enough room in the output buffer
+/// * [`Z_DATA_ERROR`] if the input data was corrupted or incomplete
+///
+/// In the case where there is not enough room, [`uncompress2`] will fill the output buffer with the uncompressed data up to that point.
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `destLen` is `NULL`
+///     - `destLen` satisfies the requirements of `&mut *destLen`
+/// * Either
+///     - `dest` is `NULL`
+///     - `dest` and `*destLen` satisfy the requirements of [`core::slice::from_raw_parts_mut::<MaybeUninit<u8>>`]
+/// * Either
+///     - `source` is `NULL`
+///     - `source` and `sourceLen` satisfy the requirements of [`core::slice::from_raw_parts::<u8>`]
+/// * `sourceLen` satisfies the requirements of `&mut *sourceLen`
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(uncompress2))]
+pub unsafe extern "C" fn uncompress2(
+    dest: *mut u8,
+    destLen: *mut c_ulong,
+    source: *const u8,
+    sourceLen: *mut c_ulong,
 ) -> c_int {
     // stock zlib will just dereference a NULL pointer: that's UB.
     // Hence us returning an error value is compatible
@@ -486,17 +527,22 @@ pub unsafe extern "C-unwind" fn uncompress(
         return ReturnCode::StreamError as _;
     };
 
+    let Some(sourceLen) = (unsafe { sourceLen.as_mut() }) else {
+        return ReturnCode::StreamError as _;
+    };
+
     let Some(output) = (unsafe { slice_from_raw_parts_uninit_mut(dest, *destLen as usize) }) else {
         return ReturnCode::StreamError as _;
     };
 
-    let Some(input) = (unsafe { slice_from_raw_parts(source, sourceLen as usize) }) else {
+    let Some(input) = (unsafe { slice_from_raw_parts(source, *sourceLen as usize) }) else {
         return ReturnCode::StreamError as _;
     };
 
     let config = InflateConfig::default();
-    let (output, err) = zlib_rs::inflate::uncompress(output, input, config);
+    let (consumed, output, err) = zlib_rs::inflate::uncompress2(output, input, config);
 
+    *sourceLen -= consumed as c_ulong;
     *destLen = output.len() as c_ulong;
 
     err as c_int
