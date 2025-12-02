@@ -54,6 +54,12 @@ jobs:
             os: ubuntu-latest
             codecov: false
 
+          - rust: nightly
+            target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-latest
+            flags: "--features=gz,gzprintf"
+            codecov: true
+
           - target: "aarch64-unknown-linux-gnu"
             os: ubuntu-24.04-arm
             codecov: true
