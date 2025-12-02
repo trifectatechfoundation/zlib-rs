@@ -172,6 +172,15 @@ pub fn uncompress<'a>(
     input: &[u8],
     config: InflateConfig,
 ) -> (&'a mut [u8], ReturnCode) {
+    let (_consumed, output, ret) = uncompress2(output, input, config);
+    (output, ret)
+}
+
+pub fn uncompress2<'a>(
+    output: &'a mut [MaybeUninit<u8>],
+    input: &[u8],
+    config: InflateConfig,
+) -> (u64, &'a mut [u8], ReturnCode) {
     let mut dest_len_ptr = output.len() as z_checksum;
 
     // for detection of incomplete stream when *destLen == 0
@@ -204,14 +213,14 @@ pub fn uncompress<'a>(
 
     let err = init(&mut stream, config);
     if err != ReturnCode::Ok {
-        return (&mut [], err);
+        return (0, &mut [], err);
     }
 
     stream.next_out = dest;
     stream.avail_out = 0;
 
     let Some(stream) = (unsafe { InflateStream::from_stream_mut(&mut stream) }) else {
-        return (&mut [], ReturnCode::StreamError);
+        return (0, &mut [], ReturnCode::StreamError);
     };
 
     let err = loop {
@@ -232,6 +241,7 @@ pub fn uncompress<'a>(
         }
     };
 
+    let consumed = len + u64::from(stream.avail_in);
     if !output.is_empty() {
         dest_len_ptr = stream.total_out;
     } else if stream.total_out != 0 && err == ReturnCode::BufError {
@@ -254,7 +264,7 @@ pub fn uncompress<'a>(
         core::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u8, dest_len_ptr as usize)
     };
 
-    (output_slice, ret)
+    (consumed, output_slice, ret)
 }
 
 #[derive(Debug, Clone, Copy)]

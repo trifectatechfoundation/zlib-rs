@@ -43,6 +43,14 @@ macro_rules! assert_eq_rs_ng {
                 ) -> core::ffi::c_int;
 
                 #[allow(unused)]
+                fn uncompress2(
+                    dest: *mut u8,
+                    destLen: *mut core::ffi::c_ulong,
+                    source: *const u8,
+                    sourceLen: *mut core::ffi::c_ulong,
+                ) -> core::ffi::c_int;
+
+                #[allow(unused)]
                 fn crc32_z(
                     crc: core::ffi::c_ulong,
                     buf: *const Bytef,
