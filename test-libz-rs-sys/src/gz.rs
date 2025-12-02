@@ -2189,4 +2189,39 @@ mod gzprintf {
             let _ = read;
         }
     }
+
+    #[test]
+    fn test_gzprintf_buffer_too_large() {
+        let _ = crate::assert_eq_rs_ng!({
+            // Use a small buffer so we can hit the limit easily.
+            let path = "gzprintf-too-large.gz";
+            let file = unsafe {
+                gzopen(
+                    CString::new(crate_path(path)).unwrap().as_ptr(),
+                    CString::new("w").unwrap().as_ptr(),
+                )
+            };
+            assert!(!file.is_null());
+
+            // Make the buffer just 16 bytes.
+            assert_eq!(unsafe { gzbuffer(file, 16) }, 0);
+
+            // This input does not fit, and hence gzprintf returns 0.
+            let too_large = CString::new("1234567890abcdef").unwrap();
+            assert_eq!(too_large.as_bytes().len(), 16);
+            let written = unsafe { gzprintf(file, too_large.as_ptr()) };
+            assert_eq!(written, 0);
+
+            // Now write something that does fit (15 bytes).
+            let fits = CString::new("1234567890abcde").unwrap();
+            assert_eq!(fits.as_bytes().len(), 15);
+
+            let written_ok = unsafe { gzprintf(file, fits.as_ptr()) };
+            assert_eq!(written_ok, 15);
+
+            assert_eq!(unsafe { gzclose(file) }, Z_OK);
+
+            std::fs::read(crate_path(path)).unwrap()
+        });
+    }
 }

@@ -72,6 +72,16 @@ macro_rules! assert_eq_rs_ng {
 
                 #[allow(unused)]
                 fn get_crc_table() -> *const [u32; 256];
+
+                #[allow(unused)]
+                fn gzbuffer(file: gzFile, size: core::ffi::c_uint) -> core::ffi::c_int;
+
+                #[allow(unused)]
+                fn gzprintf(
+                    file: gzFile,
+                    format: *const core::ffi::c_char,
+                    va: ...
+                ) -> core::ffi::c_int;
             }
 
             $tt

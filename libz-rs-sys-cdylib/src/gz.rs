@@ -2707,8 +2707,24 @@ pub unsafe extern "C-unwind" fn gzprintf(
     unsafe { gzvprintf(file, format, va.as_va_list()) }
 }
 
+/// Convert, format, compress, and write the variable argument list to a file under control of the string format, as in `vfprintf`.
+///
+/// # Returns
+///
+/// Returns the number of uncompressed bytes actually written, or a negative zlib error code in case of error.
+/// The number of uncompressed bytes written is limited to 8191, or one less than the buffer size given to [`gzbuffer`].
+/// The caller should assure that this limit is not exceeded. If it is exceeded, then [`gzvprintf`] will return `0` with nothing written.
+///
+/// Contrary to other implementations that can use the insecure `vsprintf`, the `zlib-rs` library always uses `vsnprintf`,
+/// so attempting to write more bytes than the limit can never run into buffer overflow issues.
+///
+/// # Safety
+///
+/// - The `format`  must be a valid C string
+/// - The variadic arguments must correspond with the format string in number and type
 #[cfg(feature = "gzprintf")]
-unsafe extern "C-unwind" fn gzvprintf(
+#[export_name = crate::prefix!(gzvprintf)]
+unsafe extern "C" fn gzvprintf(
     file: gzFile,
     format: *const c_char,
     va: core::ffi::VaList,
