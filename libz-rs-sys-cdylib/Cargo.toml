@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys-cdylib"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 readme = "README.md"
 license = "Zlib"
@@ -35,8 +35,8 @@ gzprintf = []
 __internal-test = []
 
 [dependencies]
-libz-rs-sys = { version = "0.5.2", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
-zlib-rs = { version = "0.5.2", path = "../zlib-rs", default-features = false }
+libz-rs-sys = { version = "0.5.3", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
+zlib-rs = { version = "0.5.3", path = "../zlib-rs", default-features = false }
 libc = { version = "0.2.171", optional = true }
 
 [package.metadata.capi.library]
