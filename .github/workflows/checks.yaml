@@ -458,6 +458,42 @@ jobs:
           cmp -s Cargo.toml out.txt
 
 
+  cargo-c-dynamic-library-windows:
+    name: cargo-c dynamic library
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-gnu
+        features:
+          - ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: stable
+          targets: ${{matrix.target}}
+
+      - name: Install gcc
+        run: |
+          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          x86_64-w64-mingw32-gcc --help
+
+      - name: "cdylib: example.c with our .h files (windows)"
+        env:
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo build --release --target ${{matrix.target}}
+          x86_64-w64-mingw32-gcc -I../libz-rs-sys/include/ -Ltarget/${{ matrix.target }}/release -o example example.c -lz_rs 
+          # copy dll ?
+          # ./example
+
+
   miri:
     name: "Miri"
     runs-on: ubuntu-latest
