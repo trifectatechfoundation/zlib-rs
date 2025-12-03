@@ -291,7 +291,7 @@ typedef void       *voidp;
 
 typedef unsigned int z_crc_t;
 
-#if 1    /* may be set to #if 1 by configure/cmake/etc */
+#if !defined(_WIN32)
 #  define Z_HAVE_UNISTD_H
 #endif
 
