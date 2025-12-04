@@ -243,6 +243,30 @@ pub extern "C" fn get_crc_table() -> *const [u32; 256] {
     zlib_rs::get_crc_table()
 }
 
+/// Return the operator corresponding to length `len2`, to be used with
+/// [`crc32_combine_op`]. `len2` must be non-negative.
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine_gen64))]
+pub const extern "C" fn crc32_combine_gen64(len2: z_off64_t) -> c_ulong {
+    debug_assert!(len2 >= 0, "`len2` must be non-negative");
+    zlib_rs::crc32::crc32_combine_gen(len2 as u64) as c_ulong
+}
+
+/// Return the operator corresponding to length `len2`, to be used with
+/// [`crc32_combine_op`]. `len2` must be non-negative.
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine_gen))]
+pub const extern "C" fn crc32_combine_gen(len2: z_off_t) -> c_ulong {
+    debug_assert!(len2 >= 0, "`len2` must be non-negative");
+    zlib_rs::crc32::crc32_combine_gen(len2 as u64) as c_ulong
+}
+
+/// Give the same result as [`crc32_combine`], using `op` in place of `len2`.
+/// `op` is is generated from `len2` by [`crc32_combine_gen`].
+/// This will be faster than [`crc32_combine`] if the generated `op` is used more than once.
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine_op))]
+pub const extern "C" fn crc32_combine_op(crc1: c_ulong, crc2: c_ulong, op: c_ulong) -> c_ulong {
+    zlib_rs::crc32::crc32_combine_op(crc1 as u32, crc2 as u32, op as u32) as c_ulong
+}
+
 /// Calculates the [adler32](https://en.wikipedia.org/wiki/Adler-32) checksum
 /// of a sequence of bytes.
 ///
