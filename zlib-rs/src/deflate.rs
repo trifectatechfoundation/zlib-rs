@@ -725,7 +725,7 @@ pub fn reset(stream: &mut DeflateStream) -> ReturnCode {
     ret
 }
 
-fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
+pub fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
     stream.total_in = 0;
     stream.total_out = 0;
     stream.msg = core::ptr::null_mut();
