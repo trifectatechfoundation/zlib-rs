@@ -60,6 +60,16 @@ macro_rules! assert_eq_rs_ng {
                 ) -> core::ffi::c_ulong;
 
                 #[allow(unused)]
+                fn crc32_combine_gen(len2: z_off_t) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
+                fn crc32_combine_op(
+                    crc1: core::ffi::c_ulong,
+                    crc2: core::ffi::c_ulong,
+                    op: core::ffi::c_ulong,
+                ) -> core::ffi::c_ulong;
+
+                #[allow(unused)]
                 fn adler32_z(
                     crc: core::ffi::c_ulong,
                     buf: *const Bytef,
@@ -190,6 +200,55 @@ mod null {
 
         // so let's just lock in what we do
         assert_eq!(libz_rs_sys::crc32_combine(2, 123, -16), 2171032315);
+    }
+
+    #[test]
+    fn test_crc32_combine() {
+        ::quickcheck::quickcheck(test as fn(_) -> _);
+
+        fn test(data: Vec<u8>) -> bool {
+            let Some(buf_len) = data.first().copied() else {
+                return true;
+            };
+
+            let buf_size = Ord::max(buf_len, 1) as usize;
+
+            assert_eq_rs_ng!({
+                let crc0 = 0;
+                let mut crc1 = crc0;
+                let mut crc2 = crc0;
+
+                /* CRC32 */
+                for chunk in data.chunks(buf_size) {
+                    let crc3 = crc32(crc0, chunk.as_ptr(), chunk.len() as _);
+                    let op = crc32_combine_gen(chunk.len() as _);
+                    let crc4 = crc32_combine_op(crc1, crc3, op);
+                    crc1 = crc32(crc1, chunk.as_ptr(), chunk.len() as _);
+
+                    assert_eq!(crc1, crc4);
+                }
+
+                crc2 = crc32(crc2, data.as_ptr(), data.len() as _);
+
+                assert_eq!(crc1, crc2);
+
+                let combine1 = crc32_combine(crc1, crc2, data.len() as _);
+                let combine2 = crc32_combine(crc1, crc1, data.len() as _);
+                assert_eq!(combine1, combine2);
+
+                // Fast CRC32 combine.
+                let op = crc32_combine_gen(data.len() as _);
+                let combine1 = crc32_combine_op(crc1, crc2, op);
+                let combine2 = crc32_combine_op(crc2, crc1, op);
+                assert_eq!(combine1, combine2);
+
+                let combine1 = crc32_combine(crc1, crc2, data.len() as _);
+                let combine2 = crc32_combine_op(crc2, crc1, op);
+                assert_eq!(combine1, combine2);
+            });
+
+            true
+        }
     }
 
     #[test]

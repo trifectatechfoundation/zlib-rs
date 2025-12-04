@@ -10,7 +10,7 @@ mod pclmulqdq;
 #[cfg(feature = "vpclmulqdq")]
 mod vpclmulqdq;
 
-pub use combine::crc32_combine;
+pub use combine::{crc32_combine, crc32_combine_gen, crc32_combine_op};
 
 pub fn crc32(start: u32, buf: &[u8]) -> u32 {
     /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
