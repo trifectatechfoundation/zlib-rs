@@ -1393,6 +1393,22 @@ pub unsafe extern "C-unwind" fn deflateReset(strm: *mut z_stream) -> i32 {
     }
 }
 
+#[doc(hidden)]
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateResetKeep))]
+pub unsafe extern "C" fn deflateResetKeep(strm: *mut z_stream) -> c_int {
+    match DeflateStream::from_stream_mut(strm) {
+        Some(stream) => zlib_rs::deflate::reset_keep(stream) as _,
+        None => ReturnCode::StreamError as _,
+    }
+}
+
 /// Dynamically update the compression level and compression strategy.
 ///
 /// This can be used to switch between compression and straight copy of the input data,
