@@ -136,7 +136,7 @@ pub type z_off64_t = z_off_t;
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_z))]
-pub unsafe extern "C-unwind" fn crc32_z(crc: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
+pub unsafe extern "C" fn crc32_z(crc: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
     match unsafe { slice_from_raw_parts(buf, len) } {
         Some(buf) => zlib_rs::crc32(crc as u32, buf) as c_ulong,
         None => 0,
@@ -169,7 +169,7 @@ pub unsafe extern "C-unwind" fn crc32_z(crc: c_ulong, buf: *const Bytef, len: si
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32))]
-pub unsafe extern "C-unwind" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
+pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     crc32_z(crc, buf, len as size_t)
 }
 
@@ -201,7 +201,7 @@ pub unsafe extern "C-unwind" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine))]
-pub extern "C-unwind" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
+pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
     zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
@@ -233,7 +233,7 @@ pub extern "C-unwind" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine64))]
-pub extern "C-unwind" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_off64_t) -> c_ulong {
+pub extern "C" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_off64_t) -> c_ulong {
     zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
@@ -269,11 +269,7 @@ pub extern "C" fn get_crc_table() -> *const [u32; 256] {
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_z))]
-pub unsafe extern "C-unwind" fn adler32_z(
-    adler: c_ulong,
-    buf: *const Bytef,
-    len: size_t,
-) -> c_ulong {
+pub unsafe extern "C" fn adler32_z(adler: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
     match unsafe { slice_from_raw_parts(buf, len) } {
         Some(buf) => zlib_rs::adler32(adler as u32, buf) as c_ulong,
         None => 1,
@@ -306,7 +302,7 @@ pub unsafe extern "C-unwind" fn adler32_z(
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32))]
-pub unsafe extern "C-unwind" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
+pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -> c_ulong {
     adler32_z(adler, buf, len as size_t)
 }
 
@@ -338,11 +334,7 @@ pub unsafe extern "C-unwind" fn adler32(adler: c_ulong, buf: *const Bytef, len: 
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_combine))]
-pub extern "C-unwind" fn adler32_combine(
-    adler1: c_ulong,
-    adler2: c_ulong,
-    len2: z_off_t,
-) -> c_ulong {
+pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_t) -> c_ulong {
     match u64::try_from(len2) {
         Ok(len2) => zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong,
         Err(_) => {
@@ -380,11 +372,7 @@ pub extern "C-unwind" fn adler32_combine(
 /// }
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_combine64))]
-pub extern "C-unwind" fn adler32_combine64(
-    adler1: c_ulong,
-    adler2: c_ulong,
-    len2: z_off64_t,
-) -> c_ulong {
+pub extern "C" fn adler32_combine64(adler1: c_ulong, adler2: c_ulong, len2: z_off64_t) -> c_ulong {
     match u64::try_from(len2) {
         Ok(len2) => zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong,
         Err(_) => {
@@ -450,7 +438,7 @@ pub extern "C-unwind" fn adler32_combine64(
 /// assert_eq!(dest, b"Ferris");
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(uncompress))]
-pub unsafe extern "C-unwind" fn uncompress(
+pub unsafe extern "C" fn uncompress(
     dest: *mut u8,
     destLen: *mut c_ulong,
     source: *const u8,
@@ -505,7 +493,7 @@ pub unsafe extern "C-unwind" fn uncompress(
 ///     - `strm.next_in` is `NULL`
 ///     - `strm.next_in` and `strm.avail_in` satisfy the requirements of [`core::slice::from_raw_parts::<u8>`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflate))]
-pub unsafe extern "C-unwind" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
+pub unsafe extern "C" fn inflate(strm: *mut z_stream, flush: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let flush = InflateFlush::try_from(flush).unwrap_or_default();
         zlib_rs::inflate::inflate(stream, flush) as _
@@ -529,7 +517,7 @@ pub unsafe extern "C-unwind" fn inflate(strm: *mut z_stream, flush: i32) -> i32 
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateEnd))]
-pub unsafe extern "C-unwind" fn inflateEnd(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
     match InflateStream::from_stream_mut(strm) {
         Some(stream) => {
             zlib_rs::inflate::end(stream);
@@ -563,7 +551,7 @@ pub unsafe extern "C-unwind" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///     - `zfree`
 ///     - `opaque`
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBackInit_))]
-pub unsafe extern "C-unwind" fn inflateBackInit_(
+pub unsafe extern "C" fn inflateBackInit_(
     strm: z_streamp,
     windowBits: c_int,
     window: *mut c_uchar,
@@ -599,7 +587,7 @@ pub unsafe extern "C-unwind" fn inflateBackInit_(
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBack))]
-pub unsafe extern "C-unwind" fn inflateBack(
+pub unsafe extern "C" fn inflateBack(
     strm: z_streamp,
     in_: Option<in_func>,
     in_desc: *mut c_void,
@@ -638,7 +626,7 @@ pub unsafe extern "C-unwind" fn inflateBack(
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateBackInit_`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBackEnd))]
-pub unsafe extern "C-unwind" fn inflateBackEnd(strm: z_streamp) -> c_int {
+pub unsafe extern "C" fn inflateBackEnd(strm: z_streamp) -> c_int {
     let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
         return ReturnCode::StreamError as _;
     };
@@ -673,7 +661,7 @@ pub unsafe extern "C-unwind" fn inflateBackEnd(strm: z_streamp) -> c_int {
 ///     - `source` is `NULL`
 ///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateCopy))]
-pub unsafe extern "C-unwind" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
+pub unsafe extern "C" fn inflateCopy(dest: *mut z_stream, source: *const z_stream) -> i32 {
     let Some(dest) = (unsafe { dest.cast::<MaybeUninit<InflateStream>>().as_mut() }) else {
         return ReturnCode::StreamError as _;
     };
@@ -708,7 +696,7 @@ pub unsafe extern "C-unwind" fn inflateCopy(dest: *mut z_stream, source: *const 
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateMark))]
-pub unsafe extern "C-unwind" fn inflateMark(strm: *const z_stream) -> c_long {
+pub unsafe extern "C" fn inflateMark(strm: *const z_stream) -> c_long {
     if let Some(stream) = InflateStream::from_stream_ref(strm) {
         zlib_rs::inflate::mark(stream)
     } else {
@@ -742,7 +730,7 @@ pub unsafe extern "C-unwind" fn inflateMark(strm: *const z_stream) -> c_long {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateSync))]
-pub unsafe extern "C-unwind" fn inflateSync(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn inflateSync(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::sync(stream) as _
     } else {
@@ -759,7 +747,7 @@ pub unsafe extern "C-unwind" fn inflateSync(strm: *mut z_stream) -> i32 {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateSyncPoint))]
-pub unsafe extern "C-unwind" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::sync_point(stream) as i32
     } else {
@@ -793,7 +781,7 @@ pub unsafe extern "C-unwind" fn inflateSyncPoint(strm: *mut z_stream) -> i32 {
 ///     - `zfree`
 ///     - `opaque`
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateInit_))]
-pub unsafe extern "C-unwind" fn inflateInit_(
+pub unsafe extern "C" fn inflateInit_(
     strm: z_streamp,
     version: *const c_char,
     stream_size: c_int,
@@ -826,7 +814,7 @@ pub unsafe extern "C-unwind" fn inflateInit_(
 ///     - `zfree`
 ///     - `opaque`
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateInit2_))]
-pub unsafe extern "C-unwind" fn inflateInit2_(
+pub unsafe extern "C" fn inflateInit2_(
     strm: z_streamp,
     windowBits: c_int,
     version: *const c_char,
@@ -852,7 +840,7 @@ pub unsafe extern "C-unwind" fn inflateInit2_(
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
-unsafe extern "C-unwind" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
+unsafe extern "C" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> c_int {
     let Some(strm) = (unsafe { strm.as_mut() }) else {
         return ReturnCode::StreamError as _;
     };
@@ -887,7 +875,7 @@ unsafe extern "C-unwind" fn inflateInit2(strm: z_streamp, windowBits: c_int) -> 
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflatePrime))]
-pub unsafe extern "C-unwind" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
+pub unsafe extern "C" fn inflatePrime(strm: *mut z_stream, bits: i32, value: i32) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::prime(stream, bits, value) as _
     } else {
@@ -913,7 +901,7 @@ pub unsafe extern "C-unwind" fn inflatePrime(strm: *mut z_stream, bits: i32, val
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateReset))]
-pub unsafe extern "C-unwind" fn inflateReset(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn inflateReset(strm: *mut z_stream) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::reset(stream) as _
     } else {
@@ -940,7 +928,7 @@ pub unsafe extern "C-unwind" fn inflateReset(strm: *mut z_stream) -> i32 {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateReset2))]
-pub unsafe extern "C-unwind" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
+pub unsafe extern "C" fn inflateReset2(strm: *mut z_stream, windowBits: c_int) -> i32 {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         let config = InflateConfig {
             window_bits: windowBits,
@@ -979,7 +967,7 @@ pub unsafe extern "C-unwind" fn inflateReset2(strm: *mut z_stream, windowBits: c
 ///     - `dictionary` is `NULL`
 ///     - `dictionary` and `dictLength` satisfy the requirements of [`core::slice::from_raw_parts_mut::<u8>`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateSetDictionary))]
-pub unsafe extern "C-unwind" fn inflateSetDictionary(
+pub unsafe extern "C" fn inflateSetDictionary(
     strm: *mut z_stream,
     dictionary: *const u8,
     dictLength: c_uint,
@@ -1037,7 +1025,7 @@ pub unsafe extern "C-unwind" fn inflateSetDictionary(
 ///     - if `head.name` is not NULL, it must be writable for at least `head.name_max` bytes
 ///     - if `head.comment` is not NULL, it must be writable for at least `head.comm_max` bytes
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateGetHeader))]
-pub unsafe extern "C-unwind" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
+pub unsafe extern "C" fn inflateGetHeader(strm: z_streamp, head: gz_headerp) -> c_int {
     let Some(stream) = (unsafe { InflateStream::from_stream_mut(strm) }) else {
         return ReturnCode::StreamError as _;
     };
@@ -1057,7 +1045,7 @@ pub unsafe extern "C-unwind" fn inflateGetHeader(strm: z_streamp, head: gz_heade
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateUndermine))]
-pub unsafe extern "C-unwind" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> c_int {
+pub unsafe extern "C" fn inflateUndermine(strm: *mut z_stream, subvert: i32) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::undermine(stream, subvert) as i32
     } else {
@@ -1072,7 +1060,7 @@ pub unsafe extern "C-unwind" fn inflateUndermine(strm: *mut z_stream, subvert: i
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateResetKeep))]
-pub unsafe extern "C-unwind" fn inflateResetKeep(strm: *mut z_stream) -> c_int {
+pub unsafe extern "C" fn inflateResetKeep(strm: *mut z_stream) -> c_int {
     if let Some(stream) = InflateStream::from_stream_mut(strm) {
         zlib_rs::inflate::reset_keep(stream) as _
     } else {
@@ -1091,7 +1079,7 @@ pub unsafe extern "C-unwind" fn inflateResetKeep(strm: *mut z_stream) -> c_int {
 /// - `buf` is `NULL`
 /// - `buf` and `len` satisfy the requirements of [`core::slice::from_raw_parts`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateCodesUsed))]
-pub unsafe extern "C-unwind" fn inflateCodesUsed(strm: *mut z_stream) -> c_ulong {
+pub unsafe extern "C" fn inflateCodesUsed(strm: *mut z_stream) -> c_ulong {
     match InflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::inflate::codes_used(stream) as c_ulong,
         None => c_ulong::MAX,
@@ -1121,7 +1109,7 @@ pub unsafe extern "C-unwind" fn inflateCodesUsed(strm: *mut z_stream) -> c_ulong
 ///     - `strm.next_in` is `NULL`
 ///     - `strm.next_in` and `strm.avail_in` satisfy the requirements of [`core::slice::from_raw_parts::<u8>`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflate))]
-pub unsafe extern "C-unwind" fn deflate(strm: *mut z_stream, flush: i32) -> c_int {
+pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> c_int {
     if let Some(stream) = DeflateStream::from_stream_mut(strm) {
         match DeflateFlush::try_from(flush) {
             Ok(flush) => zlib_rs::deflate::deflate(stream, flush) as _,
@@ -1158,7 +1146,7 @@ pub unsafe extern "C-unwind" fn deflate(strm: *mut z_stream, flush: i32) -> c_in
 ///         - `head.name` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 ///         - `head.comment` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateSetHeader))]
-pub unsafe extern "C-unwind" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> c_int {
+pub unsafe extern "C" fn deflateSetHeader(strm: *mut z_stream, head: gz_headerp) -> c_int {
     let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
         return ReturnCode::StreamError as _;
     };
@@ -1184,7 +1172,7 @@ pub unsafe extern "C-unwind" fn deflateSetHeader(strm: *mut z_stream, head: gz_h
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateBound))]
-pub unsafe extern "C-unwind" fn deflateBound(strm: *mut z_stream, sourceLen: c_ulong) -> c_ulong {
+pub unsafe extern "C" fn deflateBound(strm: *mut z_stream, sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::bound(DeflateStream::from_stream_mut(strm), sourceLen as usize) as c_ulong
 }
 
@@ -1241,7 +1229,7 @@ pub unsafe extern "C-unwind" fn deflateBound(strm: *mut z_stream, sourceLen: c_u
 /// assert_eq!(dest, [120, 156, 115, 75, 45, 42, 202, 44, 6, 0, 8, 6, 2, 108]);
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(compress))]
-pub unsafe extern "C-unwind" fn compress(
+pub unsafe extern "C" fn compress(
     dest: *mut Bytef,
     destLen: *mut c_ulong,
     source: *const Bytef,
@@ -1284,7 +1272,7 @@ pub unsafe extern "C-unwind" fn compress(
 ///     - `source` is `NULL`
 ///     - `source` and `sourceLen` satisfy the requirements of [`core::slice::from_raw_parts`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(compress2))]
-pub unsafe extern "C-unwind" fn compress2(
+pub unsafe extern "C" fn compress2(
     dest: *mut Bytef,
     destLen: *mut c_ulong,
     source: *const Bytef,
@@ -1317,7 +1305,7 @@ pub unsafe extern "C-unwind" fn compress2(
 ///
 /// Can be used before a [`compress`] or [`compress2`] call to allocate the destination buffer.
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(compressBound))]
-pub extern "C-unwind" fn compressBound(sourceLen: c_ulong) -> c_ulong {
+pub extern "C" fn compressBound(sourceLen: c_ulong) -> c_ulong {
     zlib_rs::deflate::compress_bound(sourceLen as usize) as c_ulong
 }
 
@@ -1339,7 +1327,7 @@ pub extern "C-unwind" fn compressBound(sourceLen: c_ulong) -> c_ulong {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateEnd))]
-pub unsafe extern "C-unwind" fn deflateEnd(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn deflateEnd(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => match zlib_rs::deflate::end(stream) {
             Ok(_) => ReturnCode::Ok as _,
@@ -1367,7 +1355,7 @@ pub unsafe extern "C-unwind" fn deflateEnd(strm: *mut z_stream) -> i32 {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateReset))]
-pub unsafe extern "C-unwind" fn deflateReset(strm: *mut z_stream) -> i32 {
+pub unsafe extern "C" fn deflateReset(strm: *mut z_stream) -> i32 {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::deflate::reset(stream) as _,
         None => ReturnCode::StreamError as _,
@@ -1398,11 +1386,7 @@ pub unsafe extern "C-unwind" fn deflateReset(strm: *mut z_stream) -> i32 {
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateParams))]
-pub unsafe extern "C-unwind" fn deflateParams(
-    strm: z_streamp,
-    level: c_int,
-    strategy: c_int,
-) -> c_int {
+pub unsafe extern "C" fn deflateParams(strm: z_streamp, level: c_int, strategy: c_int) -> c_int {
     let Ok(strategy) = Strategy::try_from(strategy) else {
         return ReturnCode::StreamError as _;
     };
@@ -1433,7 +1417,7 @@ pub unsafe extern "C-unwind" fn deflateParams(
 ///     - `dictionary` is `NULL`
 ///     - `dictionary` and `dictLength` satisfy the requirements of [`core::slice::from_raw_parts_mut::<u8>`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateSetDictionary))]
-pub unsafe extern "C-unwind" fn deflateSetDictionary(
+pub unsafe extern "C" fn deflateSetDictionary(
     strm: z_streamp,
     dictionary: *const Bytef,
     dictLength: uInt,
@@ -1469,7 +1453,7 @@ pub unsafe extern "C-unwind" fn deflateSetDictionary(
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflatePrime))]
-pub unsafe extern "C-unwind" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int) -> c_int {
+pub unsafe extern "C" fn deflatePrime(strm: z_streamp, bits: c_int, value: c_int) -> c_int {
     match DeflateStream::from_stream_mut(strm) {
         Some(stream) => zlib_rs::deflate::prime(stream, bits, value) as _,
         None => ReturnCode::StreamError as _,
@@ -1501,7 +1485,7 @@ pub unsafe extern "C-unwind" fn deflatePrime(strm: z_streamp, bits: c_int, value
 ///     - `bits` is `NULL`
 ///     - `bits` satisfies the requirements of [`core::ptr::write::<c_int>`]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflatePending))]
-pub unsafe extern "C-unwind" fn deflatePending(
+pub unsafe extern "C" fn deflatePending(
     strm: z_streamp,
     pending: *mut c_uint,
     bits: *mut c_int,
@@ -1548,7 +1532,7 @@ pub unsafe extern "C-unwind" fn deflatePending(
 ///     - `source` is `NULL`
 ///     - `source` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateCopy))]
-pub unsafe extern "C-unwind" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
+pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_int {
     let Some(dest) = (unsafe { dest.cast::<MaybeUninit<DeflateStream>>().as_mut() }) else {
         return ReturnCode::StreamError as _;
     };
@@ -1627,7 +1611,7 @@ pub unsafe extern "C-unwind" fn deflateCopy(dest: z_streamp, source: z_streamp) 
 /// let strm = unsafe { strm.assume_init_mut() };
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateInit_))]
-pub unsafe extern "C-unwind" fn deflateInit_(
+pub unsafe extern "C" fn deflateInit_(
     strm: z_streamp,
     level: c_int,
     version: *const c_char,
@@ -1713,7 +1697,7 @@ pub unsafe extern "C-unwind" fn deflateInit_(
 /// let strm = unsafe { strm.assume_init_mut() };
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateInit2_))]
-pub unsafe extern "C-unwind" fn deflateInit2_(
+pub unsafe extern "C" fn deflateInit2_(
     strm: z_streamp,
     level: c_int,
     method: c_int,
@@ -1770,7 +1754,7 @@ pub unsafe extern "C-unwind" fn deflateInit2_(
 ///     - `strm` is `NULL`
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateTune))]
-pub unsafe extern "C-unwind" fn deflateTune(
+pub unsafe extern "C" fn deflateTune(
     strm: z_streamp,
     good_length: c_int,
     max_lazy: c_int,
@@ -1994,7 +1978,7 @@ pub const extern "C" fn zlibCompileFlags() -> c_ulong {
 ///
 /// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateGetDictionary))]
-pub unsafe extern "C-unwind" fn inflateGetDictionary(
+pub unsafe extern "C" fn inflateGetDictionary(
     strm: *const z_stream,
     dictionary: *mut c_uchar,
     dictLength: *mut c_uint,
@@ -2039,7 +2023,7 @@ pub unsafe extern "C-unwind" fn inflateGetDictionary(
 ///
 /// [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateGetDictionary))]
-pub unsafe extern "C-unwind" fn deflateGetDictionary(
+pub unsafe extern "C" fn deflateGetDictionary(
     strm: *const z_stream,
     dictionary: *mut c_uchar,
     dictLength: *mut c_uint,
