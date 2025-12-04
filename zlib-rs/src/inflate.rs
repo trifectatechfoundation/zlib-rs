@@ -2566,6 +2566,17 @@ pub fn undermine(stream: &mut InflateStream, subvert: i32) -> ReturnCode {
     ReturnCode::Ok
 }
 
+/// Configures whether the checksum is calculated and checked.
+pub fn validate(stream: &mut InflateStream, check: bool) -> ReturnCode {
+    if check && stream.state.wrap != 0 {
+        stream.state.wrap |= 0b100;
+    } else {
+        stream.state.wrap &= !0b100;
+    }
+
+    ReturnCode::Ok
+}
+
 pub fn mark(stream: &InflateStream) -> c_long {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
         return c_long::MIN;

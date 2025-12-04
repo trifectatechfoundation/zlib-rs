@@ -2867,3 +2867,162 @@ fn inflate_copy_after_half_input() {
         out[..total].to_vec()
     });
 }
+
+#[test]
+fn inflate_validate_toggles_checksum_update() {
+    let input = include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-9.gz");
+
+    // Check that `inflateValidate` toggles checksum updating.
+    //
+    // - decompress normally, the checksum should update
+    // - toggle, the checksum should not update
+    // - toggle again, the checksum should update
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+        let ret = inflateInit2_(
+            stream.as_mut_ptr(),
+            16 + 15, // gzip + max window
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as c_int,
+        );
+        assert_eq!(ret, Z_OK);
+
+        let stream = stream.assume_init_mut();
+
+        let mut out1 = vec![0u8; 16 * 1024];
+        let mut out2 = vec![0u8; 16 * 1024];
+        let mut out3 = vec![0u8; 16 * 1024];
+
+        let check1 = {
+            let ret = inflateValidate(stream, 1);
+            assert_eq!(ret, Z_OK);
+
+            stream.next_in = input.as_ptr() as *mut _;
+            stream.avail_in = input.len() as _;
+            stream.next_out = out1.as_mut_ptr();
+            stream.avail_out = out1.len() as _;
+
+            let ret = loop {
+                let ret = inflate(stream, InflateFlush::NoFlush as _);
+
+                assert!(
+                    matches!(ret, Z_OK | Z_BUF_ERROR | Z_STREAM_END),
+                    "unexpected inflate return (run 1): {}",
+                    ret
+                );
+
+                if matches!(ret, Z_STREAM_END) {
+                    break ret;
+                }
+
+                if stream.avail_in == 0 {
+                    break ret;
+                }
+
+                if stream.avail_out == 0 {
+                    unreachable!("run 1: not enough output space");
+                }
+            };
+
+            assert_eq!(ret, Z_STREAM_END);
+            out1.truncate(stream.total_out as usize);
+            stream.adler
+        };
+
+        assert_eq!(inflateReset(stream), Z_OK);
+
+        let check2 = {
+            let ret = inflateValidate(stream, 0);
+            assert_eq!(ret, Z_OK);
+
+            stream.next_in = input.as_ptr() as *mut _;
+            stream.avail_in = input.len() as _;
+            stream.next_out = out2.as_mut_ptr();
+            stream.avail_out = out2.len() as _;
+
+            let ret = loop {
+                let ret = inflate(stream, InflateFlush::NoFlush as _);
+
+                assert!(
+                    matches!(ret, Z_OK | Z_BUF_ERROR | Z_STREAM_END),
+                    "unexpected inflate return (run 2): {}",
+                    ret
+                );
+
+                if matches!(ret, Z_STREAM_END) {
+                    break ret;
+                }
+
+                if stream.avail_in == 0 {
+                    break ret;
+                }
+
+                if stream.avail_out == 0 {
+                    unreachable!("run 2: not enough output space");
+                }
+            };
+
+            assert_eq!(ret, Z_STREAM_END);
+            out2.truncate(stream.total_out as usize);
+            stream.adler
+        };
+
+        // Output must be identical, regardless of validation.
+        assert_eq!(out1, out2);
+
+        assert_ne!(
+            check1, check2,
+            "checksum with validation disabled unexpectedly matches the validated checksum",
+        );
+
+        assert_eq!(inflateReset(stream), Z_OK);
+
+        let check3 = {
+            let ret = inflateValidate(stream, 0);
+            assert_eq!(ret, Z_OK);
+            let ret = inflateValidate(stream, 1);
+            assert_eq!(ret, Z_OK);
+
+            stream.next_in = input.as_ptr() as *mut _;
+            stream.avail_in = input.len() as _;
+            stream.next_out = out3.as_mut_ptr();
+            stream.avail_out = out3.len() as _;
+
+            let ret = loop {
+                let ret = inflate(stream, InflateFlush::NoFlush as _);
+
+                assert!(
+                    matches!(ret, Z_OK | Z_BUF_ERROR | Z_STREAM_END),
+                    "unexpected inflate return (run 3): {}",
+                    ret
+                );
+
+                if matches!(ret, Z_STREAM_END) {
+                    break ret;
+                }
+
+                if stream.avail_in == 0 {
+                    break ret;
+                }
+
+                if stream.avail_out == 0 {
+                    unreachable!("run 3: not enough output space");
+                }
+            };
+
+            assert_eq!(ret, Z_STREAM_END);
+            out3.truncate(stream.total_out as usize);
+            stream.adler
+        };
+
+        assert_eq!(out1, out3);
+
+        // With validation back on, checksum should again match the first run
+        assert_eq!(
+            check1, check3,
+            "checksum with validation re-enabled does not match validated run"
+        );
+
+        assert_eq!(inflateEnd(stream), Z_OK);
+    });
+}

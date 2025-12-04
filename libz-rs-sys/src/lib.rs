@@ -1066,6 +1066,25 @@ pub unsafe extern "C-unwind" fn inflateUndermine(strm: *mut z_stream, subvert: i
 }
 
 #[doc(hidden)]
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateValidate))]
+pub unsafe extern "C" fn inflateValidate(strm: *mut z_stream, check: i32) -> c_int {
+    let Some(stream) = InflateStream::from_stream_mut(strm) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    zlib_rs::inflate::validate(stream, check != 0);
+
+    ReturnCode::Ok as _
+}
+
+#[doc(hidden)]
 /// ## Safety
 ///
 /// * Either
