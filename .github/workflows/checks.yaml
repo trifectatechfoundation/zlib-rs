@@ -397,13 +397,6 @@ jobs:
         run: |
           cargo build --release --target ${{matrix.target}} --features=semver-prefix
           objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
-      - name: "cdylib: versioned symbols"
-        working-directory: libz-rs-sys-cdylib
-        run: |
-          cargo build --release --target ${{matrix.target}} --features=gz
-          cc -shared -Wl,--gc-sections -Wl,--whole-archive target/${{matrix.target}}/release/libz_rs.a -Wl,--no-whole-archive -Wl,--version-script=include/zlib.map -Wl,--undefined-version -Wl,-soname,libz_rs.so.1 -lc -o target/${{matrix.target}}/release/libz_rs.versioned.so
-          objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep "ZLIB"
-          objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1.2.2.3 deflateTune" || (echo "symbol not found!" && exit 1)
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
       - name: "cdylib: example.c"
         env:
@@ -423,6 +416,71 @@ jobs:
           cc -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so -I../libz-rs-sys/include/
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
+
+
+  symbol-versioning:
+    name: Symbol versioning 
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+        features:
+          - ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: nightly # for c-variadic functions
+          targets: ${{matrix.target}}
+
+      - name: Install apt packages
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: build-essential cmake pkg-config abigail-tools binutils
+          version: 2
+
+      - name: Build zlib-ng (in zlib compat mode)
+        working-directory: /tmp
+        run: |
+          git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
+          cmake -B zlib-ng-build -S zlib-ng \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZLIB_COMPAT=ON
+          cmake --build zlib-ng-build --config Release
+          ls /tmp/zlib-ng-build
+
+      - name: Build libz_rs.versioned.so
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          cargo +nightly build --release --target ${{matrix.target}} --features=gz,gzprintf
+
+          cc -shared \
+            -Wl,--gc-sections \
+            -Wl,--whole-archive target/${{matrix.target}}/release/libz_rs.a \
+            -Wl,--no-whole-archive \
+            -Wl,--version-script=include/zlib.map \
+            -Wl,--undefined-version \
+            -Wl,-soname,libz_rs.so.1 \
+            -lc \
+            -o target/${{matrix.target}}/release/libz_rs.versioned.so
+
+          ls target/${{matrix.target}}/release
+
+      - name: Check versioned symbols
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep "ZLIB"
+          objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1\.2\.2\.3.*deflateTune" || (echo "symbol not found!" && exit 1)
+
+      - name: ABI comparison vs zlib-ng
+        working-directory: libz-rs-sys-cdylib
+        run: |
+          abidiff --no-unreferenced-symbols --ignore-soname /tmp/zlib-ng-build/libz.so.1 target/${{matrix.target}}/release/libz_rs.versioned.so
 
   cargo-c-dynamic-library:
     name: cargo-c dynamic library
