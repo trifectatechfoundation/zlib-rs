@@ -2704,7 +2704,7 @@ pub unsafe extern "C-unwind" fn gzprintf(
     format: *const c_char,
     mut va: ...
 ) -> c_int {
-    unsafe { gzvprintf(file, format, va.as_va_list()) }
+    unsafe { gzvprintf(file, format, va) }
 }
 
 /// Convert, format, compress, and write the variable argument list to a file under control of the string format, as in `vfprintf`.
