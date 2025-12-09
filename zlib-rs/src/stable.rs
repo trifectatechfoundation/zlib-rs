@@ -144,6 +144,15 @@ impl Inflate {
             ReturnCode::VersionError => unreachable!("the rust API does not use the version"),
         }
     }
+
+    pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, InflateError> {
+        match crate::inflate::set_dictionary(&mut self.0, dictionary) {
+            ReturnCode::Ok => Ok(self.0.adler as u32),
+            ReturnCode::StreamError => Err(InflateError::StreamError),
+            ReturnCode::DataError => Err(InflateError::DataError),
+            other => unreachable!("set_dictionary does not return {other:?}"),
+        }
+    }
 }
 
 impl Drop for Inflate {
@@ -258,6 +267,17 @@ impl Deflate {
         self.0.next_out = output.as_mut_ptr();
 
         crate::deflate::deflate(&mut self.0, flush).into()
+    }
+
+    /// Specifies the compression dictionary to use.
+    ///
+    /// Returns the Adler-32 checksum of the dictionary.
+    pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, DeflateError> {
+        match crate::deflate::set_dictionary(&mut self.0, dictionary) {
+            ReturnCode::Ok => Ok(self.0.adler as u32),
+            ReturnCode::StreamError => Err(DeflateError::StreamError),
+            other => unreachable!("set_dictionary does not return {other:?}"),
+        }
     }
 }
 
