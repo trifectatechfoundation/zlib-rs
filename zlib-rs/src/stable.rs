@@ -279,6 +279,25 @@ impl Deflate {
             other => unreachable!("set_dictionary does not return {other:?}"),
         }
     }
+
+    /// Dynamically updates the compression level.
+    ///
+    /// This can be used to switch between compression levels for different
+    /// kinds of data, or it can be used in conjunction with a call to [`Deflate::reset`]
+    /// to reuse the compressor.
+    ///
+    /// This may return an error if there wasn't enough output space to complete
+    /// the compression of the available input data before changing the
+    /// compression level. Flushing the stream before calling this method
+    /// ensures that the function will succeed on the first call.
+    pub fn set_level(&mut self, level: i32) -> Result<Status, DeflateError> {
+        match crate::deflate::params(&mut self.0, level, Default::default()) {
+            ReturnCode::Ok => Ok(Status::Ok),
+            ReturnCode::StreamError => Err(DeflateError::StreamError),
+            ReturnCode::BufError => Ok(Status::BufError),
+            other => unreachable!("set_level does not return {other:?}"),
+        }
+    }
 }
 
 impl Drop for Deflate {
