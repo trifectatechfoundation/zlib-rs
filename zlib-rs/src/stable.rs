@@ -80,6 +80,15 @@ impl Inflate {
         u64::from(self.0.total_out)
     }
 
+    /// The error message if the previous operation failed.
+    pub fn error_message(&self) -> Option<&'static str> {
+        if self.0.msg.is_null() {
+            None
+        } else {
+            unsafe { core::ffi::CStr::from_ptr(self.0.msg).to_str() }.ok()
+        }
+    }
+
     /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
     ///
     /// The `window_bits` must be in the range `8..=15`, with `15` being most common.
@@ -201,6 +210,15 @@ impl Deflate {
     pub fn total_out(&self) -> u64 {
         #[allow(clippy::useless_conversion)]
         u64::from(self.0.total_out)
+    }
+
+    /// The error message if the previous operation failed.
+    pub fn error_message(&self) -> Option<&'static str> {
+        if self.0.msg.is_null() {
+            None
+        } else {
+            unsafe { core::ffi::CStr::from_ptr(self.0.msg).to_str() }.ok()
+        }
     }
 
     /// Create a new instance - this allocates so should be done with care.
