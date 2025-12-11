@@ -10,9 +10,6 @@ use core::{
     ptr::NonNull,
 };
 
-#[cfg(feature = "rust-allocator")]
-use alloc::alloc::GlobalAlloc;
-
 #[allow(non_camel_case_types)]
 type size_t = usize;
 
@@ -121,9 +118,9 @@ unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_ui
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
     let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
 
-    // SAFETY: System.alloc requires that the layout have a nonzero size, so we return null
+    // SAFETY: alloc requires that the layout have a nonzero size, so we return null
     // above (and never reach this call) if the requested count * size is zero.
-    let ptr = unsafe { std::alloc::System.alloc(layout) };
+    let ptr = unsafe { std::alloc::alloc(layout) };
 
     ptr as *mut c_void
 }
@@ -145,16 +142,16 @@ unsafe extern "C" fn zalloc_rust_calloc(
     // internally, we want to align allocations to 64 bytes (in part for SIMD reasons)
     let layout = Layout::from_size_align(size, ALIGN.into()).unwrap();
 
-    // SAFETY: System.alloc_zeroed requires that the layout have a nonzero size, so we return
+    // SAFETY: alloc_zeroed requires that the layout have a nonzero size, so we return
     // null above (and never reach this call) if the requested count * size is zero.
-    let ptr = unsafe { std::alloc::System.alloc_zeroed(layout) };
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
 
     ptr as *mut c_void
 }
 
 /// # Safety
 ///
-/// - `ptr` must be allocated with the rust `alloc::System` allocator
+/// - `ptr` must be allocated with the rust `alloc::alloc` allocator
 /// - `opaque` is a `&usize` that represents the size of the allocation
 #[cfg(feature = "rust-allocator")]
 unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
@@ -182,10 +179,10 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     let layout = Layout::from_size_align(size, ALIGN.into());
     let layout = layout.unwrap();
 
-    // SAFETY: The caller ensured that ptr was allocated with the alloc::System allocator,
+    // SAFETY: The caller ensured that ptr was allocated with the `alloc` allocator,
     // and the size check above ensures that we are not trying to use a zero-size layout
     // that would produce undefined behavior in the allocator.
-    unsafe { std::alloc::System.dealloc(ptr.cast(), layout) };
+    unsafe { std::alloc::dealloc(ptr.cast(), layout) };
 }
 
 #[cfg(test)]
