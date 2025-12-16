@@ -1,4 +1,4 @@
-use z_rs::{
+use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzopen64, gzputc,
     gzputs, gzread, gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
