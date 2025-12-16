@@ -23,7 +23,7 @@ custom-prefix = ["export-symbols"] # use the LIBZ_RS_SYS_PREFIX to prefix all ex
 testing-prefix = ["export-symbols"] # prefix all symbols with LIBZ_RS_SYS_TEST_ for testing
 semver-prefix = ["export-symbols"] # prefix all symbols in a semver-compatible way
 gz = ["dep:libc"] # publicly export the gz* functions
-gzprintf = ["gz"]
+gzprintf = ["gz"] # experimental, requires nightly for the c_variadic feature
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false }
