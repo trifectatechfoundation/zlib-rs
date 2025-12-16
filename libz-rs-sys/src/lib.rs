@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "gzprintf", feature(c_variadic))]
 #![allow(unsafe_op_in_unsafe_fn)] // FIXME
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -94,6 +95,7 @@ macro_rules! prefix {
     };
 }
 
+#[cfg(feature = "gz")]
 pub(crate) use prefix;
 
 #[cfg(all(feature = "rust-allocator", feature = "c-allocator"))]
