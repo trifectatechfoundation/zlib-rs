@@ -2019,7 +2019,7 @@ fn file_size(path: &str) -> Result<usize, std::io::Error> {
 #[cfg(feature = "gzprintf")]
 mod gzprintf {
     use super::*;
-    use z_rs::{gzeof, gzprintf};
+    use libz_rs_sys::{gzeof, gzprintf};
 
     macro_rules! cstr {
         ($str:literal) => {
