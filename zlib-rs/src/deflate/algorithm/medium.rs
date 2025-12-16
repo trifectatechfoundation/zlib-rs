@@ -224,8 +224,6 @@ fn insert_match(state: &mut State, mut m: Match) {
             } else {
                 state.insert_string(m.strstart as usize, (m.orgstart - m.strstart + 1) as usize);
             }
-            m.strstart += m.match_length;
-            m.match_length = 0;
         }
         return;
     }
@@ -250,8 +248,6 @@ fn insert_match(state: &mut State, mut m: Match) {
                 (m.strstart + m.match_length - m.orgstart) as usize,
             );
         }
-        m.strstart += m.match_length;
-        m.match_length = 0;
     } else {
         m.strstart += m.match_length;
         m.match_length = 0;
