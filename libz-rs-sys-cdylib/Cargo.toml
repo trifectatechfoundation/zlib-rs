@@ -35,14 +35,13 @@ custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to pr
 semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-compatible way
 std = ["libz-rs-sys/std"] # enables runtime feature detection (e.g. to use SIMD)
 capi = []
-gz = ["dep:libc"] # support for the `gz*` functions is experimental
-gzprintf = ["gz"]
+gz = ["libz-rs-sys/gz"]
+gzprintf = ["libz-rs-sys/gzprintf"]
 __internal-test = []
 
 [dependencies]
 libz-rs-sys = { version = "0.5.5", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
 zlib-rs = { version = "0.5.5", path = "../zlib-rs", default-features = false }
-libc = { version = "0.2.171", optional = true }
 
 [package.metadata.capi.library]
 version = "1.3.0" # the zlib api version we match
