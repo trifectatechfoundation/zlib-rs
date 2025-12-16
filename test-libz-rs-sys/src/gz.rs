@@ -1,4 +1,4 @@
-use z_rs::{
+use libz_rs_sys::{
     gzFile_s, gzbuffer, gzclearerr, gzclose, gzclose_r, gzclose_w, gzdirect, gzdopen, gzerror,
     gzflush, gzfread, gzfwrite, gzgetc, gzgetc_, gzgets, gzoffset, gzopen, gzopen64, gzputc,
     gzputs, gzread, gzrewind, gzseek, gzsetparams, gztell, gzungetc, gzwrite,
@@ -2019,7 +2019,7 @@ fn file_size(path: &str) -> Result<usize, std::io::Error> {
 #[cfg(feature = "gzprintf")]
 mod gzprintf {
     use super::*;
-    use z_rs::{gzeof, gzprintf};
+    use libz_rs_sys::{gzeof, gzprintf};
 
     macro_rules! cstr {
         ($str:literal) => {

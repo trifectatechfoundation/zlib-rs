@@ -57,7 +57,7 @@ jobs:
           - rust: nightly
             target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
-            flags: "--features=gz,gzprintf"
+            flags: "--features=gzprintf"
             codecov: true
 
           - target: "aarch64-unknown-linux-gnu"
@@ -142,19 +142,10 @@ jobs:
       # run tests
       - name: cargo llvm-cov nextest
         if: matrix.codecov
-        run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.flags }} --no-fail-fast
+        run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.flags }} --features=gz --no-fail-fast
       - name: cargo nextest
         if: matrix.codecov == false
-        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.flags }} --no-fail-fast
-
-      - name: cargo nextest cdylib
-        if: matrix.codecov
-        working-directory: libz-rs-sys-cdylib
-        run: cargo llvm-cov nextest --target ${{matrix.target}} --features="gz,__internal-test" --lcov --output-path cdylib.lcov.info --ignore-filename-regex "test-libz|dynamic-libz"
-      - name: cargo nextest cdylib
-        if: matrix.codecov == false
-        working-directory: libz-rs-sys-cdylib
-        run: cargo nextest run --target ${{matrix.target}} --features="gz,__internal-test" --no-fail-fast
+        run: cargo nextest run --target ${{matrix.target}} ${{ matrix.flags }} --features=gz --no-fail-fast
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
@@ -555,8 +546,8 @@ jobs:
       - name: Test allocator with miri
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz internals with miri
-        working-directory: libz-rs-sys-cdylib
-        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys-cdylib --target ${{ matrix.target }} --features=gz"
+        working-directory: libz-rs-sys
+        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
       - name: Test gz api with miri
