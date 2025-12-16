@@ -26,6 +26,12 @@
 //! [`pointer::as_ref`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_ref
 //! [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
 
+#[cfg(feature = "gz")]
+mod gz;
+
+#[cfg(feature = "gz")]
+pub use gz::*;
+
 use core::mem::MaybeUninit;
 
 use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
