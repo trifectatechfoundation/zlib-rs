@@ -1,3 +1,5 @@
+use core::ffi::c_uint;
+
 use crate::deflate::DeflateConfig;
 use crate::inflate::InflateConfig;
 use crate::ReturnCode;
@@ -122,8 +124,11 @@ impl Inflate {
         output: &mut [u8],
         flush: InflateFlush,
     ) -> Result<Status, InflateError> {
-        self.0.avail_in = input.len() as _;
-        self.0.avail_out = output.len() as _;
+        // Limit the length of the input and output to the maximum value of a c_uint. For larger
+        // inputs, this will either complete or signal that more input and output is needed. The
+        // caller should be able to handle this regardless.
+        self.0.avail_in = Ord::min(input.len(), c_uint::MAX as usize) as c_uint;
+        self.0.avail_out = Ord::min(output.len(), c_uint::MAX as usize) as c_uint;
 
         // This cast_mut is unfortunate, that is just how the types are.
         self.0.next_in = input.as_ptr().cast_mut();
@@ -259,8 +264,11 @@ impl Deflate {
         output: &mut [u8],
         flush: DeflateFlush,
     ) -> Result<Status, DeflateError> {
-        self.0.avail_in = input.len() as _;
-        self.0.avail_out = output.len() as _;
+        // Limit the length of the input and output to the maximum value of a c_uint. For larger
+        // inputs, this will either complete or signal that more input and output is needed. The
+        // caller should be able to handle this regardless.
+        self.0.avail_in = Ord::min(input.len(), c_uint::MAX as usize) as c_uint;
+        self.0.avail_out = Ord::min(output.len(), c_uint::MAX as usize) as c_uint;
 
         // This cast_mut is unfortunate, that is just how the types are.
         self.0.next_in = input.as_ptr().cast_mut();

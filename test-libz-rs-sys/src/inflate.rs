@@ -2575,6 +2575,34 @@ mod stable_api {
             input2.as_bytes()
         );
     }
+
+    #[test]
+    #[cfg_attr(
+        not(target_pointer_width = "64"),
+        ignore = "test only works on 64-bit systems"
+    )]
+    #[cfg_attr(miri, ignore = "slow")]
+    fn buffer_overflows_c_uint() {
+        // "Hello World!" compressed at level 0
+        let deflated = [
+            0x78u8, 0x01, 0x01, 0x0d, 0x00, 0xf2, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57,
+            0x6f, 0x72, 0x6c, 0x64, 0x21, 0x0a, 0x20, 0x91, 0x04, 0x48,
+        ];
+
+        let mut v = vec![0u8; u32::MAX as usize + deflated.len() / 2];
+        v[..deflated.len()].copy_from_slice(&deflated);
+
+        assert!(((v.len() as u32) as usize) < deflated.len());
+
+        let mut decompressed = [0u8; 64];
+        let mut inflate = zlib_rs::Inflate::new(true, 15);
+        let status = inflate
+            .decompress(&v, &mut decompressed, zlib_rs::InflateFlush::Finish)
+            .unwrap();
+
+        assert_eq!(status, zlib_rs::Status::StreamEnd);
+        assert_eq!(b"Hello World!", &decompressed[..12]);
+    }
 }
 
 extern "C" fn push(desc: *mut c_void, _buf: *mut c_uchar, _len: c_uint) -> c_int {
