@@ -1432,20 +1432,33 @@ impl<'a> State<'a> {
         l_desc: &mut TreeDesc<HEAP_SIZE>,
         unmatched: u8,
     ) -> bool {
+        const _VERIFY: () = {
+            // Verify during compilation that even the largest possible value
+            // of unmatched will fit within the expected range.
+            assert!(
+                u8::MAX as usize <= STD_MAX_MATCH - STD_MIN_MATCH,
+                "tally_lit: bad literal"
+            );
+        };
+
         sym_buf.push_lit(unmatched);
 
         *l_desc.dyn_tree[unmatched as usize].freq_mut() += 1;
-
-        assert!(
-            unmatched as usize <= STD_MAX_MATCH - STD_MIN_MATCH,
-            "zng_tr_tally: bad literal"
-        );
 
         // signal that the current block should be flushed
         sym_buf.should_flush_block()
     }
 
     const fn d_code(dist: usize) -> u8 {
+        const _VERIFY: () = {
+            // Verify during compilation that every DIST_CODE value is < D_CODES.
+            let mut i = 0;
+            while i < trees_tbl::DIST_CODE.len() {
+                assert!(trees_tbl::DIST_CODE[i] < D_CODES as u8);
+                i += 1;
+            }
+        };
+
         let index = if dist < 256 { dist } else { 256 + (dist >> 7) };
         self::trees_tbl::DIST_CODE[index]
     }
@@ -1457,10 +1470,7 @@ impl<'a> State<'a> {
         self.matches = self.matches.saturating_add(1);
         dist -= 1;
 
-        assert!(
-            dist < self.max_dist() && Self::d_code(dist) < D_CODES as u8,
-            "tally_dist: bad match"
-        );
+        assert!(dist < self.max_dist(), "tally_dist: bad match");
 
         let index = self::trees_tbl::LENGTH_CODE[len] as usize + LITERALS + 1;
         *self.l_desc.dyn_tree[index].freq_mut() += 1;
