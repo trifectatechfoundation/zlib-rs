@@ -101,7 +101,7 @@ fn compress_gz_rs(input: &Input) -> Option<Vec<u8>> {
         return None;
     }
 
-    let bound = unsafe { deflateBound(streamp, source.len() as u64) };
+    let bound = unsafe { deflateBound(streamp, source.len() as _) };
     let buf_size = match flush {
         DeflateFlush::NoFlush | DeflateFlush::Finish => bound,
         // Other flush options might require more than `bound` bytes, so add a safety margin. We
@@ -201,7 +201,7 @@ fn compress_gz_ng(input: &Input) -> Option<Vec<u8>> {
         return None;
     }
 
-    let bound = unsafe { deflateBound(streamp, source.len() as u64) };
+    let bound = unsafe { deflateBound(streamp, source.len() as _) };
     let buf_size = match flush {
         DeflateFlush::NoFlush | DeflateFlush::Finish => bound,
         // Other flush options might require more than `bound` bytes, so add a safety margin. We
