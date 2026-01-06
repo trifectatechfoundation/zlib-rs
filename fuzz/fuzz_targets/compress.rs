@@ -5,9 +5,8 @@ use zlib_rs::ReturnCode;
 
 fuzz_target!(|data: String| {
     // first, deflate the data using the standard zlib
-    let length = 8 * 1024;
+    let mut length = 8 * 1024;
     let mut deflated = vec![0; length as usize];
-    let mut length = length as u64;
     let error = unsafe {
         libz_rs_sys::compress(
             deflated.as_mut_ptr().cast(),
