@@ -2909,6 +2909,28 @@ fn test_gzip_deflate_config() {
     });
 }
 
+#[test]
+#[should_panic = "assertion `left == right` failed\n  left: 0\n right: -5"]
+// FIXME: https://github.com/trifectatechfoundation/zlib-rs/issues/455
+fn test_issue_455() {
+    // Compressing this with default settings results in a 33-byte deflate
+    // stream but we only supply a 32-byte buffer. This should fail.
+    let data = &[
+        0, 0, 0, 0, 252, 0, 0, 62, 255, 255, 255, 42, 255, 255, 247, 255, 247, 255, 255, 255, 156,
+        70, 255, 255,
+    ];
+    assert_eq_rs_ng!({
+        let mut output = [0u8; 32];
+        let mut length = 32;
+        compress(
+            output.as_mut_ptr(),
+            &mut length,
+            data.as_ptr(),
+            data.len() as _,
+        )
+    });
+}
+
 mod stable_api {
     use zlib_rs::{
         inflate::{uncompress_slice, InflateConfig},
