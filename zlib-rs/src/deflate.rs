@@ -2851,7 +2851,7 @@ pub fn compress_with_flush<'a>(
     let mut left = output.len();
     let mut source_len = input.len();
 
-    loop {
+    let return_code = loop {
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
@@ -2874,10 +2874,12 @@ pub fn compress_with_flush<'a>(
             ReturnCode::StreamError
         };
 
-        if err != ReturnCode::Ok {
-            break;
+        match err {
+            ReturnCode::Ok => continue,
+            ReturnCode::StreamEnd => break ReturnCode::Ok,
+            _ => break err,
         }
-    }
+    };
 
     // SAFETY: we have now initialized these bytes
     let output_slice = unsafe {
@@ -2885,14 +2887,9 @@ pub fn compress_with_flush<'a>(
     };
 
     // may DataError if insufficient output space
-    let return_code = if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
-        match end(stream) {
-            Ok(_) => ReturnCode::Ok,
-            Err(_) => ReturnCode::DataError,
-        }
-    } else {
-        ReturnCode::Ok
-    };
+    if let Some(stream) = unsafe { DeflateStream::from_stream_mut(&mut stream) } {
+        let _ = end(stream);
+    }
 
     (output_slice, return_code)
 }
@@ -3953,7 +3950,7 @@ mod test {
     fn insufficient_compress_space() {
         const DATA: &[u8] = include_bytes!("deflate/test-data/inflate_buf_error.dat");
 
-        fn helper(deflate_buf: &mut [u8]) -> ReturnCode {
+        fn helper(deflate_buf: &mut [u8], deflate_err: ReturnCode) -> ReturnCode {
             let config = DeflateConfig {
                 level: 0,
                 method: Method::Deflated,
@@ -3963,7 +3960,7 @@ mod test {
             };
 
             let (output, err) = compress_slice(deflate_buf, DATA, config);
-            assert_eq!(err, ReturnCode::Ok);
+            assert_eq!(err, deflate_err);
 
             let config = InflateConfig {
                 window_bits: config.window_bits,
@@ -3982,10 +3979,13 @@ mod test {
         let mut output = [0; 1 << 17];
 
         // this is too little space
-        assert_eq!(helper(&mut output[..1 << 16]), ReturnCode::DataError);
+        assert_eq!(
+            helper(&mut output[..1 << 16], ReturnCode::BufError),
+            ReturnCode::DataError
+        );
 
         // this is sufficient space
-        assert_eq!(helper(&mut output), ReturnCode::Ok);
+        assert_eq!(helper(&mut output, ReturnCode::Ok), ReturnCode::Ok);
     }
 
     fn test_flush(flush: DeflateFlush, expected: &[u8]) {
@@ -4002,8 +4002,9 @@ mod test {
         let mut output_rs = vec![0; 128];
 
         // with the flush modes that we test here, the deflate process still has `Status::Busy`,
-        // and the `deflateEnd` function will return `DataError`.
-        let expected_err = ReturnCode::DataError;
+        // and the `deflate` function will return `BufError` because more input is needed before
+        // the flush can occur.
+        let expected_err = ReturnCode::BufError;
 
         let (rs, err) = compress_slice_with_flush(&mut output_rs, input, config, flush);
         assert_eq!(expected_err, err);
@@ -4087,7 +4088,7 @@ mod test {
             config,
             DeflateFlush::SyncFlush,
         );
-        assert_eq!(err, ReturnCode::DataError);
+        assert_eq!(err, ReturnCode::BufError);
 
         let (output2, err) = compress_slice_with_flush(
             &mut output2,
