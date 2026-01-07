@@ -45,7 +45,7 @@ impl GzHeaderData {
 
 #[derive(Debug, Arbitrary)]
 struct Input {
-    source: String,
+    source: Vec<u8>,
     config: DeflateConfig,
     flush: DeflateFlush,
     header: GzHeaderData,
@@ -190,8 +190,9 @@ fn compress_gz_ng(input: &Input) -> Option<Vec<u8>> {
 
     let streamp = unsafe { stream.assume_init_mut() };
 
-    // Create header. The layout is the same between zlib-rs and zlib-ng. 
-    let mut header = unsafe { core::mem::transmute::<libz_rs_sys::gz_header, gz_header>(header.as_gz_header()) };
+    // Create header. The layout is the same between zlib-rs and zlib-ng.
+    let mut header =
+        unsafe { core::mem::transmute::<libz_rs_sys::gz_header, gz_header>(header.as_gz_header()) };
 
     let err = unsafe { deflateSetHeader(streamp, &mut header as gz_headerp) };
     if err != ReturnCode::Ok as i32 {

@@ -61,7 +61,7 @@ fn deflate_ng(data: &[u8], window_bits: i32) -> Vec<u8> {
     deflated
 }
 
-fuzz_target!(|input: (String, usize)| {
+fuzz_target!(|input: (&[u8], usize)| {
     let (data, chunk_size) = input;
 
     // any other value seems to be kind of broken?
@@ -71,7 +71,7 @@ fuzz_target!(|input: (String, usize)| {
         return;
     }
 
-    let deflated = deflate_ng(data.as_bytes(), window_bits);
+    let deflated = deflate_ng(data, window_bits);
 
     let mut stream = libz_rs_sys::z_stream::default();
 
@@ -113,7 +113,6 @@ fuzz_target!(|input: (String, usize)| {
     }
 
     output.truncate(stream.total_out as usize);
-    let output = String::from_utf8(output).unwrap();
 
     unsafe {
         let err = libz_rs_sys::inflateEnd(&mut stream);
@@ -123,7 +122,7 @@ fuzz_target!(|input: (String, usize)| {
 
     if output != data {
         let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
+        std::fs::write(&path, data).unwrap();
         eprintln!("saved input file to {path:?}");
     }
 

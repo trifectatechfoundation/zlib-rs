@@ -5,10 +5,12 @@ use crate::helpers::{compress_slice_ng, uncompress_slice_ng};
 #[test]
 #[cfg_attr(miri, ignore = "calls into C code")]
 fn end_to_end() {
-    ::quickcheck::quickcheck(test as fn(_, _) -> _);
+    ::quickcheck::quickcheck(
+        (|data: Vec<u8>, config: DeflateConfig| test(&data, config)) as fn(_, _) -> _,
+    );
 }
 
-pub fn test(data: String, config: DeflateConfig) -> bool {
+pub fn test(data: &[u8], config: DeflateConfig) -> bool {
     if !(0..32).contains(&config.window_bits) {
         // lower is raw, higher is gzip
         return true;
@@ -26,14 +28,13 @@ pub fn test(data: String, config: DeflateConfig) -> bool {
 
     // first, deflate the data using the standard zlib
     let mut deflated_rs = [0; LENGTH];
-    let (deflated_rs, error) =
-        zlib_rs::deflate::compress_slice(&mut deflated_rs, data.as_bytes(), config);
+    let (deflated_rs, error) = zlib_rs::deflate::compress_slice(&mut deflated_rs, data, config);
 
     let error = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::Ok, error);
 
     let mut deflated_ng = [0; LENGTH];
-    let (deflated_ng, error) = compress_slice_ng(&mut deflated_ng, data.as_bytes(), config);
+    let (deflated_ng, error) = compress_slice_ng(&mut deflated_ng, data, config);
 
     let error = ReturnCode::from(error as i32);
     assert_eq!(ReturnCode::Ok, error);
@@ -50,9 +51,9 @@ pub fn test(data: String, config: DeflateConfig) -> bool {
     let mut dest_vec_ng = vec![0u8; data.len()];
     let (output_ng, error) = uncompress_slice_ng(&mut dest_vec_ng, deflated_rs, config);
 
-    if error != ReturnCode::Ok || output_ng != data.as_bytes() {
+    if error != ReturnCode::Ok || output_ng != data {
         let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
+        std::fs::write(&path, data).unwrap();
         let path = std::env::temp_dir().join("inflate.txt");
         // see https://github.com/rust-lang/rust-clippy/pull/12892
         #[allow(clippy::needless_borrows_for_generic_args)]
@@ -61,19 +62,15 @@ pub fn test(data: String, config: DeflateConfig) -> bool {
     }
 
     assert_eq!(ReturnCode::Ok, error);
-    assert_eq!(
-        output_ng,
-        data.as_bytes(),
-        "zlib-ng cannot decode these bytes!"
-    );
+    assert_eq!(output_ng, data, "zlib-ng cannot decode these bytes!");
 
     let mut dest_vec_rs = vec![0u8; data.len()];
     let (output_rs, error) =
         zlib_rs::inflate::uncompress_slice(&mut dest_vec_rs, deflated_rs, config);
 
-    if error != ReturnCode::Ok || output_rs != data.as_bytes() {
+    if error != ReturnCode::Ok || output_rs != data {
         let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
+        std::fs::write(&path, data).unwrap();
         let path = std::env::temp_dir().join("inflate.txt");
         // see https://github.com/rust-lang/rust-clippy/pull/12892
         #[allow(clippy::needless_borrows_for_generic_args)]
@@ -82,7 +79,7 @@ pub fn test(data: String, config: DeflateConfig) -> bool {
     }
 
     assert_eq!(ReturnCode::Ok, error);
-    assert_eq!(output_rs, data.as_bytes());
+    assert_eq!(output_rs, data);
 
     true
 }

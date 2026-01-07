@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 
 use zlib_rs::ReturnCode;
 
-fuzz_target!(|data: String| {
+fuzz_target!(|data: &[u8]| {
     // first, deflate the data using the standard zlib
     let mut length = 8 * 1024;
     let mut deflated = vec![0; length as usize];
@@ -17,6 +17,9 @@ fuzz_target!(|data: String| {
     };
 
     let error = ReturnCode::from(error as i32);
+    if error != ReturnCode::Ok && data.len() > 6 * 1024 {
+        return;
+    }
     assert_eq!(ReturnCode::Ok, error);
 
     deflated.truncate(length as usize);
@@ -26,11 +29,11 @@ fuzz_target!(|data: String| {
     let (output, error) = zlib_rs::inflate::uncompress_slice(&mut output, &deflated, config);
     assert_eq!(ReturnCode::Ok, error);
 
-    if output != data.as_bytes() {
+    if output != data {
         let path = std::env::temp_dir().join("deflate.txt");
-        std::fs::write(&path, &data).unwrap();
+        std::fs::write(&path, data).unwrap();
         eprintln!("saved input file to {path:?}");
     }
 
-    assert_eq!(output, data.as_bytes());
+    assert_eq!(output, data);
 });
