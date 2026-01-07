@@ -2360,7 +2360,7 @@ pub fn codes_used(stream: &InflateStream) -> usize {
 
 pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> ReturnCode {
     if stream.next_out.is_null() || (stream.next_in.is_null() && stream.avail_in != 0) {
-        return ReturnCode::StreamError as _;
+        return ReturnCode::StreamError;
     }
 
     let state = &mut stream.state;
@@ -2432,12 +2432,12 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
 
     stream.data_type = state.decoding_state();
 
-    if ((in_read == 0 && out_written == 0) || flush == InflateFlush::Finish as _)
-        && err == (ReturnCode::Ok as _)
+    if ((in_read == 0 && out_written == 0) || flush == InflateFlush::Finish)
+        && err == ReturnCode::Ok
     {
-        ReturnCode::BufError as _
+        ReturnCode::BufError
     } else {
-        err as _
+        err
     }
 }
 

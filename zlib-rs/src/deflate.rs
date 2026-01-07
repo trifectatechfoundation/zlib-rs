@@ -3072,10 +3072,10 @@ pub unsafe fn set_header<'a>(
     head: Option<&'a mut gz_header>,
 ) -> ReturnCode {
     if stream.state.wrap != 2 {
-        ReturnCode::StreamError as _
+        ReturnCode::StreamError
     } else {
         stream.state.gzhead = head;
-        ReturnCode::Ok as _
+        ReturnCode::Ok
     }
 }
 

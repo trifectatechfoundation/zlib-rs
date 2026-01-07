@@ -82,7 +82,7 @@ fn compress_rs(
         }
     };
 
-    if ReturnCode::from(err) != ReturnCode::Ok as _ {
+    if ReturnCode::from(err) != ReturnCode::Ok {
         return ReturnCode::from(err);
     }
 
@@ -163,7 +163,7 @@ fn compress_ng(
         }
     };
 
-    if ReturnCode::from(err) != ReturnCode::Ok as _ {
+    if ReturnCode::from(err) != ReturnCode::Ok {
         return ReturnCode::from(err);
     }
 

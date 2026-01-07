@@ -160,14 +160,14 @@ pub fn uncompress_slice_ng<'a>(
         let err = unsafe { libz_ng_sys::inflate(&mut stream, InflateFlush::NoFlush as _) };
         let err = ReturnCode::from(err);
 
-        if err != ReturnCode::Ok as _ {
+        if err != ReturnCode::Ok {
             break err;
         }
     };
 
     if dest_len != 0 {
         dest_len_ptr = stream.total_out;
-    } else if stream.total_out != 0 && err == ReturnCode::BufError as _ {
+    } else if stream.total_out != 0 && err == ReturnCode::BufError {
         left = 1;
     }
 
