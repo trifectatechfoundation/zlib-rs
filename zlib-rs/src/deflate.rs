@@ -3988,6 +3988,29 @@ mod test {
         assert_eq!(helper(&mut output), ReturnCode::Ok);
     }
 
+    #[test]
+    #[should_panic = "inflate(deflate(x)) should work"]
+    fn wip_should_fail_with_insufficient_space() {
+        // Compressing this with default settings results in a 33-byte deflate stream
+        let data = &[
+            0, 0, 0, 0, 252, 0, 0, 62, 255, 255, 255, 42, 255, 255, 247, 255, 247, 255, 255, 255,
+            156, 70, 255, 255,
+        ];
+        // We only supply a 32-byte buffer
+        let mut deflated = vec![MaybeUninit::zeroed(); 32];
+        let (deflated, error) =
+            crate::deflate::compress(&mut deflated, data, crate::deflate::DeflateConfig::new(-1));
+        // The compress API apparently succeeds
+        assert_eq!(ReturnCode::Ok, error);
+
+        let mut output = vec![0u8; data.len()];
+        let config = crate::inflate::InflateConfig { window_bits: 15 };
+        let (output, error) = crate::inflate::uncompress_slice(&mut output, deflated, config);
+        // But we'll ultimately fail here due to the missing last byte
+        assert_eq!(ReturnCode::Ok, error, "inflate(deflate(x)) should work");
+        assert_eq!(output, data);
+    }
+
     fn test_flush(flush: DeflateFlush, expected: &[u8]) {
         let input = b"Hello World!\n";
 
