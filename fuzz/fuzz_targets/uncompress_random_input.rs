@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use zlib_rs::ReturnCode;
 
-fuzz_target!(|source: Vec<u8>| {
+fuzz_target!(|source: &[u8]| {
     let mut dest_ng = vec![0u8; 1 << 16];
     let mut dest_rs = vec![0u8; 1 << 16];
 
