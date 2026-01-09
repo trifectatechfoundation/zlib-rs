@@ -3250,15 +3250,18 @@ impl DeflateAllocOffsets {
         let mut curr_size = 0usize;
 
         /* Define sizes */
+        let state_size = size_of::<State>();
         let window_size = (1 << window_bits) * 2;
         let prev_size = (1 << window_bits) * size_of::<Pos>();
         let head_size = HASH_SIZE * size_of::<Pos>();
         let pending_size = lit_bufsize * LIT_BUFS;
         let sym_buf_size = lit_bufsize * (LIT_BUFS - 1);
-        let state_size = size_of::<State>();
         // let alloc_size = size_of::<DeflateAlloc>();
 
         /* Calculate relative buffer positions and paddings */
+        let state_pos = curr_size.next_multiple_of(64);
+        curr_size = state_pos + state_size;
+
         let window_pos = curr_size.next_multiple_of(64);
         curr_size = window_pos + window_size;
 
@@ -3273,9 +3276,6 @@ impl DeflateAllocOffsets {
 
         let sym_buf_pos = curr_size.next_multiple_of(64);
         curr_size = sym_buf_pos + sym_buf_size;
-
-        let state_pos = curr_size.next_multiple_of(64);
-        curr_size = state_pos + state_size;
 
         /* Add 64-1 to allow alignment (done in the 'init' and 'copy' functions), and round size of
          * buffer up to multiple of 64 */

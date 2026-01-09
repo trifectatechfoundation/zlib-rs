@@ -2176,15 +2176,15 @@ impl InflateAllocOffsets {
         let mut curr_size = 0usize;
 
         /* Define sizes */
-        let window_size = (1 << MAX_WBITS) + 64;
         let state_size = size_of::<State>();
+        let window_size = (1 << MAX_WBITS) + 64;
 
         /* Calculate relative buffer positions and paddings */
-        let window_pos = curr_size.next_multiple_of(64);
-        curr_size = window_pos + window_size;
-
         let state_pos = curr_size.next_multiple_of(64);
         curr_size = state_pos + state_size;
+
+        let window_pos = curr_size.next_multiple_of(64);
+        curr_size = window_pos + window_size;
 
         /* Add 64-1 to allow alignment (done in the 'init' and 'copy' functions), and round size of
          * buffer up to multiple of 64 */
