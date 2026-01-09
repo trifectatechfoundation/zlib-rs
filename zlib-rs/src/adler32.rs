@@ -3,6 +3,9 @@ mod avx2;
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
 mod avx512;
+#[cfg(feature = "avx512")]
+#[cfg(target_arch = "x86_64")]
+mod avx512_vnni;
 mod generic;
 #[cfg(target_arch = "aarch64")]
 mod neon;
@@ -13,7 +16,7 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(feature = "avx512")]
     #[cfg(target_arch = "x86_64")]
     if cfg!(all(target_feature = "avx512f", target_feature = "avx512bw")) {
-        return unsafe { avx512::adler32_avx512(start_checksum, data) };
+        return avx512::adler32_avx512(start_checksum, data);
     }
 
     #[cfg(target_arch = "x86_64")]
