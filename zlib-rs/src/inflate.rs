@@ -2188,10 +2188,10 @@ impl InflateAllocOffsets {
 
         /* Calculate relative buffer positions and paddings */
         let window_pos = curr_size.next_multiple_of(ALIGN_SIZE);
-        curr_size += window_pos + window_size;
+        curr_size = window_pos + window_size;
 
         let state_pos = curr_size.next_multiple_of(ALIGN_SIZE);
-        curr_size += state_pos + state_size;
+        curr_size = state_pos + state_size;
 
         /* Add ALIGN_SIZE-1 to allow alignment (done in the 'init' and 'copy' functions), and round
          * size of buffer up to next multiple of ALIGN_SIZE */
