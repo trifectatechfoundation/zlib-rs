@@ -3245,7 +3245,6 @@ impl DeflateAllocOffsets {
     fn new(window_bits: usize, lit_bufsize: usize) -> Self {
         use core::mem::size_of;
 
-        const WINDOW_PAD_SIZE: usize = 64;
         const LIT_BUFS: usize = 4;
 
         let mut curr_size = 0usize;
@@ -3260,7 +3259,7 @@ impl DeflateAllocOffsets {
         // let alloc_size = size_of::<DeflateAlloc>();
 
         /* Calculate relative buffer positions and paddings */
-        let window_pos = curr_size.next_multiple_of(WINDOW_PAD_SIZE);
+        let window_pos = curr_size.next_multiple_of(64);
         curr_size = window_pos + window_size;
 
         let prev_pos = curr_size.next_multiple_of(64);
@@ -3278,8 +3277,9 @@ impl DeflateAllocOffsets {
         let state_pos = curr_size.next_multiple_of(64);
         curr_size = state_pos + state_size;
 
-        /* Add 64-1 or 4096-1 to allow window alignment, and round size of buffer up to multiple of 64 */
-        let total_size = (curr_size + (WINDOW_PAD_SIZE - 1)).next_multiple_of(64);
+        /* Add 64-1 to allow alignment (done in the 'init' and 'copy' functions), and round size of
+         * buffer up to multiple of 64 */
+        let total_size = (curr_size + 63).next_multiple_of(64);
 
         Self {
             total_size,
