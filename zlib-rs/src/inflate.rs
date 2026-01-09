@@ -2173,9 +2173,13 @@ impl InflateAllocOffsets {
     fn new() -> Self {
         use core::mem::size_of;
 
-        // 64B padding for SIMD operations
+        // 64B padding for SIMD operations. This allows unaligned operations (up to 512-bit) to run
+        // off the end of the object without issue.
         const WINDOW_PAD_SIZE: usize = 64;
 
+        // 64B alignment of individual items in the alloc.
+        // Note that changing this also requires changes in 'init' and 'copy'.
+        const ALIGN_SIZE: usize = 64;
         let mut curr_size = 0usize;
 
         /* Define sizes */
@@ -2183,14 +2187,15 @@ impl InflateAllocOffsets {
         let state_size = size_of::<State>();
 
         /* Calculate relative buffer positions and paddings */
-        let window_pos = curr_size.next_multiple_of(WINDOW_PAD_SIZE);
+        let window_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size += window_pos + window_size;
 
-        let state_pos = curr_size.next_multiple_of(64);
+        let state_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size += state_pos + state_size;
 
-        /* Add 64-1 or 4096-1 to allow window alignment, and round size of buffer up to multiple of 64 */
-        let total_size = (curr_size + (WINDOW_PAD_SIZE - 1)).next_multiple_of(64);
+        /* Add ALIGN_SIZE-1 to allow alignment (done in the 'init' and 'copy' functions), and round
+         * size of buffer up to next multiple of ALIGN_SIZE */
+        let total_size = (curr_size + (ALIGN_SIZE - 1)).next_multiple_of(ALIGN_SIZE);
 
         Self {
             total_size,

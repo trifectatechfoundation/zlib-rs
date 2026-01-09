@@ -3245,7 +3245,9 @@ impl DeflateAllocOffsets {
     fn new(window_bits: usize, lit_bufsize: usize) -> Self {
         use core::mem::size_of;
 
-        const WINDOW_PAD_SIZE: usize = 64;
+        // 64B alignment of individual items in the alloc.
+        // Note that changing this also requires changes in 'init' and 'copy'.
+        const ALIGN_SIZE: usize = 64;
         const LIT_BUFS: usize = 4;
 
         let mut curr_size = 0usize;
@@ -3260,26 +3262,27 @@ impl DeflateAllocOffsets {
         // let alloc_size = size_of::<DeflateAlloc>();
 
         /* Calculate relative buffer positions and paddings */
-        let window_pos = curr_size.next_multiple_of(WINDOW_PAD_SIZE);
+        let window_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = window_pos + window_size;
 
-        let prev_pos = curr_size.next_multiple_of(64);
+        let prev_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = prev_pos + prev_size;
 
-        let head_pos = curr_size.next_multiple_of(64);
+        let head_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = head_pos + head_size;
 
-        let pending_pos = curr_size.next_multiple_of(64);
+        let pending_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = pending_pos + pending_size;
 
-        let sym_buf_pos = curr_size.next_multiple_of(64);
+        let sym_buf_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = sym_buf_pos + sym_buf_size;
 
-        let state_pos = curr_size.next_multiple_of(64);
+        let state_pos = curr_size.next_multiple_of(ALIGN_SIZE);
         curr_size = state_pos + state_size;
 
-        /* Add 64-1 or 4096-1 to allow window alignment, and round size of buffer up to multiple of 64 */
-        let total_size = (curr_size + (WINDOW_PAD_SIZE - 1)).next_multiple_of(64);
+        /* Add ALIGN_SIZE-1 to allow alignment (done in the 'init' and 'copy' functions), and round
+         * size of buffer up to next multiple of ALIGN_SIZE */
+        let total_size = (curr_size + (ALIGN_SIZE - 1)).next_multiple_of(ALIGN_SIZE);
 
         Self {
             total_size,
