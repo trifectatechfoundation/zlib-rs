@@ -87,7 +87,6 @@ fn handle_tail(mut pair: (u32, u32), buf: &[u8]) -> (u32, u32) {
     pair
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let mut adacc = vdupq_n_u32(0);
@@ -112,7 +111,8 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     let mut it = buf.chunks_exact(4);
 
     for chunk in &mut it {
-        let d0_d3 = vld1q_u8_x4(chunk.as_ptr() as *const u8);
+        // SAFETY: the chunks_exact iterator ensures chunk always references a 16x4 block within buf.
+        let d0_d3 = unsafe { vld1q_u8_x4(chunk.as_ptr() as *const u8) };
 
         // Unfortunately it doesn't look like there's a direct sum 8 bit to 32
         // bit instruction, we'll have to make due summing to 16 bits first
