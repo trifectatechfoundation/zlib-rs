@@ -1786,12 +1786,12 @@ mod fuzz_based_tests {
     };
 
     fn fuzz_based_test(input: &[u8], config: DeflateConfig, expected: &[u8]) {
-        let mut output_rs = [0; 1 << 17];
+        let mut output_rs = vec![0; 1 << 19];
         let (output_rs, err) = compress_slice(&mut output_rs, input, config);
         assert_eq!(err, ReturnCode::Ok);
 
         if !cfg!(miri) {
-            let mut output_ng = [0; 1 << 17];
+            let mut output_ng = vec![0; 1 << 19];
             let (output_ng, err) = compress_slice_ng(&mut output_ng, input, config);
             assert_eq!(err, ReturnCode::Ok);
 
@@ -2907,6 +2907,30 @@ fn test_gzip_deflate_config() {
 
         Some(dest)
     });
+}
+
+#[test]
+fn test_issue_455() {
+    // Compressing this with default settings results in a 33-byte deflate
+    // stream but we only supply a 32-byte buffer. This should fail.
+    let data = &[
+        0, 0, 0, 0, 252, 0, 0, 62, 255, 255, 255, 42, 255, 255, 247, 255, 247, 255, 255, 255, 156,
+        70, 255, 255,
+    ];
+
+    assert_eq!(
+        assert_eq_rs_ng!({
+            let mut output = [0u8; 32];
+            let mut length = 32;
+            compress(
+                output.as_mut_ptr(),
+                &mut length,
+                data.as_ptr(),
+                data.len() as _,
+            )
+        }),
+        ReturnCode::BufError as _
+    );
 }
 
 mod stable_api {

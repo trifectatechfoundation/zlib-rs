@@ -60,7 +60,7 @@ pub fn compress_slice_with_flush_ng<'a>(
     let mut left = output.len();
     let mut source_len = input.len();
 
-    loop {
+    let err = loop {
         if stream.avail_out == 0 {
             stream.avail_out = Ord::min(left, max) as _;
             left -= stream.avail_out as usize;
@@ -80,13 +80,16 @@ pub fn compress_slice_with_flush_ng<'a>(
         let err = unsafe { libz_ng_sys::deflate(&mut stream, flush as i32) };
 
         if err != libz_ng_sys::Z_OK {
-            break;
+            break err;
         }
-    }
+    };
 
     // may DataError if there was insufficient output space
-    let err = unsafe { libz_ng_sys::deflateEnd(&mut stream) };
-    let return_code: ReturnCode = ReturnCode::from(err);
+    let _ = unsafe { libz_ng_sys::deflateEnd(&mut stream) };
+    let return_code: ReturnCode = match ReturnCode::from(err) {
+        ReturnCode::StreamEnd => ReturnCode::Ok,
+        other => other,
+    };
 
     (&mut output[..stream.total_out as usize], return_code)
 }
