@@ -205,6 +205,19 @@ mod test {
     }
 
     #[test]
+    fn window_init() {
+        let window = init_window(2);
+        assert_eq!(window.size(), 4);
+        assert_eq!(window.have(), 0);
+        assert!(!window.is_empty());
+        let start = window.as_ptr();
+        let size = window.size();
+        let (ptr, len) = window.into_raw_parts();
+        assert_eq!(ptr.cast_const(), start);
+        assert!(len >= size); // >= because the impl is allowed to add padding to the internal buffer
+    }
+
+    #[test]
     fn extend_in_bounds() {
         let mut checksum = 0;
 
