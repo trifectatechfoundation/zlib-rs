@@ -3254,6 +3254,7 @@ impl DeflateAllocOffsets {
 
         /* Define sizes */
         let state_size = size_of::<State>();
+        // Allocate a second window worth of space to avoid the need to shift the data constantly.
         let window_size = (1 << window_bits) * 2;
         let prev_size = (1 << window_bits) * size_of::<Pos>();
         let head_size = HASH_SIZE * size_of::<Pos>();
