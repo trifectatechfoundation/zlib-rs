@@ -254,8 +254,9 @@ fn longest_match_help<const SLOW: bool>(
         if len > best_len {
             match_start = cur_match - match_offset;
 
-            /* Do not look for matches beyond the end of the input. */
-            if len > lookahead {
+            // Do not look for better matches if the current match reaches
+            // or exceeds the end of the input. See also #459.
+            if len >= lookahead {
                 return (lookahead, match_start);
             }
             best_len = len;
