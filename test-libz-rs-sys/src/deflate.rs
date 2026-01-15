@@ -522,7 +522,7 @@ fn test_deflate_tune() {
 #[test]
 fn deflate_medium_fizzle_bug() {
     const EXPECTED: &[u8] = &[
-        120, 156, 99, 96, 128, 3, 73, 6, 26, 3, 71, 218, 2, 28, 182, 214, 17, 225, 50, 85, 100, 30,
+        120, 156, 99, 96, 128, 3, 73, 6, 26, 3, 71, 218, 2, 28, 182, 214, 17, 225, 50, 85, 100, 14,
         0, 132, 7, 24, 220,
     ];
 
@@ -2061,8 +2061,8 @@ mod fuzz_based_tests {
             99, 100, 96, 96, 16, 98, 96, 151, 241, 243, 243, 11, 12, 52, 128, 41, 2, 153, 206, 6,
             50, 21, 106, 20, 20, 56, 66, 40, 5, 48, 169, 98, 13, 166, 4, 24, 98, 25, 20, 192, 138,
             173, 37, 24, 184, 32, 64, 65, 26, 68, 50, 112, 128, 57, 26, 32, 83, 224, 134, 73, 162,
-            154, 8, 7, 14, 40, 60, 78, 12, 121, 38, 12, 17, 6, 6, 176, 15, 144, 4, 0, 125, 74, 22,
-            82,
+            154, 8, 7, 14, 40, 60, 78, 12, 121, 38, 12, 17, 6, 6, 176, 15, 144, 248, 0, 125, 74,
+            22, 82,
         ];
 
         fuzz_based_test(
@@ -2106,7 +2106,7 @@ mod fuzz_based_tests {
             &input,
             DeflateConfig::default(),
             &[
-                120, 156, 19, 99, 24, 5, 12, 12, 12, 172, 160, 80, 0, 0, 24, 45, 0, 28,
+                120, 156, 19, 99, 24, 5, 12, 12, 12, 172, 32, 2, 0, 24, 45, 0, 28,
             ],
         )
     }
@@ -2931,6 +2931,90 @@ fn test_issue_455() {
         }),
         ReturnCode::BufError as _
     );
+}
+
+/// See https://github.com/trifectatechfoundation/zlib-rs/issues/459.
+mod deflate_reset_deterministic {
+    use core::mem::MaybeUninit;
+    use libz_rs_sys::{
+        deflate, deflateEnd, deflateInit2_, deflateReset, z_stream, Bytef, Z_DEFAULT_STRATEGY,
+        Z_DEFLATED, Z_FINISH, Z_OK, Z_STREAM_END,
+    };
+
+    const DATA_A: &[u8] = b"\0AAAA\0AAAAAAAA";
+    const DATA_B: &[u8] = &[1u8; DATA_A.len() + 1];
+
+    pub unsafe fn compress_data(src: &[u8], zs: &mut z_stream) -> Vec<u8> {
+        const BUFFER_SIZE: usize = 1024;
+        let mut buffer = [0u8; BUFFER_SIZE];
+
+        zs.next_in = src.as_ptr() as *mut Bytef;
+        zs.avail_in = src.len() as _;
+        zs.next_out = buffer.as_mut_ptr() as *mut Bytef;
+        zs.avail_out = BUFFER_SIZE as _;
+
+        let err = deflate(zs, Z_FINISH);
+
+        assert_eq!(err, Z_STREAM_END, "deflate() failed: {}", err);
+
+        buffer[..zs.total_out as usize].to_vec()
+    }
+
+    #[test]
+    fn reset_deterministic() {
+        unsafe {
+            let compression_level: i32 = 6;
+            let window_bits: i32 = 15;
+
+            // ---- Compress a with newly created z_stream. ----
+            let mut a_stream = MaybeUninit::<z_stream>::zeroed().assume_init();
+
+            let err = deflateInit2_(
+                &mut a_stream,
+                compression_level,
+                Z_DEFLATED,
+                window_bits,
+                8,
+                Z_DEFAULT_STRATEGY,
+                libz_sys::zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            );
+            assert_eq!(err, Z_OK);
+
+            let a_compressed = compress_data(DATA_A, &mut a_stream);
+
+            let err = deflateEnd(&mut a_stream);
+            assert_eq!(err, Z_OK);
+
+            // ---- Compress b with newly created z_stream. ----
+            let mut b_stream = MaybeUninit::<z_stream>::zeroed().assume_init();
+
+            let err = deflateInit2_(
+                &mut b_stream,
+                compression_level,
+                Z_DEFLATED,
+                window_bits,
+                8,
+                Z_DEFAULT_STRATEGY,
+                libz_sys::zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            );
+            assert_eq!(err, Z_OK);
+
+            let _b_compressed = compress_data(DATA_B, &mut b_stream);
+
+            // ---- Reset the stream. ----
+            let err = deflateReset(&mut b_stream);
+            assert_eq!(err, Z_OK);
+
+            let a_compressed2 = compress_data(DATA_A, &mut b_stream);
+
+            let err = deflateEnd(&mut b_stream);
+            assert_eq!(err, Z_OK);
+
+            assert_eq!(a_compressed, a_compressed2);
+        }
+    }
 }
 
 mod stable_api {
