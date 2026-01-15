@@ -2909,6 +2909,121 @@ fn test_gzip_deflate_config() {
     });
 }
 
+/// See https://github.com/trifectatechfoundation/zlib-rs/issues/459.
+mod deflate_reset_deterministic {
+    use super::*;
+
+    use core::mem::MaybeUninit;
+    use libz_rs_sys::{
+        deflate, deflateEnd, deflateInit2_, deflateReset, z_stream, Bytef, Z_DEFAULT_STRATEGY,
+        Z_DEFLATED, Z_FINISH, Z_OK, Z_STREAM_END,
+    };
+
+    const DATA_A: &[u8] = b"\0AAAA\0AAAAAAAA";
+    const DATA_B: &[u8] = &[1u8; DATA_A.len() + 1];
+
+    pub unsafe fn compress_data(src: &[u8], zs: &mut z_stream) -> Vec<u8> {
+        const BUFFER_SIZE: usize = 4096;
+
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut compressed: Vec<u8> = Vec::new();
+
+        zs.next_in = src.as_ptr() as *mut Bytef;
+
+        let end = src.as_ptr_range().end;
+
+        let mut err: c_int;
+        loop {
+            let next_in_ptr = (*zs).next_in as *const u8;
+            let mut avail_in: usize = (end as usize).wrapping_sub(next_in_ptr as usize);
+
+            let mut op: c_int = Z_FINISH;
+
+            if avail_in > (u32::MAX as usize) {
+                avail_in = u32::MAX as usize;
+                op = Z_NO_FLUSH;
+            }
+
+            zs.avail_in = avail_in as c_uint;
+            zs.next_out = buffer.as_mut_ptr() as *mut Bytef;
+            zs.avail_out = BUFFER_SIZE as c_uint;
+
+            err = deflate(zs, op);
+
+            assert!(
+                err == Z_OK || err == Z_STREAM_END,
+                "deflate() failed: {}",
+                err
+            );
+
+            let produced = (zs.next_out as usize).wrapping_sub(buffer.as_ptr() as usize);
+            compressed.extend_from_slice(&buffer[..produced]);
+
+            if err == Z_STREAM_END {
+                break;
+            }
+        }
+
+        compressed
+    }
+
+    #[test]
+    fn reset_deterministic() {
+        unsafe {
+            let compression_level: i32 = 6;
+            let window_bits: i32 = 15;
+
+            // ---- Compress a with newly created z_stream. ----
+            let mut a_stream = MaybeUninit::<z_stream>::zeroed().assume_init();
+
+            let err = deflateInit2_(
+                &mut a_stream,
+                compression_level,
+                Z_DEFLATED,
+                window_bits,
+                8,
+                Z_DEFAULT_STRATEGY,
+                libz_sys::zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            );
+            assert_eq!(err, Z_OK);
+
+            let a_compressed = compress_data(&DATA_A, &mut a_stream);
+
+            let err = deflateEnd(&mut a_stream);
+            assert_eq!(err, Z_OK);
+
+            // ---- Compress b with newly created z_stream. ----
+            let mut b_stream = MaybeUninit::<z_stream>::zeroed().assume_init();
+
+            let err = deflateInit2_(
+                &mut b_stream,
+                compression_level,
+                Z_DEFLATED,
+                window_bits,
+                8,
+                Z_DEFAULT_STRATEGY,
+                libz_sys::zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            );
+            assert_eq!(err, Z_OK);
+
+            let _b_compressed = compress_data(&DATA_B, &mut b_stream);
+
+            // ---- Reset the stream. ----
+            let err = deflateReset(&mut b_stream);
+            assert_eq!(err, Z_OK);
+
+            let a_compressed2 = compress_data(&DATA_A, &mut b_stream);
+
+            let err = deflateEnd(&mut b_stream);
+            assert_eq!(err, Z_OK);
+
+            assert_eq!(a_compressed, a_compressed2);
+        }
+    }
+}
+
 mod stable_api {
     use zlib_rs::{
         inflate::{uncompress_slice, InflateConfig},
