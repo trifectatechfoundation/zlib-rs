@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "gzprintf", feature(c_variadic))]
 #![allow(unsafe_op_in_unsafe_fn)] // FIXME
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -25,6 +26,12 @@
 //!
 //! [`pointer::as_ref`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_ref
 //! [`pointer::as_mut`]: https://doc.rust-lang.org/core/primitive.pointer.html#method.as_mut
+
+#[cfg(feature = "gz")]
+mod gz;
+
+#[cfg(feature = "gz")]
+pub use gz::*;
 
 use core::mem::MaybeUninit;
 
@@ -87,6 +94,9 @@ macro_rules! prefix {
         concat!("LIBZ_RS_SYS_TEST_", stringify!($name))
     };
 }
+
+#[cfg(feature = "gz")]
+pub(crate) use prefix;
 
 #[cfg(all(feature = "rust-allocator", feature = "c-allocator"))]
 const _: () =
