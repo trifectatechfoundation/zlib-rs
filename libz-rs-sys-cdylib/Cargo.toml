@@ -20,18 +20,23 @@ panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
 [profile.release]
 panic = "abort" # abort on panics. This is crucial, unwinding would cause UB!
 
+[profile.relwithdebinfo]
+inherits = "release"
+debug = true
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
 [features]
-default = ["c-allocator"] # when used as a cdylib crate, use the c allocator
+default = ["c-allocator", "std"] # when used as a cdylib crate, use the c allocator but use std for feature detection
 c-allocator = ["libz-rs-sys/c-allocator"] # by default, use malloc/free for memory allocation
-rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/std"] # by default, use the rust global alloctor for memory allocation
+rust-allocator = ["libz-rs-sys/rust-allocator", "std"] # by default, use the rust global alloctor for memory allocation
 custom-prefix = ["libz-rs-sys/custom-prefix"] # use the LIBZ_RS_SYS_PREFIX to prefix all exported symbols
 semver-prefix = ["libz-rs-sys/semver-prefix"] # prefix all symbols in a semver-compatible way
+std = ["libz-rs-sys/std"] # enables runtime feature detection (e.g. to use SIMD)
 capi = []
 gz = ["dep:libc"] # support for the `gz*` functions is experimental
-gzprintf = []
+gzprintf = ["gz"]
 __internal-test = []
 
 [dependencies]
