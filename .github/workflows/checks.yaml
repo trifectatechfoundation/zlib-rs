@@ -471,7 +471,7 @@ jobs:
       - name: ABI comparison vs zlib-ng
         working-directory: libz-rs-sys-cdylib
         run: |
-          abidiff --no-unreferenced-symbols --ignore-soname /tmp/zlib-ng-build/libz.so.1 target/${{matrix.target}}/release/libz_rs.versioned.so
+          abidiff --ignore-soname /tmp/zlib-ng-build/libz.so.1 target/${{matrix.target}}/release/libz_rs.versioned.so
 
   cargo-c-dynamic-library:
     name: cargo-c dynamic library
