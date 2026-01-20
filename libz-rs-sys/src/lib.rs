@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "gzprintf", feature(c_variadic))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(unsafe_op_in_unsafe_fn)] // FIXME
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -30,6 +31,7 @@
 #[cfg(feature = "gz")]
 mod gz;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "gz")))]
 #[cfg(feature = "gz")]
 pub use gz::*;
 
