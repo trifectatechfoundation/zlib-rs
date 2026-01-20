@@ -20,7 +20,6 @@ pub use stable::{Deflate, DeflateError, Inflate, InflateError, Status};
 pub use adler32::{adler32, adler32_combine};
 pub use crc32::{crc32, crc32_combine, get_crc_table};
 
-#[macro_export]
 macro_rules! trace {
     ($($arg:tt)*) => {
         #[cfg(feature = "ZLIB_DEBUG")]
@@ -29,6 +28,7 @@ macro_rules! trace {
         }
     };
 }
+pub(crate) use trace;
 
 /// Maximum size of the dynamic table.  The maximum number of code structures is
 /// 1924, which is the sum of 1332 for literal/length codes and 592 for distance
