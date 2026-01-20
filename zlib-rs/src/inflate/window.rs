@@ -88,7 +88,7 @@ impl<'a> Window<'a> {
         self.extend(slice, 0, true, checksum, &mut Crc32Fold::new());
     }
 
-    pub fn extend(
+    pub(crate) fn extend(
         &mut self,
         slice: &[u8],
         flags: i32,

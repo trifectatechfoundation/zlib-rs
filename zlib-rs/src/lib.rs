@@ -4,21 +4,25 @@
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
 
+pub mod adler32;
+pub mod crc32;
+
 pub mod allocate;
 pub mod c_api;
-pub mod crc32;
 pub mod deflate;
 pub mod inflate;
 
-mod adler32;
 mod cpu_features;
 mod stable;
 mod weak_slice;
 
 pub use stable::{Deflate, DeflateError, Inflate, InflateError, Status};
 
-pub use adler32::{adler32, adler32_combine};
-pub use crc32::{crc32, crc32_combine, get_crc_table};
+pub use deflate::{DeflateConfig, Method, Strategy};
+pub use inflate::InflateConfig;
+
+pub use deflate::compress_slice;
+pub use inflate::uncompress_slice;
 
 macro_rules! trace {
     ($($arg:tt)*) => {

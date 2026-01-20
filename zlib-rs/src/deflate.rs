@@ -4124,11 +4124,11 @@ mod test {
         let len2 = u32::from_le_bytes(len2.try_into().unwrap());
         assert_eq!(len2 as usize, input2.len());
 
-        let crc1 = crate::crc32(0, input1.as_bytes());
-        let crc = crate::crc32_combine(crc1, crc2, len2 as u64);
+        let crc1 = crate::crc32::crc32(0, input1.as_bytes());
+        let crc = crate::crc32::crc32_combine(crc1, crc2, len2 as u64);
 
         // combined crc of the parts should be the crc of the whole
-        let crc_cheating = crate::crc32(0, input.as_bytes());
+        let crc_cheating = crate::crc32::crc32(0, input.as_bytes());
         assert_eq!(crc, crc_cheating);
 
         // write the trailer

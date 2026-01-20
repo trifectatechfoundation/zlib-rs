@@ -1,3 +1,5 @@
+//! The crc32 checksum algorithm.
+
 use crate::CRC32_INITIAL_VALUE;
 
 #[cfg(target_arch = "aarch64")]
@@ -24,7 +26,7 @@ pub fn crc32(start: u32, buf: &[u8]) -> u32 {
     crc_state.finish()
 }
 
-pub fn crc32_braid(start: u32, buf: &[u8]) -> u32 {
+fn crc32_braid(start: u32, buf: &[u8]) -> u32 {
     braid::crc32_braid::<5>(start, buf)
 }
 
