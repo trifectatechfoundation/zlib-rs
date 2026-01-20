@@ -2694,6 +2694,7 @@ unsafe fn gzrewind_help(state: &mut GzState) -> c_int {
 /// - The `format`  must be a valid C string
 /// - The variadic arguments must correspond with the format string in number and type
 #[cfg(feature = "gzprintf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "gzprintf")))]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(gzprintf))]
 pub unsafe extern "C" fn gzprintf(file: gzFile, format: *const c_char, va: ...) -> c_int {
     unsafe { gzvprintf(file, format, va) }
@@ -2715,6 +2716,7 @@ pub unsafe extern "C" fn gzprintf(file: gzFile, format: *const c_char, va: ...) 
 /// - The `format`  must be a valid C string
 /// - The variadic arguments must correspond with the format string in number and type
 #[cfg(feature = "gzprintf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "gzprintf")))]
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(gzvprintf))]
 pub unsafe extern "C" fn gzvprintf(
     file: gzFile,
