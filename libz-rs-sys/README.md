@@ -1,4 +1,4 @@
-This crate is a C API for [zlib-rs](https://docs.rs/zlib-rs/latest/zlib_rs/). The API is broadly equivalent to [`libz-sys`](https://docs.rs/libz-sys/latest/libz_sys/) and [`zlib-ng-sys`](https://docs.rs/libz-ng-sys/latest/libz_ng_sys/), but does not currently provide the `gz*` family of functions.
+This crate is a C API for [zlib-rs](https://docs.rs/zlib-rs/latest/zlib_rs/). The API is broadly equivalent to [`libz-sys`](https://docs.rs/libz-sys/latest/libz_sys/) and [`zlib-ng-sys`](https://docs.rs/libz-ng-sys/latest/libz_ng_sys/).
 
 From a rust perspective, this API is not very ergonomic. Use the [`flate2`](https://crates.io/crates/flate2) crate for a more
 ergonomic rust interface to zlib.
@@ -34,6 +34,10 @@ The `rust-allocator` is the default when this crate is used as a rust dependency
 **`std`**
 
 Assume that `std` is available. When this feature is turned off, this crate is compatible with `#![no_std]`.
+
+**`gz`**
+
+Exports the `gz*` family of functions (`gzread`, `gzwrite`, etc.). This feature is off by default because these functions are rarely used from rust, and defining these functions requires a dependency on `libc`.
 
 ## Example
 
