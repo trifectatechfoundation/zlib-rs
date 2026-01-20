@@ -1,3 +1,5 @@
+//! The adler32 checksum algorithm.
+
 #[cfg(target_arch = "x86_64")]
 mod avx2;
 #[cfg(feature = "avx512")]
@@ -37,7 +39,7 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     generic::adler32_rust(start_checksum, data)
 }
 
-pub fn adler32_fold_copy(start_checksum: u32, dst: &mut [u8], src: &[u8]) -> u32 {
+pub(crate) fn adler32_fold_copy(start_checksum: u32, dst: &mut [u8], src: &[u8]) -> u32 {
     debug_assert!(dst.len() >= src.len(), "{} < {}", dst.len(), src.len());
 
     // integrating the memcpy into the adler32 function did not have any benefits, and in fact was

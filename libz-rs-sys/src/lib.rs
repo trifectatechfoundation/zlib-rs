@@ -146,7 +146,7 @@ pub type z_off64_t = z_off_t;
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_z))]
 pub unsafe extern "C" fn crc32_z(crc: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
     match unsafe { slice_from_raw_parts(buf, len) } {
-        Some(buf) => zlib_rs::crc32(crc as u32, buf) as c_ulong,
+        Some(buf) => zlib_rs::crc32::crc32(crc as u32, buf) as c_ulong,
         None => 0,
     }
 }
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn crc32(crc: c_ulong, buf: *const Bytef, len: uInt) -> c_
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine))]
 pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> c_ulong {
-    zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
+    zlib_rs::crc32::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
 /// Combines the checksum of two slices into one.
@@ -242,13 +242,13 @@ pub extern "C" fn crc32_combine(crc1: c_ulong, crc2: c_ulong, len2: z_off_t) -> 
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine64))]
 pub extern "C" fn crc32_combine64(crc1: c_ulong, crc2: c_ulong, len2: z_off64_t) -> c_ulong {
-    zlib_rs::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
+    zlib_rs::crc32::crc32_combine(crc1 as u32, crc2 as u32, len2 as u64) as c_ulong
 }
 
 /// The CRC table used by the crc32 checksum algorithm.
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(get_crc_table))]
 pub extern "C" fn get_crc_table() -> *const [u32; 256] {
-    zlib_rs::get_crc_table()
+    zlib_rs::crc32::get_crc_table()
 }
 
 /// Return the operator corresponding to length `len2`, to be used with
@@ -303,7 +303,7 @@ pub const extern "C" fn crc32_combine_op(crc1: c_ulong, crc2: c_ulong, op: c_ulo
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_z))]
 pub unsafe extern "C" fn adler32_z(adler: c_ulong, buf: *const Bytef, len: size_t) -> c_ulong {
     match unsafe { slice_from_raw_parts(buf, len) } {
-        Some(buf) => zlib_rs::adler32(adler as u32, buf) as c_ulong,
+        Some(buf) => zlib_rs::adler32::adler32(adler as u32, buf) as c_ulong,
         None => 1,
     }
 }
@@ -368,7 +368,9 @@ pub unsafe extern "C" fn adler32(adler: c_ulong, buf: *const Bytef, len: uInt) -
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_combine))]
 pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_t) -> c_ulong {
     match u64::try_from(len2) {
-        Ok(len2) => zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong,
+        Ok(len2) => {
+            zlib_rs::adler32::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong
+        }
         Err(_) => {
             // for negative len, return invalid adler32 as a clue for debugging
             0xFFFF_FFFF
@@ -406,7 +408,9 @@ pub extern "C" fn adler32_combine(adler1: c_ulong, adler2: c_ulong, len2: z_off_
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(adler32_combine64))]
 pub extern "C" fn adler32_combine64(adler1: c_ulong, adler2: c_ulong, len2: z_off64_t) -> c_ulong {
     match u64::try_from(len2) {
-        Ok(len2) => zlib_rs::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong,
+        Ok(len2) => {
+            zlib_rs::adler32::adler32_combine(adler1 as u32, adler2 as u32, len2) as c_ulong
+        }
         Err(_) => {
             // for negative len, return invalid adler32 as a clue for debugging
             0xFFFF_FFFF

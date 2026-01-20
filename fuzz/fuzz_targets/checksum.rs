@@ -21,7 +21,7 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
     }
 
     {
-        use zlib_rs::{crc32, crc32_combine};
+        use zlib_rs::crc32::{crc32, crc32_combine};
 
         let data = &input;
 
@@ -54,7 +54,7 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
     }
 
     {
-        use zlib_rs::{adler32, adler32_combine};
+        use zlib_rs::adler32::{adler32, adler32_combine};
 
         let data = &input;
 
