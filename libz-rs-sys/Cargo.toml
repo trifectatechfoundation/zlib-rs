@@ -26,5 +26,5 @@ gz = ["dep:libc"] # publicly export the gz* functions
 gzprintf = ["gz"] # experimental, requires nightly for the c_variadic feature
 
 [dependencies]
-zlib-rs = { workspace = true, default-features = false }
+zlib-rs = { workspace = true, default-features = false, features = ["__internal-api"] }
 libc = { version = "0.2.171", optional = true }

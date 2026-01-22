@@ -19,7 +19,7 @@ gz = ["libz-rs-sys/gz", "dep:libc"]
 gzprintf = ["libz-rs-sys/gzprintf"]
 
 [dependencies]
-zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test"] }
+zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test", "__internal-api"] }
 libz-rs-sys = { workspace = true, default-features = false, features = ["std", "testing-prefix"] }
 libz-sys.workspace = true
 libc = { version = "0.2.171", optional = true }
