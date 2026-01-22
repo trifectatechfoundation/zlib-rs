@@ -14,9 +14,11 @@ use zlib_rs::deflate::Strategy;
 use zlib_rs::MAX_WBITS;
 
 /// In the zlib C API, this structure exposes just enough of the internal state
-/// of an open gzFile to support the gzgetc() C macro. Since Rust code won't be
-/// using that C macro, we define gzFile_s as an empty structure. The first fields
-/// in GzState match what would be in the C version of gzFile_s.
+/// of an open [`gzFile`] to support the `gzgetc` C macro. Since Rust code won't be
+/// using that C macro, we define [`gzFile_s`] as an empty structure.
+// For ABI compatibility with zlib and zlib-ng, the first fields in [`GzState`] match
+// what would be in the C version of [`gzFile_s`]. But we don't want new users to rely
+// on this internal implementation, so the Rust [`gzFile_s`] is intentionally opaque.
 #[allow(non_camel_case_types)]
 pub enum gzFile_s {}
 
@@ -2156,7 +2158,7 @@ pub unsafe extern "C" fn gzputs(file: gzFile, s: *const c_char) -> c_int {
 
 /// Read one decompressed byte from `file`.
 ///
-/// Note: The C header file zlib.h provides a macro wrapper for gzgetc that implements
+/// Note: The C header file `zlib.h` provides a macro wrapper for `gzgetc` that implements
 /// the fast path inline and calls this function for the slow path.
 ///
 /// # Returns
