@@ -34,8 +34,17 @@ pub fn get_crc_table() -> &'static [u32; 256] {
     braid::get_crc_table()
 }
 
+#[cfg(feature = "__internal-test")]
 #[derive(Debug, Clone, Copy)]
 pub struct Crc32Fold {
+    #[cfg(target_arch = "x86_64")]
+    fold: pclmulqdq::Accumulator,
+    value: u32,
+}
+
+#[cfg(not(feature = "__internal-test"))]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Crc32Fold {
     #[cfg(target_arch = "x86_64")]
     fold: pclmulqdq::Accumulator,
     value: u32,
