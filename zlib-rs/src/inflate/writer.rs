@@ -352,10 +352,9 @@ impl<'a> Writer<'a> {
         }
 
         // SAFETY: The caller ensured that src + length is within (or just at the end of)
-        // a readable range of bytes.
-        // FIXME: The other safety precondition for `add` is that the amount being added
-        // must fit in an `isize`. Should that be part of the documented safety preconditions
-        // for this function, so that our caller is responsible for ensuring it?
+        // a readable range of bytes. LLVM disallows allocations bigger than isize::MAX,
+        // so if src..src+length is a valid allocation (a precondition of this function)
+        // the length will never exceed isize::MAX.
         let end = unsafe { src.add(length) };
 
         // SAFETY: We checked above that length != 0, so there is at least one chunk remaining.
