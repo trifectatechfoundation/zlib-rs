@@ -5,7 +5,7 @@ use zlib_rs::c_api::{
     Z_DATA_ERROR, Z_ERRNO, Z_NEED_DICT, Z_OK, Z_STREAM_END, Z_STREAM_ERROR, Z_VERSION_ERROR,
 };
 use zlib_rs::deflate::{compress_slice, DeflateConfig};
-use zlib_rs::inflate::{set_mode_dict, uncompress_slice, InflateConfig, INFLATE_STATE_SIZE};
+use zlib_rs::inflate::{decompress_slice, set_mode_dict, InflateConfig, INFLATE_STATE_SIZE};
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
 
 use crate::assert_eq_rs_ng;
@@ -1205,12 +1205,12 @@ fn inflate_window_bits_0_is_15() {
 
     let config = InflateConfig { window_bits: 15 };
     let mut output_15 = [0; 64];
-    let (output_15, err) = uncompress_slice(&mut output_15, compressed, config);
+    let (output_15, err) = decompress_slice(&mut output_15, compressed, config);
     assert_eq!(err, ReturnCode::Ok);
 
     let config = InflateConfig { window_bits: 0 };
     let mut output_0 = [0; 64];
-    let (output_0, err) = uncompress_slice(&mut output_0, compressed, config);
+    let (output_0, err) = decompress_slice(&mut output_0, compressed, config);
     assert_eq!(err, ReturnCode::Ok);
 
     // for window size 0, the default of 15 is picked
@@ -1225,12 +1225,12 @@ fn inflate_window_bits_0_is_15() {
 fn uncompress_edge_cases() {
     let config = InflateConfig { window_bits: 15 };
 
-    let (result, err) = uncompress_slice(&mut [], &[], config);
+    let (result, err) = decompress_slice(&mut [], &[], config);
     assert_eq!(err, ReturnCode::DataError);
     assert!(result.is_empty());
 
     let mut output = [0; 1];
-    let (result, err) = uncompress_slice(&mut output, &[], config);
+    let (result, err) = decompress_slice(&mut output, &[], config);
     assert_eq!(err, ReturnCode::DataError);
     assert!(result.is_empty());
 
@@ -1240,7 +1240,7 @@ fn uncompress_edge_cases() {
     let (compressed, err) = compress_slice(&mut compressed, input, DeflateConfig::new(6));
     assert_eq!(err, ReturnCode::Ok);
 
-    let (result, err) = uncompress_slice(&mut [], compressed, config);
+    let (result, err) = decompress_slice(&mut [], compressed, config);
     assert_eq!(err, ReturnCode::DataError);
     assert!(result.is_empty());
 }
@@ -2214,7 +2214,7 @@ fn blow_up_the_stack_1() {
     let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 
-    let (_, err) = uncompress_slice(&mut output_rs, INPUT, config);
+    let (_, err) = decompress_slice(&mut output_rs, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 }
 
@@ -2233,7 +2233,7 @@ fn blow_up_the_stack_2() {
     let (_, err) = crate::helpers::uncompress_slice_ng(&mut output_ng, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 
-    let (_, err) = uncompress_slice(&mut output_rs, INPUT, config);
+    let (_, err) = decompress_slice(&mut output_rs, INPUT, config);
     assert_eq!(err, ReturnCode::DataError);
 }
 
