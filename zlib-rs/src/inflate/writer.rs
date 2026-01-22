@@ -163,7 +163,7 @@ impl<'a> Writer<'a> {
         let len = range.end - range.start;
 
         if self.remaining() >= len + N {
-            // SAFETY: we know that our window has at least a core::mem::size_of::<N>() extra bytes
+            // SAFETY: we know that our window has at least a N extra bytes
             // at the end, making it always safe to perform an (unaligned) Chunk read anywhere in
             // the window slice.
             //
@@ -339,8 +339,8 @@ impl<'a> Writer<'a> {
 
     /// # Safety
     ///
-    /// `src` must be safe to perform unaligned reads in `core::mem::size_of::<N>()` chunks until
-    /// `end` is reached. `dst` must be safe to (unaligned) write that number of chunks.
+    /// `src..src + length` must be safe to perform reads in chunks of N elements until
+    /// `src + length` is reached. `dst` must be safe to (unaligned) write that number of chunks.
     #[inline(always)]
     unsafe fn copy_chunk_unchecked<const N: usize>(
         mut src: *const MaybeUninit<u8>,
