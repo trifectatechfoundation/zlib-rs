@@ -152,8 +152,24 @@ impl<'a> InflateStream<'a> {
 
 const MAX_BITS: u8 = 15; // maximum number of bits in a code
 const MAX_DIST_EXTRA_BITS: u8 = 13; // maximum number of extra distance bits
-                                    //
-pub fn uncompress_slice<'a>(
+
+/// Decompresses `input` into the provided `output` buffer.
+///
+/// Returns a subslice of `output` containing the decompressed bytes and a
+/// [`ReturnCode`] indicating the result of the operation. Returns [`ReturnCode::BufError`] if
+/// there is insufficient output space.
+///
+/// # Example
+///
+/// ```
+/// # use zlib_rs::*;
+/// # fn foo(compressed: &[u8]) {
+/// let mut buffer = [0u8; 1024];
+/// let (decompressed, rc) = decompress_slice(&mut buffer, compressed, InflateConfig::default());
+/// assert_eq!(rc, ReturnCode::Ok);
+/// # }
+/// ```
+pub fn decompress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
     config: InflateConfig,
@@ -2205,6 +2221,9 @@ impl InflateAllocOffsets {
     }
 }
 
+/// Configuration for decompresssion.
+///
+/// Used with [`decompress_slice`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct InflateConfig {
     pub window_bits: i32,
@@ -2718,7 +2737,7 @@ mod tests {
 
         let config = InflateConfig { window_bits: 15 };
 
-        let (_decompressed, err) = uncompress_slice(&mut output, &input, config);
+        let (_decompressed, err) = decompress_slice(&mut output, &input, config);
         assert_eq!(err, ReturnCode::DataError);
     }
 }

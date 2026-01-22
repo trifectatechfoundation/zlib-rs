@@ -163,6 +163,17 @@ impl TryFrom<i32> for Method {
     }
 }
 
+/// Configuration for compression.
+///
+/// Used with [`compress_slice`].
+///
+/// In most cases only the compression level is relevant. We provide three profiles:
+///
+/// - [`DeflateConfig::best_speed`] provides the fastest compression (at the cost of compression
+///   quality)
+/// - [`DeflateConfig::default`] tries to find a happy middle
+/// - [`DeflateConfig::best_compression`] provides the best compression (at the cost of longer
+///   runtime)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "__internal-fuzz", derive(arbitrary::Arbitrary))]
 pub struct DeflateConfig {
@@ -208,6 +219,16 @@ impl DeflateConfig {
             level,
             ..Self::default()
         }
+    }
+
+    /// Configure for the best compression (takes longer).
+    pub fn best_compression() -> Self {
+        Self::new(crate::c_api::Z_BEST_COMPRESSION)
+    }
+
+    /// Configure for the fastest compression (compresses less well).
+    pub fn best_speed() -> Self {
+        Self::new(crate::c_api::Z_BEST_SPEED)
     }
 }
 
@@ -2783,6 +2804,23 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     state.bit_writer.pending.advance(len);
 }
 
+/// Compresses `input` into the provided `output` buffer.
+///
+/// Returns a subslice of `output` containing the compressed bytes and a
+/// [`ReturnCode`] indicating the result of the operation. Returns [`ReturnCode::BufError`] if
+/// there is insufficient output space.
+///
+/// Use [`compress_bound`] for an upper bound on how large the output buffer needs to be.
+///
+/// # Example
+///
+/// ```
+/// # use zlib_rs::*;
+/// # fn foo(input: &[u8]) {
+/// let mut buf = vec![0u8; compress_bound(input.len())];
+/// let (compressed, rc) = compress_slice(&mut buf, input, DeflateConfig::default());
+/// # }
+/// ```
 pub fn compress_slice<'a>(
     output: &'a mut [u8],
     input: &[u8],
@@ -2894,6 +2932,25 @@ pub fn compress_with_flush<'a>(
     (output_slice, return_code)
 }
 
+/// Returns the upper bound on the compressed size for an input of `source_len` bytes.
+///
+/// When compression has this much space available, it will never fail because of insufficient
+/// output space.
+///
+/// # Example
+///
+/// ```
+/// # use zlib_rs::*;
+///
+/// assert_eq!(compress_bound(1024), 1161);
+/// assert_eq!(compress_bound(4096), 4617);
+/// assert_eq!(compress_bound(65536), 73737);
+///
+/// # fn foo(input: &[u8]) {
+/// let mut buf = vec![0u8; compress_bound(input.len())];
+/// let (compressed, rc) = compress_slice(&mut buf, input, DeflateConfig::default());
+/// # }
+/// ```
 pub const fn compress_bound(source_len: usize) -> usize {
     compress_bound_help(source_len, ZLIB_WRAPLEN)
 }
@@ -3297,7 +3354,7 @@ impl DeflateAllocOffsets {
 #[cfg(test)]
 mod test {
     use crate::{
-        inflate::{uncompress_slice, InflateConfig, InflateStream},
+        inflate::{decompress_slice, InflateConfig, InflateStream},
         InflateFlush,
     };
 
@@ -3971,7 +4028,7 @@ mod test {
             };
 
             let mut uncompr = [0; 1 << 17];
-            let (uncompr, err) = uncompress_slice(&mut uncompr, output, config);
+            let (uncompr, err) = decompress_slice(&mut uncompr, output, config);
 
             if err == ReturnCode::Ok {
                 assert_eq!(DATA, uncompr);
@@ -4136,7 +4193,7 @@ mod test {
         result.extend((len1 + len2).to_le_bytes());
 
         let mut output = vec![0; 128];
-        let (output, err) = crate::inflate::uncompress_slice(&mut output, &result, inflate_config);
+        let (output, err) = crate::inflate::decompress_slice(&mut output, &result, inflate_config);
         assert_eq!(err, ReturnCode::Ok);
 
         assert_eq!(output, input.as_bytes());
@@ -4185,7 +4242,7 @@ mod test {
 
         let mut dest_vec_rs = vec![0u8; uncompressed.len()];
         let (output_rs, error) =
-            crate::inflate::uncompress_slice(&mut dest_vec_rs, compressed, config);
+            crate::inflate::decompress_slice(&mut dest_vec_rs, compressed, config);
 
         assert_eq!(ReturnCode::Ok, error);
         assert_eq!(output_rs, uncompressed);

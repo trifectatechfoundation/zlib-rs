@@ -37,8 +37,8 @@ pub use stable::{Deflate, DeflateError, Inflate, InflateError, Status};
 pub use deflate::{DeflateConfig, Method, Strategy};
 pub use inflate::InflateConfig;
 
-pub use deflate::compress_slice;
-pub use inflate::uncompress_slice;
+pub use deflate::{compress_bound, compress_slice};
+pub use inflate::decompress_slice;
 
 macro_rules! trace {
     ($($arg:tt)*) => {

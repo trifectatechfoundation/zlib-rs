@@ -21,7 +21,7 @@ fn cve_test(input: &[u8]) {
 
     let mut output = vec![0; input.len()];
     let config = zlib_rs::inflate::InflateConfig { window_bits: 15 };
-    let (output, err) = zlib_rs::inflate::uncompress_slice(&mut output, output_rs, config);
+    let (output, err) = zlib_rs::inflate::decompress_slice(&mut output, output_rs, config);
     assert_eq!(err, ReturnCode::Ok);
 
     assert_eq!(input, output);

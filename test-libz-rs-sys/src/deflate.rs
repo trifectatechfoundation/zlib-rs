@@ -2935,7 +2935,7 @@ fn test_issue_455() {
 
 mod stable_api {
     use zlib_rs::{
-        inflate::{uncompress_slice, InflateConfig},
+        inflate::{decompress_slice, InflateConfig},
         DeflateFlush, ReturnCode, Status,
     };
 
@@ -2959,7 +2959,7 @@ mod stable_api {
         let compressed = &compressed[..deflate.total_out() as usize];
         let mut decompressed = [0u8; 64];
         let (decompressed, ret) =
-            uncompress_slice(&mut decompressed, compressed, InflateConfig { window_bits });
+            decompress_slice(&mut decompressed, compressed, InflateConfig { window_bits });
         assert_eq!(ret, ReturnCode::Ok);
 
         assert_eq!(decompressed, input.as_bytes());
@@ -3005,7 +3005,7 @@ mod stable_api {
         let compressed2 = &compressed2[..deflate.total_out() as usize];
 
         let mut decompressed1 = [0u8; 64];
-        let (decompressed1, ret) = uncompress_slice(
+        let (decompressed1, ret) = decompress_slice(
             &mut decompressed1,
             compressed1,
             InflateConfig { window_bits: 15 },
@@ -3014,7 +3014,7 @@ mod stable_api {
         assert_eq!(decompressed1, input1.as_bytes());
 
         let mut decompressed2 = [0u8; 64];
-        let (decompressed2, ret) = uncompress_slice(
+        let (decompressed2, ret) = decompress_slice(
             &mut decompressed2,
             compressed2,
             InflateConfig { window_bits: 15 },

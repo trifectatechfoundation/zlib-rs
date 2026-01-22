@@ -66,7 +66,7 @@ pub fn test(data: &[u8], config: DeflateConfig) -> bool {
 
     let mut dest_vec_rs = vec![0u8; data.len()];
     let (output_rs, error) =
-        zlib_rs::inflate::uncompress_slice(&mut dest_vec_rs, deflated_rs, config);
+        zlib_rs::inflate::decompress_slice(&mut dest_vec_rs, deflated_rs, config);
 
     if error != ReturnCode::Ok || output_rs != data {
         let path = std::env::temp_dir().join("deflate.txt");

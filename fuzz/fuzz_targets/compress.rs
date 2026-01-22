@@ -20,7 +20,7 @@ fuzz_target!(|data: &[u8]| {
 
     let mut output = vec![0u8; data.len()];
     let config = zlib_rs::inflate::InflateConfig { window_bits: 15 };
-    let (output, error) = zlib_rs::inflate::uncompress_slice(&mut output, deflated, config);
+    let (output, error) = zlib_rs::inflate::decompress_slice(&mut output, deflated, config);
     assert_eq!(ReturnCode::Ok, error);
 
     if output != data {
