@@ -36,6 +36,7 @@ libloading = "0.8.1"
 libz-sys = { version = "1.1.23", default-features = false, features = ["zlib-ng"] } # use libz-ng in libz compat mode
 arbitrary = { version = "1.0" }
 quickcheck = { version = "1.0.3", default-features = false, features = [] }
+getrandom = "0.2.17" # work around https://github.com/rust-random/getrandom/issues/775
 
 libz-rs-sys = { version = "0.6.0", path = "./libz-rs-sys", default-features = false }
 zlib-rs = { version = "0.6.0", path = "./zlib-rs", default-features = false }
