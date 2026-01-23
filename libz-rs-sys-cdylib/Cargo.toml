@@ -27,6 +27,9 @@ debug = true
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
+[package.metadata.docs.rs]
+features = ["gz", "gzprintf"]
+
 [features]
 default = ["c-allocator", "std"] # when used as a cdylib crate, use the c allocator but use std for feature detection
 c-allocator = ["libz-rs-sys/c-allocator"] # by default, use malloc/free for memory allocation
