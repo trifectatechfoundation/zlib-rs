@@ -1,6 +1,6 @@
 [package]
 name = "libz-rs-sys-cdylib"
-version = "0.5.5"
+version = "0.6.0"
 edition = "2021"
 readme = "README.md"
 license = "Zlib"
@@ -40,8 +40,8 @@ gzprintf = ["libz-rs-sys/gzprintf"]
 __internal-test = []
 
 [dependencies]
-libz-rs-sys = { version = "0.5.5", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
-zlib-rs = { version = "0.5.5", path = "../zlib-rs", default-features = false }
+libz-rs-sys = { version = "0.6.0", path = "../libz-rs-sys", default-features = false, features = ["export-symbols"] }
+zlib-rs = { version = "0.6.0", path = "../zlib-rs", default-features = false }
 
 [package.metadata.capi.library]
 version = "1.3.0" # the zlib api version we match
