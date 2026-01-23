@@ -10,7 +10,7 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libz-rs-sys"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "libc",
  "zlib-rs",
@@ -18,7 +18,7 @@ dependencies = [
 
 [[package]]
 name = "libz-rs-sys-cdylib"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "libz-rs-sys",
  "zlib-rs",
@@ -26,4 +26,4 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.5.5"
+version = "0.6.0"
