@@ -327,8 +327,7 @@ pub unsafe fn back(
 
                 let InflateTable::Success { root, used } = inflate_table(
                     CodeType::Codes,
-                    &state.lens,
-                    19,
+                    &state.lens[..19],
                     &mut state.codes_codes,
                     7,
                     &mut state.work,
@@ -429,8 +428,7 @@ pub unsafe fn back(
 
                 let InflateTable::Success { root, used } = inflate_table(
                     CodeType::Lens,
-                    &state.lens,
-                    state.nlen,
+                    &state.lens[..state.nlen],
                     &mut state.len_codes,
                     10,
                     &mut state.work,
@@ -446,8 +444,7 @@ pub unsafe fn back(
 
                 let InflateTable::Success { root, used } = inflate_table(
                     CodeType::Dists,
-                    &state.lens[state.nlen..],
-                    state.ndist,
+                    &state.lens[state.nlen..][..state.ndist],
                     &mut state.dist_codes,
                     9,
                     &mut state.work,
