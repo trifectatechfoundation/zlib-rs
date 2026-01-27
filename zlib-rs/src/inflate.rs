@@ -1646,8 +1646,7 @@ impl State<'_> {
 
                         let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Codes,
-                            &self.lens,
-                            19,
+                            &self.lens[..19],
                             &mut self.codes_codes,
                             7,
                             &mut self.work,
@@ -1745,8 +1744,7 @@ impl State<'_> {
 
                         let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Lens,
-                            &self.lens,
-                            self.nlen,
+                            &self.lens[..self.nlen],
                             &mut self.len_codes,
                             10,
                             &mut self.work,
@@ -1761,8 +1759,7 @@ impl State<'_> {
 
                         let InflateTable::Success { root, used } = inflate_table(
                             CodeType::Dists,
-                            &self.lens[self.nlen..],
-                            self.ndist,
+                            &self.lens[self.nlen..][..self.ndist],
                             &mut self.dist_codes,
                             9,
                             &mut self.work,
