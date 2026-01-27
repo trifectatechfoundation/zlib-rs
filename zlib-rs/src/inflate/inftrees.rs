@@ -16,7 +16,7 @@ const LBASE: [u16; 31] = [
     163, 195, 227, 258, 0, 0,
 ];
 /// Length codes 257..285 extra
-const LEXT: [u16; 31] = [
+const LEXT: [u8; 31] = [
     16, 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 18, 18, 18, 18, 19, 19, 19, 19, 20, 20, 20, 20,
     21, 21, 21, 21, 16, 77, 202,
 ];
@@ -26,7 +26,7 @@ const DBASE: [u16; 32] = [
     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 0, 0,
 ];
 /// Distance codes 0..29 extra
-const DEXT: [u16; 32] = [
+const DEXT: [u8; 32] = [
     16, 16, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26,
     27, 27, 28, 28, 29, 29, 64, 64,
 ];
@@ -139,7 +139,7 @@ pub(crate) fn inflate_table(
         let here = if work[sym] >= match_ {
             Code {
                 bits: (len - drop_) as u8,
-                op: extra[(work[sym] - match_) as usize] as u8,
+                op: extra[(work[sym] - match_) as usize],
                 val: base[(work[sym] - match_) as usize],
             }
         } else if work[sym] + 1 < match_ {
