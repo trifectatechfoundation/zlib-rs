@@ -42,7 +42,6 @@ pub(crate) enum InflateTable {
 pub(crate) fn inflate_table(
     codetype: CodeType,
     lens: &[u16],
-    codes: usize,
     table: &mut [Code],
     bits: usize,
     work: &mut [u16],
@@ -51,7 +50,7 @@ pub(crate) fn inflate_table(
     let mut count = [0u16; MAX_BITS + 1];
 
     let (mut min, mut max) = (MAX_BITS, 0);
-    for &len in &lens[0..codes] {
+    for &len in lens {
         if len > 0 {
             count[len as usize] += 1;
             max = Ord::max(max, usize::from(len));
@@ -99,7 +98,7 @@ pub(crate) fn inflate_table(
     }
 
     /* sort symbols by length, by symbol order within each length */
-    for (sym, len) in lens[0..codes].iter().copied().enumerate() {
+    for (sym, len) in lens.iter().copied().enumerate() {
         if len != 0 {
             let offset = offs[len as usize];
             offs[len as usize] += 1;
@@ -262,12 +261,12 @@ mod test {
 
         let mut next = table;
         let bits = 15;
-        let ret = inflate_table(CodeType::Dists, &lens, 16, &mut next, bits, &mut work);
+        let ret = inflate_table(CodeType::Dists, &lens[..16], &mut next, bits, &mut work);
         assert_eq!(ret, InflateTable::EnoughIsNotEnough);
 
         let mut next = table;
         let bits = 1;
-        let ret = inflate_table(CodeType::Dists, &lens, 16, &mut next, bits, &mut work);
+        let ret = inflate_table(CodeType::Dists, &lens[..16], &mut next, bits, &mut work);
         assert_eq!(ret, InflateTable::EnoughIsNotEnough);
     }
 
@@ -295,7 +294,7 @@ mod test {
 
         let mut next = [Code::default(); 512];
         let bits = 9;
-        inflate_table(CodeType::Lens, &lens, 288, &mut next, bits, work);
+        inflate_table(CodeType::Lens, &lens[..288], &mut next, bits, work);
 
         core::array::from_fn(|i| {
             let mut code = next[i];
@@ -325,7 +324,7 @@ mod test {
 
         let mut next = [Code::default(); 32];
         let bits = 5;
-        inflate_table(CodeType::Dists, &lens, 32, &mut next, bits, work);
+        inflate_table(CodeType::Dists, &lens[..32], &mut next, bits, work);
 
         next
     }
