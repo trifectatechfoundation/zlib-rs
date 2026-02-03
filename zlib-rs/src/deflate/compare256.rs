@@ -20,6 +20,11 @@ fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         return unsafe { avx2::compare256(src0, src1) };
     }
 
+    #[cfg(target_arch = "x86_64")]
+    if crate::cpu_features::is_enabled_sse2() {
+        return unsafe { sse2::compare256(src0, src1) };
+    }
+
     #[cfg(target_arch = "aarch64")]
     if crate::cpu_features::is_enabled_neon() {
         return unsafe { neon::compare256(src0, src1) };
@@ -194,6 +199,58 @@ mod neon {
     #[test]
     fn test_compare256() {
         if crate::cpu_features::is_enabled_neon() {
+            let str1 = [b'a'; super::MAX_COMPARE_SIZE];
+            let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
+
+            for i in 0..str1.len() {
+                str2[i] = 0;
+
+                let match_len = unsafe { compare256(&str1, &str2) };
+                assert_eq!(match_len, i);
+
+                str2[i] = b'a';
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+mod sse2 {
+    use core::arch::x86_64::{__m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8};
+
+    /// # Safety
+    ///
+    /// Behavior is undefined if the `sse2` target feature is not enabled
+    #[target_feature(enable = "sse2")]
+    pub unsafe fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+        let src0: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src0) };
+        let src1: &[[u8; 16]; 16] = unsafe { core::mem::transmute(src1) };
+
+        let mut len = 0;
+
+        unsafe {
+            for (chunk0, chunk1) in src0.iter().zip(src1) {
+                let ymm_src0 = _mm_loadu_si128(chunk0.as_ptr() as *const __m128i);
+                let ymm_src1 = _mm_loadu_si128(chunk1.as_ptr() as *const __m128i);
+
+                let ymm_cmp = _mm_cmpeq_epi8(ymm_src0, ymm_src1); /* non-identical bytes = 00, identical bytes = FF */
+                let mask = _mm_movemask_epi8(ymm_cmp) as u32;
+
+                if mask != 0xFFFF {
+                    let match_byte = (!mask).trailing_zeros(); /* Invert bits so identical = 0 */
+                    return len + match_byte as usize;
+                }
+
+                len += 16;
+            }
+        }
+
+        256
+    }
+
+    #[test]
+    fn test_compare256() {
+        if crate::cpu_features::is_enabled_sse2() {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
