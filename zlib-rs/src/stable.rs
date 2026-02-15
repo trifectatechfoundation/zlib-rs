@@ -67,27 +67,29 @@ impl InflateError {
 }
 
 /// The state that is used to decompress an input.
-pub struct Inflate(crate::inflate::InflateStream<'static>);
+pub struct Inflate {
+    inner: crate::inflate::InflateStream<'static>,
+    total_in: u64,
+    total_out: u64,
+}
 
 impl Inflate {
     /// The amount of bytes consumed from the input so far.
     pub fn total_in(&self) -> u64 {
-        #[allow(clippy::useless_conversion)]
-        u64::from(self.0.total_in)
+        self.total_in
     }
 
     /// The amount of decompressed bytes that have been written to the output thus far.
     pub fn total_out(&self) -> u64 {
-        #[allow(clippy::useless_conversion)]
-        u64::from(self.0.total_out)
+        self.total_out
     }
 
     /// The error message if the previous operation failed.
     pub fn error_message(&self) -> Option<&'static str> {
-        if self.0.msg.is_null() {
+        if self.inner.msg.is_null() {
             None
         } else {
-            unsafe { core::ffi::CStr::from_ptr(self.0.msg).to_str() }.ok()
+            unsafe { core::ffi::CStr::from_ptr(self.inner.msg).to_str() }.ok()
         }
     }
 
@@ -103,7 +105,11 @@ impl Inflate {
             },
         };
 
-        Self(crate::inflate::InflateStream::new(config))
+        Self {
+            inner: crate::inflate::InflateStream::new(config),
+            total_in: 0,
+            total_out: 0,
+        }
     }
 
     /// Reset the state to allow handling a new stream.
@@ -114,7 +120,10 @@ impl Inflate {
             config.window_bits = -config.window_bits;
         }
 
-        crate::inflate::reset_with_config(&mut self.0, config);
+        self.total_in = 0;
+        self.total_out = 0;
+
+        crate::inflate::reset_with_config(&mut self.inner, config);
     }
 
     /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
@@ -127,19 +136,27 @@ impl Inflate {
         // Limit the length of the input and output to the maximum value of a c_uint. For larger
         // inputs, this will either complete or signal that more input and output is needed. The
         // caller should be able to handle this regardless.
-        self.0.avail_in = Ord::min(input.len(), c_uint::MAX as usize) as c_uint;
-        self.0.avail_out = Ord::min(output.len(), c_uint::MAX as usize) as c_uint;
+        self.inner.avail_in = Ord::min(input.len(), c_uint::MAX as usize) as c_uint;
+        self.inner.avail_out = Ord::min(output.len(), c_uint::MAX as usize) as c_uint;
 
         // This cast_mut is unfortunate, that is just how the types are.
-        self.0.next_in = input.as_ptr().cast_mut();
-        self.0.next_out = output.as_mut_ptr();
+        self.inner.next_in = input.as_ptr().cast_mut();
+        self.inner.next_out = output.as_mut_ptr();
+
+        let start_in = self.inner.next_in;
+        let start_out = self.inner.next_out;
 
         // SAFETY: the inflate state was properly initialized.
-        match unsafe { crate::inflate::inflate(&mut self.0, flush) } {
+        let ret = unsafe { crate::inflate::inflate(&mut self.inner, flush) };
+
+        self.total_in += (self.inner.next_in as usize - start_in as usize) as u64;
+        self.total_out += (self.inner.next_out as usize - start_out as usize) as u64;
+
+        match ret {
             ReturnCode::Ok => Ok(Status::Ok),
             ReturnCode::StreamEnd => Ok(Status::StreamEnd),
             ReturnCode::NeedDict => Err(InflateError::NeedDict {
-                dict_id: self.0.adler as u32,
+                dict_id: self.inner.adler as u32,
             }),
             ReturnCode::ErrNo => unreachable!("the rust API does not use files"),
             ReturnCode::StreamError => Err(InflateError::StreamError),
@@ -151,8 +168,8 @@ impl Inflate {
     }
 
     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, InflateError> {
-        match crate::inflate::set_dictionary(&mut self.0, dictionary) {
-            ReturnCode::Ok => Ok(self.0.adler as u32),
+        match crate::inflate::set_dictionary(&mut self.inner, dictionary) {
+            ReturnCode::Ok => Ok(self.inner.adler as u32),
             ReturnCode::StreamError => Err(InflateError::StreamError),
             ReturnCode::DataError => Err(InflateError::DataError),
             other => unreachable!("set_dictionary does not return {other:?}"),
@@ -162,7 +179,7 @@ impl Inflate {
 
 impl Drop for Inflate {
     fn drop(&mut self) {
-        let _ = crate::inflate::end(&mut self.0);
+        let _ = crate::inflate::end(&mut self.inner);
     }
 }
 
