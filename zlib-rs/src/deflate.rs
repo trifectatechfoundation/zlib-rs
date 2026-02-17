@@ -1698,8 +1698,10 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
         unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
     }
 
+    // These can overflow, especially on windows where the integer type is u32 and input/output are
+    // larger than 4GB.
     stream.next_in = stream.next_in.wrapping_add(len);
-    stream.total_in += len as crate::c_api::z_size;
+    stream.total_in = stream.total_in.wrapping_add(len as crate::c_api::z_size);
 
     len
 }

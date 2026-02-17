@@ -139,13 +139,17 @@ jobs:
           cargo test --target ${{matrix.target}} ${{ matrix.flags }} --no-default-features --features rust-allocator
 
 
-      # run tests
+      # Run tests
       - name: cargo llvm-cov nextest
         if: matrix.codecov
         run: cargo llvm-cov nextest --lcov --output-path lcov.info --ignore-filename-regex "test-libz|dynamic-libz" --target ${{matrix.target}} ${{ matrix.flags }} --features=gz --no-fail-fast
       - name: cargo nextest
         if: matrix.codecov == false
         run: cargo nextest run --target ${{matrix.target}} ${{ matrix.flags }} --features=gz --no-fail-fast
+
+      # Run overflow test
+      - name: check for overflows
+        run: cargo run -p test-libz-rs-sys --example overflow
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
@@ -410,7 +414,7 @@ jobs:
 
 
   symbol-versioning:
-    name: Symbol versioning 
+    name: Symbol versioning
     strategy:
       matrix:
         include:
