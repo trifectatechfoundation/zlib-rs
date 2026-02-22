@@ -200,7 +200,7 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
     (vget_lane_u32(as_, 0), vget_lane_u32(as_, 1))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std", target_feature = "neon"))]
 mod tests {
     use super::*;
 
