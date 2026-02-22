@@ -564,9 +564,13 @@ mod tests {
             assert!(zalloc_c(ptr::null_mut(), 0, 1).is_null());
             assert!(zalloc_c_calloc(ptr::null_mut(), 1, 0).is_null());
             assert!(zalloc_c_calloc(ptr::null_mut(), 0, 1).is_null());
+            #[cfg(feature = "rust-allocator")]
             assert!(zalloc_rust(ptr::null_mut(), 1, 0).is_null());
+            #[cfg(feature = "rust-allocator")]
             assert!(zalloc_rust(ptr::null_mut(), 0, 1).is_null());
+            #[cfg(feature = "rust-allocator")]
             assert!(zalloc_rust_calloc(ptr::null_mut(), 1, 0).is_null());
+            #[cfg(feature = "rust-allocator")]
             assert!(zalloc_rust_calloc(ptr::null_mut(), 0, 1).is_null());
         }
     }
