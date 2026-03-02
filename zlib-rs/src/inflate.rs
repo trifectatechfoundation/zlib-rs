@@ -2410,7 +2410,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let out_written = state.out_available - (state.writer.capacity() - state.writer.len());
 
     stream.total_in += in_read as z_size;
-    state.total += out_written;
+    state.total = state.total.wrapping_add(out_written);
     stream.total_out = state.total as _;
 
     stream.avail_in = state.bit_reader.bytes_remaining() as u32;

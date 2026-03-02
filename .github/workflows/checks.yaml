@@ -149,7 +149,14 @@ jobs:
 
       # Run overflow test
       - name: check for overflows
-        run: cargo run -p test-libz-rs-sys --example overflow
+        run: cargo run -p test-libz-rs-sys --target ${{matrix.target}} --example overflow
+
+      # Build feature configuriations
+      - name: check all-features and no-default-features.
+        if: matrix.rust == 'stable' && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cargo test -p zlib-rs --target ${{matrix.target}} ${{ matrix.flags }} --all-features --no-run
+          cargo test --target ${{matrix.target}} ${{ matrix.flags }} --no-default-features --features=rust-allocator --no-run
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
