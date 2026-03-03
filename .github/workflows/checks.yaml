@@ -523,9 +523,37 @@ jobs:
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
 
+  miri-zlib-rs:
+    name: "Miri (zlib-rs)"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-pc-windows-gnu
+    env:
+      QUICKCHECK_TESTS: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Miri
+        run: |
+          rustup target add ${{ matrix.target }}
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Install gcc
+        if: ${{ contains(matrix.target, 'windows') }}
+        run: |
+          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          x86_64-w64-mingw32-gcc --help
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
+        with:
+          tool: cargo-nextest
+      - name: Test with miri
+        run: "cargo +nightly miri nextest run -p zlib-rs --target ${{ matrix.target }}"
 
-  miri:
-    name: "Miri"
+  miri-libz-rs-sys:
+    name: "Miri (libz-rs-sys)"
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -554,19 +582,17 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test public C api with NULL arguments
-        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} null::"
+        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} null::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1"
-      - name: Test allocator with miri
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz internals with miri
         working-directory: libz-rs-sys
-        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
+        run: "cargo +nightly miri nextest run -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
       - name: Test gz api with miri
         if: ${{ contains(matrix.target, 'linux') }}
-        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
+        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
         env:
           MIRIFLAGS: "-Zmiri-no-short-fd-operations -Zmiri-disable-isolation"
 

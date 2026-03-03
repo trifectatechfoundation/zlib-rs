@@ -496,6 +496,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "slow")]
     fn copy_match() {
         for offset_from_end in 1..=64 {
             for length in 0..=64 {
