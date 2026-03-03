@@ -340,7 +340,7 @@ mod avx512 {
 
     #[test]
     fn test_compare256() {
-        if true {
+        if cfg!(target_feature = "avx512vl") && cfg!(target_feature = "avx512bw") {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 
