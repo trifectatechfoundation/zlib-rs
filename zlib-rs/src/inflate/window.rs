@@ -197,7 +197,7 @@ impl<'a> Window<'a> {
 mod test {
     use super::*;
 
-    fn init_window(window_bits_log2: usize) -> Window<'static> {
+    fn alloc_window(window_bits_log2: usize) -> Window<'static> {
         let mut window = Window::new_in(&crate::allocate::RUST, window_bits_log2).unwrap();
         window.have = 0;
         window.next = 0;
@@ -206,22 +206,24 @@ mod test {
 
     #[test]
     fn window_init() {
-        let window = init_window(2);
+        let window = alloc_window(2);
         assert_eq!(window.size(), 4);
         assert_eq!(window.have(), 0);
         assert!(!window.is_empty());
         let start = window.as_ptr();
         let size = window.size();
+        let buffer_size = window.buf.len();
         let (ptr, len) = window.into_raw_parts();
         assert_eq!(ptr.cast_const(), start);
         assert!(len >= size); // >= because the impl is allowed to add padding to the internal buffer
+        unsafe { crate::allocate::RUST.deallocate(ptr, buffer_size) }
     }
 
     #[test]
     fn extend_in_bounds() {
         let mut checksum = 0;
 
-        let mut window = init_window(4);
+        let mut window = alloc_window(4);
 
         window.extend_adler32(&[1; 5], &mut checksum);
         assert_eq!(window.have, 5);
@@ -251,7 +253,7 @@ mod test {
     fn extend_crosses_bounds() {
         let mut checksum = 0;
 
-        let mut window = init_window(2);
+        let mut window = alloc_window(2);
 
         window.extend_adler32(&[1; 3], &mut checksum);
         assert_eq!(window.have, 3);
@@ -281,7 +283,7 @@ mod test {
     fn extend_out_of_bounds() {
         let mut checksum = 0;
 
-        let mut window = init_window(3);
+        let mut window = alloc_window(3);
 
         // adds 9 numbers, that won't fit into a window of size 8
         window.extend_adler32(&[1, 2, 3, 4, 5, 6, 7, 8, 9], &mut checksum);
@@ -294,10 +296,8 @@ mod test {
         assert_eq!(checksum, 10813485);
 
         unsafe {
-            crate::allocate::RUST.deallocate(
-                window.buf.as_mut_slice().as_mut_ptr(),
-                window.as_slice().len(),
-            )
+            crate::allocate::RUST
+                .deallocate(window.buf.as_mut_slice().as_mut_ptr(), window.buf.len())
         }
     }
 }
