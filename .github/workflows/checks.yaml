@@ -534,7 +534,10 @@ jobs:
     env:
       QUICKCHECK_TESTS: 10
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
