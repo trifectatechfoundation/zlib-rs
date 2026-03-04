@@ -543,11 +543,6 @@ jobs:
           rustup target add ${{ matrix.target }}
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
-      - name: Install gcc
-        if: ${{ contains(matrix.target, 'windows') }}
-        run: |
-          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-          x86_64-w64-mingw32-gcc --help
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
@@ -575,11 +570,6 @@ jobs:
           rustup target add ${{ matrix.target }}
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
-      - name: Install gcc
-        if: ${{ contains(matrix.target, 'windows') }}
-        run: |
-          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-          x86_64-w64-mingw32-gcc --help
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
