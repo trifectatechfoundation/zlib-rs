@@ -68,13 +68,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dynamic-libz-sys"
-version = "0.1.0"
-dependencies = [
- "libloading",
-]
-
-[[package]]
 name = "errno"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -118,16 +111,6 @@ name = "libc"
 version = "0.2.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
-
-[[package]]
-name = "libloading"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
-dependencies = [
- "cfg-if",
- "windows-targets",
-]
 
 [[package]]
 name = "libz-rs-sys"
@@ -276,9 +259,7 @@ name = "test-libz-rs-sys"
 version = "0.6.3"
 dependencies = [
  "crc32fast",
- "dynamic-libz-sys",
  "libc",
- "libloading",
  "libz-rs-sys",
  "libz-sys",
  "quickcheck",
