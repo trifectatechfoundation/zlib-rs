@@ -1,15 +1,12 @@
 //! a binary just so we can look at the optimized assembly
 
+use std::ffi::{c_int, c_uint};
 use std::{collections::hash_map::DefaultHasher, env::temp_dir, hash::Hash};
 
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-#[cfg(not(target_family = "wasm"))]
-use zlib_rs::deflate::DeflateConfig;
 use zlib_rs::{DeflateFlush, ReturnCode};
-
-use std::ffi::{c_int, c_uint};
 
 fn main() {
     let mut it = std::env::args();
@@ -68,33 +65,6 @@ fn main() {
 
             drop(dest_vec)
         }
-        #[cfg(not(target_family = "wasm"))]
-        "xx" => {
-            let path = it.next().unwrap();
-            let Ok(input) = std::fs::read(&path) else {
-                panic!("could not read file {path:?}");
-            };
-
-            let mut dest_vec = vec![0u8; 1 << 28];
-            let mut dest_len = dest_vec.len();
-
-            let err = compress_dynamic(&mut dest_vec, &mut dest_len, &input, level);
-
-            if err != ReturnCode::Ok {
-                panic!("error {err:?}");
-            }
-
-            dest_vec.truncate(dest_len);
-
-            dest_vec.hash(&mut hasher);
-            dbg!(hasher.finish());
-
-            std::fs::write(temp_dir().join("xx.tar.gz"), &dest_vec).unwrap();
-
-            drop(dest_vec)
-        }
-        #[cfg(target_family = "wasm")]
-        "xx" => panic!("wasm doesn't support dlopen"),
         "qq" => {
             let ng = std::fs::read(temp_dir().join("ng.txt")).unwrap();
             let rs = std::fs::read(temp_dir().join("rs.txt")).unwrap();
@@ -274,28 +244,4 @@ fn compress_ng(
     unsafe { deflateEnd(&mut stream) };
 
     ReturnCode::Ok
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn compress_dynamic(
-    dest: &mut [u8],
-    dest_len: &mut usize,
-    source: &[u8],
-    //
-    level: i32,
-) -> ReturnCode {
-    let config = DeflateConfig::new(level);
-    let (output, err) = dynamic_libz_sys::compress_slice(
-        dest,
-        source,
-        config.level,
-        config.method as i32,
-        config.window_bits,
-        config.mem_level,
-        config.strategy as i32,
-    );
-
-    *dest_len = output.len();
-
-    ReturnCode::from(err)
 }
