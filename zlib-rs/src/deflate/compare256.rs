@@ -276,6 +276,11 @@ mod avx512 {
         _mm512_cmpeq_epu8_mask, _mm512_loadu_si512, _mm_cmpeq_epu8_mask, _mm_loadu_si128,
     };
 
+    #[cold]
+    fn done(offset: usize, match_byte: u32) -> usize {
+        offset + match_byte as usize
+    }
+
     /// # Safety
     ///
     /// Behavior is undefined if the `avx` target feature is not enabled
@@ -295,7 +300,8 @@ mod avx512 {
             if mask_0 != 0x0000FFFF {
                 // There is potential for using __builtin_ctzg/__builtin_ctzs/_tzcnt_u16/__tzcnt_u16 here
                 let match_byte = mask_0.trailing_ones();
-                return match_byte as usize;
+                // return match_byte as usize;
+                return done(0, match_byte);
             }
 
             // 64 bytes
@@ -304,7 +310,8 @@ mod avx512 {
             let mask_1 = _mm512_cmpeq_epu8_mask(zmm_src0_1, zmm_src1_1);
             if mask_1 != 0xFFFFFFFFFFFFFFFF {
                 let match_byte = mask_1.trailing_ones();
-                return 16 + match_byte as usize;
+                // return 16 + match_byte as usize;
+                return done(16, match_byte);
             }
 
             // 64 bytes
@@ -313,7 +320,8 @@ mod avx512 {
             let mask_2 = _mm512_cmpeq_epu8_mask(zmm_src0_2, zmm_src1_2);
             if mask_2 != 0xFFFFFFFFFFFFFFFF {
                 let match_byte = mask_2.trailing_ones();
-                return 80 + match_byte as usize;
+                // return 80 + match_byte as usize;
+                return done(80, match_byte);
             }
 
             // 64 bytes
@@ -322,7 +330,8 @@ mod avx512 {
             let mask_3 = _mm512_cmpeq_epu8_mask(zmm_src0_3, zmm_src1_3);
             if mask_3 != 0xFFFFFFFFFFFFFFFF {
                 let match_byte = mask_3.trailing_ones();
-                return 144 + match_byte as usize;
+                // return 144 + match_byte as usize;
+                return done(144, match_byte);
             }
 
             // 64 bytes (overlaps the previous 16 bytes for fast tail processing)
@@ -331,7 +340,8 @@ mod avx512 {
             let mask_4 = _mm512_cmpeq_epu8_mask(zmm_src0_4, zmm_src1_4);
             if mask_4 != 0xFFFFFFFFFFFFFFFF {
                 let match_byte = mask_4.trailing_ones();
-                return 192 + match_byte as usize;
+                // return 192 + match_byte as usize;
+                return done(192, match_byte);
             }
         }
 
