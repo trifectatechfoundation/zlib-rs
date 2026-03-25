@@ -43,7 +43,7 @@ pub struct DeflateStream<'a> {
     pub(crate) avail_out: crate::c_api::uInt,
     pub(crate) total_out: crate::c_api::z_size,
     pub(crate) msg: *const core::ffi::c_char,
-    pub(crate) state: &'a mut State<'a>,
+    pub(crate) state: NonNull<State<'a>>,
     pub(crate) alloc: Allocator<'a>,
     pub(crate) data_type: core::ffi::c_int,
     pub(crate) adler: crate::c_api::z_checksum,
@@ -118,10 +118,18 @@ impl<'a> DeflateStream<'a> {
         unsafe { &mut *(self as *mut DeflateStream as *mut z_stream) }
     }
 
+    fn state(&self) -> &State<'a> {
+        unsafe { self.state.as_ref() }
+    }
+
+    fn state_mut(&mut self) -> &mut State<'a> {
+        unsafe { self.state.as_mut() }
+    }
+
     pub fn pending(&self) -> (usize, u8) {
         (
-            self.state.bit_writer.pending.pending,
-            self.state.bit_writer.bits_used,
+            self.state().bit_writer.pending.pending,
+            self.state().bit_writer.bits_used,
         )
     }
 
@@ -446,9 +454,9 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
 
     let level = level as i8;
 
-    let func = CONFIGURATION_TABLE[stream.state.level as usize].func;
+    let func = CONFIGURATION_TABLE[stream.state().level as usize].func;
 
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     // FIXME: use fn_addr_eq when it's available in our MSRV. The comparison returning false here
     // is not functionally incorrect, but would be inconsistent with zlib-ng.
@@ -462,16 +470,17 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
             return err;
         }
 
-        let state = &mut stream.state;
+        if stream.avail_in != 0 {
+            return ReturnCode::BufError;
+        }
 
-        if stream.avail_in != 0
-            || ((state.strstart as isize - state.block_start) + state.lookahead as isize) != 0
-        {
+        let state = stream.state();
+        if ((state.strstart as isize - state.block_start) + state.lookahead as isize) != 0 {
             return ReturnCode::BufError;
         }
     }
 
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     if state.level != level {
         if state.level == 0 && state.matches != 0 {
@@ -492,7 +501,7 @@ pub fn params(stream: &mut DeflateStream, level: i32, strategy: Strategy) -> Ret
 }
 
 pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> ReturnCode {
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     let wrap = state.wrap;
 
@@ -532,16 +541,17 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     stream.next_in = dictionary.as_ptr() as *mut u8;
     fill_window(stream);
 
-    while stream.state.lookahead >= STD_MIN_MATCH {
-        let str = stream.state.strstart;
-        let n = stream.state.lookahead - (STD_MIN_MATCH - 1);
-        stream.state.insert_string(str, n);
-        stream.state.strstart = str + n;
-        stream.state.lookahead = STD_MIN_MATCH - 1;
+    while stream.state().lookahead >= STD_MIN_MATCH {
+        let state = stream.state_mut();
+        let str = state.strstart;
+        let n = state.lookahead - (STD_MIN_MATCH - 1);
+        state.insert_string(str, n);
+        state.strstart = str + n;
+        state.lookahead = STD_MIN_MATCH - 1;
         fill_window(stream);
     }
 
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     state.strstart += state.lookahead;
     state.block_start = state.strstart as _;
@@ -551,9 +561,9 @@ pub fn set_dictionary(stream: &mut DeflateStream, mut dictionary: &[u8]) -> Retu
     state.match_available = false;
 
     // restore the state
+    state.wrap = wrap;
     stream.next_in = next;
     stream.avail_in = avail;
-    state.wrap = wrap;
 
     ReturnCode::Ok
 }
@@ -564,7 +574,7 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
 
     let mut value64 = value as u64;
 
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     if bits < 0
         || bits > BitWriter::BIT_BUF_SIZE as i32
@@ -603,16 +613,16 @@ pub fn copy<'a>(
     dest: &mut MaybeUninit<DeflateStream<'a>>,
     source: &mut DeflateStream<'a>,
 ) -> ReturnCode {
-    let w_size = source.state.w_size;
-    let window_bits = source.state.w_bits() as usize;
-    let lit_bufsize = source.state.lit_bufsize;
+    let source_state = source.state();
+    let alloc = &source.alloc;
+
+    let w_size = source_state.w_size;
+    let window_bits = source_state.w_bits() as usize;
+    let lit_bufsize = source_state.lit_bufsize;
 
     // SAFETY: source and dest are both mutable references, so guaranteed not to overlap.
     // dest being a reference to maybe uninitialized memory makes a copy of 1 DeflateStream valid.
     unsafe { core::ptr::copy_nonoverlapping(source, dest.as_mut_ptr(), 1) };
-
-    let source_state = &source.state;
-    let alloc = &source.alloc;
 
     let allocs = DeflateAllocOffsets::new(window_bits, lit_bufsize);
 
@@ -720,9 +730,9 @@ pub fn copy<'a>(
 /// - Err when deflate is not done. A common cause is insufficient output space
 /// - Ok otherwise
 pub fn end<'a>(stream: &'a mut DeflateStream) -> Result<&'a mut z_stream, &'a mut z_stream> {
-    let status = stream.state.status;
-    let allocation_start = stream.state.allocation_start;
-    let total_allocation_size = stream.state.total_allocation_size;
+    let status = stream.state().status;
+    let allocation_start = stream.state().allocation_start;
+    let total_allocation_size = stream.state().total_allocation_size;
     let alloc = stream.alloc;
 
     let stream = stream.as_z_stream_mut();
@@ -740,7 +750,7 @@ pub fn reset(stream: &mut DeflateStream) -> ReturnCode {
     let ret = reset_keep(stream);
 
     if ret == ReturnCode::Ok {
-        lm_init(stream.state);
+        lm_init(stream.state_mut());
     }
 
     ret
@@ -752,7 +762,7 @@ pub fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
     stream.msg = core::ptr::null_mut();
     stream.data_type = crate::c_api::Z_UNKNOWN;
 
-    let state = &mut stream.state;
+    let state = stream.state_mut();
 
     state.bit_writer.pending.reset_keep();
 
@@ -772,9 +782,9 @@ pub fn reset_keep(stream: &mut DeflateStream) -> ReturnCode {
         _ => ADLER32_INITIAL_VALUE as _,
     };
 
-    state.last_flush = -2;
+    stream.state_mut().last_flush = -2;
 
-    state.zng_tr_init();
+    stream.state_mut().zng_tr_init();
 
     ReturnCode::Ok
 }
@@ -815,10 +825,11 @@ pub fn tune(
     nice_length: usize,
     max_chain: usize,
 ) -> ReturnCode {
-    stream.state.good_match = good_length as u16;
-    stream.state.max_lazy_match = max_lazy as u16;
-    stream.state.nice_match = nice_length as u16;
-    stream.state.max_chain_length = max_chain as u16;
+    let state = stream.state_mut();
+    state.good_match = good_length as u16;
+    state.max_lazy_match = max_lazy as u16;
+    state.nice_match = nice_length as u16;
+    state.max_chain_length = max_chain as u16;
 
     ReturnCode::Ok
 }
@@ -1673,29 +1684,33 @@ pub(crate) fn read_buf_window(stream: &mut DeflateStream, offset: usize, size: u
     }
 
     stream.avail_in -= len as u32;
+    let next_in = stream.next_in;
+    let adler = stream.adler;
+    let state = stream.state_mut();
 
-    if stream.state.wrap == 2 {
+    if state.wrap == 2 {
+        let state = stream.state_mut();
         // we likely cannot fuse the crc32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
-        let window = &mut stream.state.window;
+        let window = &mut state.window;
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
-        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
+        unsafe { window.copy_and_initialize(offset..offset + len, next_in) };
 
-        let data = &stream.state.window.filled()[offset..][..len];
-        stream.state.crc_fold.fold(data, CRC32_INITIAL_VALUE);
-    } else if stream.state.wrap == 1 {
+        let data = &state.window.filled()[offset..][..len];
+        state.crc_fold.fold(data, CRC32_INITIAL_VALUE);
+    } else if state.wrap == 1 {
         // we likely cannot fuse the adler32 and the copy here because the input can be changed by
         // a concurrent thread. Therefore it cannot be converted into a slice!
-        let window = &mut stream.state.window;
+        let window = &mut state.window;
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
-        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
+        unsafe { window.copy_and_initialize(offset..offset + len, next_in) };
 
-        let data = &stream.state.window.filled()[offset..][..len];
-        stream.adler = adler32(stream.adler as u32, data) as _;
+        let data = &state.window.filled()[offset..][..len];
+        stream.adler = adler32(adler as u32, data) as _;
     } else {
-        let window = &mut stream.state.window;
+        let window = &mut state.window;
         // SAFETY: len is bounded by avail_in, so this copy is in bounds.
-        unsafe { window.copy_and_initialize(offset..offset + len, stream.next_in) };
+        unsafe { window.copy_and_initialize(offset..offset + len, next_in) };
     }
 
     // These can overflow, especially on windows where the integer type is u32 and input/output are
@@ -1755,12 +1770,12 @@ pub(crate) const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 
 #[inline]
 pub(crate) fn fill_window(stream: &mut DeflateStream) {
-    debug_assert!(stream.state.lookahead < MIN_LOOKAHEAD);
+    debug_assert!(stream.state().lookahead < MIN_LOOKAHEAD);
 
-    let wsize = stream.state.w_size;
+    let wsize = stream.state().w_size;
 
     loop {
-        let state = &mut *stream.state;
+        let state = stream.state_mut();
         let mut more = state.window_size - state.lookahead - state.strstart;
 
         // If the window is almost full and there is insufficient lookahead,
@@ -1802,9 +1817,9 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If there was sliding, more >= WSIZE. So in all cases, more >= 2.
         assert!(more >= 2, "more < 2");
 
-        let n = read_buf_window(stream, stream.state.strstart + stream.state.lookahead, more);
+        let n = read_buf_window(stream, state.strstart + state.lookahead, more);
 
-        let state = &mut *stream.state;
+        let state = stream.state_mut();
         state.lookahead += n;
 
         // Initialize the hash value now that we have some input:
@@ -1830,13 +1845,13 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         // If the whole input has less than STD_MIN_MATCH bytes, ins_h is garbage,
         // but this is not important since only literal bytes will be emitted.
 
-        if !(stream.state.lookahead < MIN_LOOKAHEAD && stream.avail_in != 0) {
+        if !(stream.state().lookahead < MIN_LOOKAHEAD && stream.avail_in != 0) {
             break;
         }
     }
 
     assert!(
-        stream.state.strstart <= stream.state.window_size - MIN_LOOKAHEAD,
+        stream.state().strstart <= stream.state().window_size - MIN_LOOKAHEAD,
         "not enough room for search"
     );
 }
@@ -2308,7 +2323,7 @@ fn zng_tr_flush_block(
     let static_lenb;
     let mut max_blindex = 0;
 
-    let state = &mut stream.state;
+    let state = stream.state();
 
     if state.sym_buf.is_empty() {
         opt_lenb = 0;
@@ -2316,8 +2331,10 @@ fn zng_tr_flush_block(
         state.static_len = 7;
     } else if state.level > 0 {
         if stream.data_type == DataType::Unknown as i32 {
-            stream.data_type = State::detect_data_type(&state.l_desc.dyn_tree) as i32;
+            stream.data_type = State::detect_data_type(&stream.state().l_desc.dyn_tree) as i32;
         }
+
+        let state = stream.state_mut();
 
         {
             let mut tmp = TreeDesc::EMPTY;
@@ -2374,6 +2391,8 @@ fn zng_tr_flush_block(
         static_lenb = stored_len as usize + 5;
     }
 
+    let state = stream.state_mut();
+
     #[allow(clippy::unnecessary_unwrap)]
     if stored_len as usize + 4 <= opt_lenb && window_offset.is_some() {
         /* 4: two words for the lengths
@@ -2417,17 +2436,17 @@ fn zng_tr_flush_block(
 pub(crate) fn flush_block_only(stream: &mut DeflateStream, is_last: bool) {
     zng_tr_flush_block(
         stream,
-        (stream.state.block_start >= 0).then_some(stream.state.block_start as usize),
-        (stream.state.strstart as isize - stream.state.block_start) as u32,
+        (stream.state().block_start >= 0).then_some(stream.state().block_start as usize),
+        (stream.state().strstart as isize - stream.state().block_start) as u32,
         is_last,
     );
 
-    stream.state.block_start = stream.state.strstart as isize;
+    stream.state_mut().block_start = stream.state().strstart as isize;
     flush_pending(stream)
 }
 
 fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<ReturnCode> {
-    let mut state = &mut stream.state;
+    let mut state = stream.state_mut();
 
     // we'll be using the pending buffer as temporary storage
     let mut beg = state.bit_writer.pending.pending().len(); /* start of bytes to update crc */
@@ -2439,12 +2458,12 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
         stream.adler = crc32(
             stream.adler as u32,
-            &state.bit_writer.pending.pending()[beg..],
+            &stream.state().bit_writer.pending.pending()[beg..],
         ) as z_checksum;
 
-        state.gzindex += copy;
+        stream.state_mut().gzindex += copy;
         flush_pending(stream);
-        state = &mut stream.state;
+        state = stream.state_mut();
 
         // could not flush all the pending output
         if !state.bit_writer.pending.pending().is_empty() {
@@ -2460,9 +2479,9 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 
     stream.adler = crc32(
         stream.adler as u32,
-        &state.bit_writer.pending.pending()[beg..],
+        &stream.state().bit_writer.pending.pending()[beg..],
     ) as z_checksum;
-    state.gzindex = 0;
+    stream.state_mut().gzindex = 0;
 
     ControlFlow::Continue(())
 }
@@ -2470,7 +2489,7 @@ fn flush_bytes(stream: &mut DeflateStream, mut bytes: &[u8]) -> ControlFlow<Retu
 pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     if stream.next_out.is_null()
         || (stream.avail_in != 0 && stream.next_in.is_null())
-        || (stream.state.status == Status::Finish && flush != DeflateFlush::Finish)
+        || (stream.state().status == Status::Finish && flush != DeflateFlush::Finish)
     {
         let err = ReturnCode::StreamError;
         stream.msg = err.error_message();
@@ -2483,8 +2502,8 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
         return err;
     }
 
-    let old_flush = stream.state.last_flush;
-    stream.state.last_flush = flush as i8;
+    let old_flush = stream.state().last_flush;
+    stream.state_mut().last_flush = flush as i8;
 
     /* Flush as much pending output as possible */
     if !stream.state.bit_writer.pending.pending().is_empty() {
