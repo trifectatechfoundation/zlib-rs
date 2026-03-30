@@ -213,4 +213,32 @@ mod test {
         assert_eq!(crc32_braid::<5>(START, flat), crc32(START, flat));
         assert_eq!(crc32(2380683574, flat), 1175758345);
     }
+
+    #[test]
+    #[cfg_attr(
+        not(target_arch = "x86_64"),
+        ignore = "pclmulqdq is only used on x86_64"
+    )]
+    #[cfg_attr(not(miri), should_panic)]
+    #[cfg_attr(miri, cfg_attr(target_feature = "pclmulqdq", should_panic))]
+    fn crc32_fold_oob() {
+        #[cfg(target_arch = "x86_64")]
+        if !crate::cpu_features::is_enabled_pclmulqdq() {
+            return;
+        }
+
+        // At least 31 bytes, first clause of assert! in pclmulqdq.rs:252
+        let buf = [0u8; 31 + 16];
+
+        // Force the buffer to be unaligned, such that align_to produces a 1 byte prefix, so that
+        // we hit `before.len() < 4` of pclmulqdq.rs:287 and load an extra m128.
+        let base = buf.as_ptr() as usize;
+        let skip = (15usize.wrapping_sub(base % 16)) & 0xF;
+        let buf = &buf[skip..][..31];
+
+        // Set initial nonzero, second part of the assert!() in pclmulqdq.rs:252.
+        let mut fold = Crc32Fold::new_with_initial(1);
+        fold.fold(buf, 1);
+        let _ = fold.finish();
+    }
 }
