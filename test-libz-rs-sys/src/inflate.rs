@@ -2201,6 +2201,7 @@ fn issue_232() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "slow")]
 fn blow_up_the_stack_1() {
     // requires a sequence of states that would blow up the stack if inflate is not stack safe.
 
@@ -2779,6 +2780,8 @@ fn done_state_returns_stream_end() {
         stream.next_out = out.as_mut_ptr();
 
         assert_eq!(unsafe { inflate(stream, Z_FINISH) }, Z_STREAM_END);
+
+        unsafe { inflateEnd(stream) }
     });
 }
 
