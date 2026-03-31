@@ -2976,7 +2976,7 @@ mod deflate_reset_deterministic {
                 window_bits,
                 8,
                 Z_DEFAULT_STRATEGY,
-                libz_sys::zlibVersion(),
+                libz_rs_sys::zlibVersion(),
                 core::mem::size_of::<z_stream>() as i32,
             );
             assert_eq!(err, Z_OK);
@@ -2996,7 +2996,7 @@ mod deflate_reset_deterministic {
                 window_bits,
                 8,
                 Z_DEFAULT_STRATEGY,
-                libz_sys::zlibVersion(),
+                libz_rs_sys::zlibVersion(),
                 core::mem::size_of::<z_stream>() as i32,
             );
             assert_eq!(err, Z_OK);

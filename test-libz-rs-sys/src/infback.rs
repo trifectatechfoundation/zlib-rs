@@ -46,8 +46,13 @@ fn differential_inflate_back<const CHUNK: usize>(input: &[u8]) {
     // Per the documentation, only window_bits 15 is supported.
     let window_bits = 15;
 
-    let ng_out = run_inflate_back_ng::<CHUNK>(input, window_bits);
     let rs_out = run_inflate_back_rs::<CHUNK>(input, window_bits);
+
+    if cfg!(miri) {
+        return;
+    }
+
+    let ng_out = run_inflate_back_ng::<CHUNK>(input, window_bits);
 
     if let (Ok(ng_out), Ok(rs_out)) = (&ng_out, &rs_out) {
         assert_eq!(ng_out.len(), rs_out.len());
