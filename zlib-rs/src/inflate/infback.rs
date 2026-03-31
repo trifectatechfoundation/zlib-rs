@@ -106,7 +106,7 @@ pub unsafe fn back(
     let mut have = if !next.is_null() { strm.avail_in } else { 0 };
     let mut hold = 0;
     let mut bits = 0u8;
-    let mut put = strm.state.window.as_ptr().cast_mut();
+    let mut put = strm.state.window.as_mut_ptr();
     let mut left = strm.state.window.buffer_size();
 
     let state = &mut strm.state;
@@ -177,8 +177,7 @@ pub unsafe fn back(
             () => {
                 if left == 0 {
                     left = state.window.buffer_size();
-                    let window = state.window.as_slice();
-                    put = window.as_ptr().cast_mut();
+                    put = state.window.as_mut_ptr();
 
                     unsafe { state.window.set_have(left) };
 
@@ -713,7 +712,7 @@ pub unsafe fn back(
         && unsafe {
             out(
                 out_desc,
-                state.window.as_ptr().cast_mut(),
+                state.window.as_mut_ptr(),
                 state.window.buffer_size() as u32 - left as u32,
             )
         } != 0
