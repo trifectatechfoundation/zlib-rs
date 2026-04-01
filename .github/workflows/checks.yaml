@@ -647,6 +647,34 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx512vl,+avx512bw"
 
+  miri-neon:
+    name: "Miri neon"
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+    env:
+      QUICKCHECK_TESTS: 10
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install Miri
+        run: |
+          rustup target add ${{ matrix.target }}
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
+        with:
+          tool: cargo-nextest
+      - name: Test with `+neon,+crc`
+        run: "cargo +nightly miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+crc"
+
   run-flate2-test-suite:
     name: run flate2 test suite
     strategy:
