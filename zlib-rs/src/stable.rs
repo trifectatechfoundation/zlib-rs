@@ -1,4 +1,4 @@
-use core::ffi::c_uint;
+use core::{ffi::c_uint, mem::MaybeUninit};
 
 use crate::deflate::DeflateConfig;
 use crate::inflate::InflateConfig;
@@ -126,11 +126,27 @@ impl Inflate {
         crate::inflate::reset_with_config(&mut self.inner, config);
     }
 
-    /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
+    /// Decompress `input` and write all decompressed bytes into `output`,
+    /// with `flush` defining some details about this.
     pub fn decompress(
         &mut self,
         input: &[u8],
         output: &mut [u8],
+        flush: InflateFlush,
+    ) -> Result<Status, InflateError> {
+        self.decompress_uninit(
+            input,
+            unsafe { &mut *(output as *mut _ as *mut [MaybeUninit<u8>]) },
+            flush,
+        )
+    }
+
+    /// Decompress `input` and write all decompressed bytes into a potentially uninitialized `output`,
+    /// with `flush` defining some details about this.
+    pub fn decompress_uninit(
+        &mut self,
+        input: &[u8],
+        output: &mut [MaybeUninit<u8>],
         flush: InflateFlush,
     ) -> Result<Status, InflateError> {
         // Limit the length of the input and output to the maximum value of a c_uint. For larger
@@ -141,7 +157,7 @@ impl Inflate {
 
         // This cast_mut is unfortunate, that is just how the types are.
         self.inner.next_in = input.as_ptr().cast_mut();
-        self.inner.next_out = output.as_mut_ptr();
+        self.inner.next_out = output.as_mut_ptr().cast();
 
         let start_in = self.inner.next_in;
         let start_out = self.inner.next_out;
@@ -283,11 +299,27 @@ impl Deflate {
         crate::deflate::reset(&mut self.inner);
     }
 
-    /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
+    /// Compress `input` and write compressed bytes to `output`,
+    /// with `flush` controlling additional characteristics.
     pub fn compress(
         &mut self,
         input: &[u8],
         output: &mut [u8],
+        flush: DeflateFlush,
+    ) -> Result<Status, DeflateError> {
+        self.compress_uninit(
+            input,
+            unsafe { &mut *(output as *mut _ as *mut [MaybeUninit<u8>]) },
+            flush,
+        )
+    }
+
+    /// Compress `input` and write compressed bytes to a potentially uninitialized `output`,
+    /// with `flush` controlling additional characteristics.
+    pub fn compress_uninit(
+        &mut self,
+        input: &[u8],
+        output: &mut [MaybeUninit<u8>],
         flush: DeflateFlush,
     ) -> Result<Status, DeflateError> {
         // Limit the length of the input and output to the maximum value of a c_uint. For larger
@@ -298,7 +330,7 @@ impl Deflate {
 
         // This cast_mut is unfortunate, that is just how the types are.
         self.inner.next_in = input.as_ptr().cast_mut();
-        self.inner.next_out = output.as_mut_ptr();
+        self.inner.next_out = output.as_mut_ptr().cast();
 
         let start_in = self.inner.next_in;
         let start_out = self.inner.next_out;
