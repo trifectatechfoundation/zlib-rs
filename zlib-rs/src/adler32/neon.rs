@@ -62,6 +62,12 @@ unsafe fn adler32_neon_internal(mut adler: u32, buf: &[u8]) -> u32 {
 
     pair = handle_tail(pair, before);
 
+    // NOTE: zlib-ng adjusts the chunk size to account for already having consumed some input. We
+    // instead just mod the pair by BASE and then use the full chunk width below. Failing to do so
+    // can result in overflow.
+    pair.0 %= BASE;
+    pair.1 %= BASE;
+
     for chunk in middle.chunks(NMAX as usize / core::mem::size_of::<uint8x16_t>()) {
         pair = unsafe { accum32(pair, chunk) };
         pair.0 %= BASE;
@@ -244,6 +250,18 @@ mod tests {
         let neon = adler32_neon(42, DEFAULT);
         let rust = crate::adler32::generic::adler32_rust(42, DEFAULT);
 
+        assert_eq!(neon, rust);
+    }
+
+    // Regression test for a bug where adler32 would not modulo by the base early enough,
+    // specifically it ignored the `before` slice in when to mod.
+    #[test]
+    fn carry_in_with_unaligned_before_no_overflow() {
+        let backing = vec![0xffu8; 5568];
+        let buf: &[u8] = &backing[1..1 + 5567];
+        let start: u32 = 0xa4c1_fb51;
+        let neon = adler32_neon(start, buf);
+        let rust = crate::adler32::generic::adler32_rust(start, buf);
         assert_eq!(neon, rust);
     }
 }
