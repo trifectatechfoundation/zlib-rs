@@ -61,6 +61,13 @@ unsafe fn adler32_neon_internal(mut adler: u32, buf: &[u8]) -> u32 {
     let (before, middle, after) = unsafe { buf.align_to::<uint8x16_t>() };
 
     pair = handle_tail(pair, before);
+    // `accum32` accumulates in u32 lanes and assumes both components fit in 16
+    // bits on entry; without this reduction, a `before` tail (or large caller
+    // seed) can leave `pair.0`/`pair.1` above BASE and overflow the final
+    // horizontal sum on inputs near NMAX. See bug repro: 5567 bytes of 0xff
+    // sliced from offset 1 with seed 0xa4c1_fb51.
+    pair.0 %= BASE;
+    pair.1 %= BASE;
 
     for chunk in middle.chunks(NMAX as usize / core::mem::size_of::<uint8x16_t>()) {
         pair = unsafe { accum32(pair, chunk) };
@@ -244,6 +251,26 @@ mod tests {
         let neon = adler32_neon(42, DEFAULT);
         let rust = crate::adler32::generic::adler32_rust(42, DEFAULT);
 
+        assert_eq!(neon, rust);
+    }
+
+    /// Regression test for u32 overflow in `accum32`'s final horizontal sum.
+    ///
+    /// Triggered when:
+    /// 1. Input has a non-zero `before` tail (non-16-aligned slice) so that
+    ///    `handle_tail` runs without reducing `pair` mod BASE, and
+    /// 2. The post-`handle_tail` `pair` exceeds BASE, and
+    /// 3. The SIMD chunk approaches NMAX bytes of 0xff.
+    ///
+    /// Under those conditions, `s.0 * n + sum_p (n-p) * b[p] + s.1` can exceed
+    /// `u32::MAX`, wrapping the lane-summed result and corrupting `s2`.
+    #[test]
+    fn carry_in_with_unaligned_before_no_overflow() {
+        let backing = vec![0xffu8; 5568];
+        let buf: &[u8] = &backing[1..1 + 5567];
+        let start: u32 = 0xa4c1_fb51;
+        let neon = adler32_neon(start, buf);
+        let rust = crate::adler32::generic::adler32_rust(start, buf);
         assert_eq!(neon, rust);
     }
 }
