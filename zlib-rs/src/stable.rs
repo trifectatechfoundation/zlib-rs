@@ -93,12 +93,33 @@ impl Inflate {
         }
     }
 
-    /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
+    /// Create a new instance. This function allocates, and so it is recommended to re-use this
+    /// state when possible, using [`reset`] as needed.
     ///
-    /// The `window_bits` must be in the range `8..=15`, with `15` being most common.
-    pub fn new(zlib_header: bool, window_bits: u8) -> Self {
+    /// This function will:
+    ///
+    /// - decode a raw deflate stream when `expect_header = false` and `window_bits` is in the
+    /// range `8..=15`
+    /// - decode a zlib header followed by a deflate stream when `expect_header = true` and
+    /// `window_bits` is in the range `8..=15`
+    /// - decode a gzip header followed by a deflate stream when `expect_header = true` and
+    /// `window_bits` is in the range `16 + 8..=16 + 15`
+    /// - decode either a zlib or a gzip header, followed by a deflate stream when
+    /// `expect_header = true` and `window_bits` is in the range `32 + 8..=32 + 15`
+    ///
+    /// `window_bits` can also be 0 to request that inflate use the window size in the
+    /// zlib header of the compressed stream when using zlib.
+    ///
+    /// Note that when deflating a value of `window_bits = 8` is silently converted to
+    /// `window_bits = 9` in most zlib implementations, and hence should be inflated using
+    /// `window_bits = 9`.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic when the `window_bits` and `expect_header` have values not listed above.
+    pub fn new(expect_header: bool, window_bits: u8) -> Self {
         let config = InflateConfig {
-            window_bits: if zlib_header {
+            window_bits: if expect_header {
                 i32::from(window_bits)
             } else {
                 -i32::from(window_bits)
