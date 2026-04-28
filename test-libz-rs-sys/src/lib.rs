@@ -10,6 +10,8 @@ mod infback;
 #[cfg(test)]
 mod inflate;
 #[cfg(test)]
+mod stable;
+#[cfg(test)]
 mod zlib_ng_cve;
 
 #[cfg(test)]
