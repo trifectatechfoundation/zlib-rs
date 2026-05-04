@@ -10,6 +10,7 @@ use crate::inflate::{
     INFLATE_FAST_MIN_HAVE, INFLATE_FAST_MIN_LEFT, INFLATE_STRICT, MAX_BITS, MAX_DIST_EXTRA_BITS,
 };
 use crate::{c_api::z_stream, inflate::writer::Writer, ReturnCode};
+use crate::{MAX_WBITS, MIN_WBITS};
 
 macro_rules! tracev {
     ($template:expr) => {
@@ -25,6 +26,10 @@ macro_rules! tracev {
 /// Initialize the stream in an inflate state
 pub fn back_init(stream: &mut z_stream, config: InflateConfig, window: Window) -> ReturnCode {
     assert_eq!(1 << config.window_bits, window.buffer_size());
+
+    if !(MIN_WBITS..=MAX_WBITS).contains(&config.window_bits) {
+        return ReturnCode::StreamError as _;
+    }
 
     stream.msg = core::ptr::null_mut();
 

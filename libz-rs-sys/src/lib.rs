@@ -34,6 +34,7 @@ mod gz;
 #[cfg_attr(docsrs, doc(cfg(feature = "gz")))]
 #[cfg(feature = "gz")]
 pub use gz::*;
+use zlib_rs::{MAX_WBITS, MIN_WBITS};
 
 use core::mem::MaybeUninit;
 
@@ -618,7 +619,8 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 /// - [`Z_OK`] if success
 /// - [`Z_MEM_ERROR`] if there was not enough memory
 /// - [`Z_VERSION_ERROR`] if the zlib library version is incompatible with the version assumed by the caller
-/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the structure
+/// - [`Z_STREAM_ERROR`] if a parameter is invalid, such as a null pointer to the `window` or an
+///   invalid `windowBits`.
 ///
 /// # Safety
 ///
@@ -634,6 +636,7 @@ pub unsafe extern "C" fn inflateEnd(strm: *mut z_stream) -> i32 {
 ///     - `zalloc`
 ///     - `zfree`
 ///     - `opaque`
+/// * The `window` pointer points to an allocation of `1 << windowBits` bytes
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(inflateBackInit_))]
 pub unsafe extern "C" fn inflateBackInit_(
     strm: z_streamp,
@@ -649,6 +652,14 @@ pub unsafe extern "C" fn inflateBackInit_(
     let Some(strm) = (unsafe { strm.as_mut() }) else {
         return ReturnCode::StreamError as _;
     };
+
+    if window.is_null() {
+        return ReturnCode::StreamError as _;
+    }
+
+    if !(MIN_WBITS..=MAX_WBITS).contains(&windowBits) {
+        return ReturnCode::StreamError as _;
+    }
 
     let config = InflateConfig {
         window_bits: windowBits,
