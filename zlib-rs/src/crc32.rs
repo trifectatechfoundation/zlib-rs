@@ -6,6 +6,8 @@ use crate::CRC32_INITIAL_VALUE;
 pub(crate) mod acle;
 mod braid;
 mod combine;
+#[cfg(target_arch = "loongarch64")]
+mod loongarch;
 #[cfg(target_arch = "x86_64")]
 mod pclmulqdq;
 #[cfg(target_arch = "x86_64")]
@@ -81,8 +83,15 @@ impl Crc32Fold {
             return;
         }
 
-        // in this case the start value is ignored
-        self.value = braid::crc32_braid::<5>(self.value, src);
+        #[cfg(target_arch = "loongarch64")]
+        {
+            self.value = self::loongarch::crc32_loongarch64(self.value, src);
+        }
+        #[cfg(not(target_arch = "loongarch64"))]
+        {
+            // in this case the start value is ignored
+            self.value = braid::crc32_braid::<5>(self.value, src);
+        }
     }
 
     pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
