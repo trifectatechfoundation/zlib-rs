@@ -114,7 +114,7 @@ mod rust {
 mod neon {
     use core::arch::aarch64::{
         uint8x16x4_t, vceqq_u8, vget_lane_u64, vld4q_u8, vreinterpret_u64_u8, vreinterpretq_u16_u8,
-        vshrn_n_u16, vsriq_n_u8,
+        vrev16q_u8, vshrn_n_u16, vsriq_n_u8,
     };
 
     /// # Safety
@@ -167,6 +167,13 @@ mod neon {
                 // shifting right by 4 bits means the top 4 bits of each 16 bit element contains the
                 // low 4 bits of the 0th 8-bit element and the high 4 bits of the 1nth 8-bit
                 // element. Narrowing takes the top 8 bits of each (16-bit) element.
+                let bitmask_vector = if cfg!(target_endian = "big") {
+                    // We interpret this as u16 below; on BE swap the bytes around.
+                    vrev16q_u8(bitmask_vector)
+                } else {
+                    bitmask_vector
+                };
+
                 let result_vector = vshrn_n_u16::<4>(vreinterpretq_u16_u8(bitmask_vector));
 
                 // Convert the vector to a 64-bit integer, where each bit represents whether
