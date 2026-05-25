@@ -18,7 +18,8 @@ pub unsafe fn crc32_acle_aarch64(crc: u32, buf: &[u8]) -> u32 {
     }
 
     for d in middle {
-        c = unsafe { __crc32d(c, *d) };
+        // Convert to LE if on BE.
+        c = unsafe { __crc32d(c, (*d).to_le()) };
     }
 
     // SAFETY: `remainder` requires the feature "crc" but so does this function
