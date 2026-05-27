@@ -95,14 +95,35 @@ pub fn is_enabled_neon() -> bool {
 #[inline(always)]
 pub fn is_enabled_crc() -> bool {
     #[cfg(target_arch = "aarch64")]
-    #[cfg(feature = "std")]
-    return std::arch::is_aarch64_feature_detected!("crc");
+    {
+        #[cfg(target_feature = "crc")]
+        return true;
+
+        #[cfg(feature = "std")]
+        return std::arch::is_aarch64_feature_detected!("crc");
+    }
+
+    false
+}
+
+#[inline(always)]
+pub fn is_enabled_aes() -> bool {
+    #[cfg(target_arch = "aarch64")]
+    {
+        #[cfg(target_feature = "aes")]
+        return true;
+
+        #[cfg(feature = "std")]
+        return std::arch::is_aarch64_feature_detected!("aes");
+    }
 
     false
 }
 
 #[inline(always)]
 pub fn is_enabled_simd128() -> bool {
+    // There is no runtime detection on wasm.
+
     #[cfg(target_arch = "wasm32")]
     return cfg!(target_feature = "simd128");
 
