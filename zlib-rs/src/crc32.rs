@@ -10,6 +10,8 @@ mod combine;
 mod loongarch;
 #[cfg(target_arch = "x86_64")]
 mod pclmulqdq;
+#[cfg(target_arch = "aarch64")]
+mod pmull;
 #[cfg(target_arch = "x86_64")]
 #[cfg(feature = "vpclmulqdq")]
 mod vpclmulqdq;
@@ -79,7 +81,13 @@ impl Crc32Fold {
                 }
             }
             target_arch = "aarch64" => {
-                if crate::cpu_features::is_enabled_crc() {
+                if cfg!(arget_endian = "little")
+                    && cfg!(feature = "pmull")
+                    && crate::cpu_features::is_enabled_aes()
+                {
+                    self.value = unsafe { self::pmull::crc32_pmull_aarch64(self.value, src) };
+                    return;
+                } else if crate::cpu_features::is_enabled_crc() {
                     self.value = unsafe { self::acle::crc32_acle_aarch64(self.value, src) };
                     return;
                 }
