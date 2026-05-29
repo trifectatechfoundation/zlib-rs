@@ -71,9 +71,14 @@ mod asm {
     #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
     pub unsafe fn __crc32b(mut crc: u32, data: u8) -> u32 {
         unsafe {
-            core::arch::asm!("crc32b {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
-            crc
+            core::arch::asm!(
+                "crc32b {crc:w}, {crc:w}, {data:w}",
+                crc = inout(reg) crc,
+                data = in(reg) data,
+                options(pure, nomem, nostack, preserves_flags)
+            );
         }
+        crc
     }
 
     /// CRC32 single round checksum for half words (16 bits).
@@ -83,9 +88,14 @@ mod asm {
     #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
     pub unsafe fn __crc32h(mut crc: u32, data: u16) -> u32 {
         unsafe {
-            core::arch::asm!("crc32h {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
-            crc
+            core::arch::asm!(
+                "crc32h {crc:w}, {crc:w}, {data:w}",
+                crc = inout(reg) crc,
+                data = in(reg) data,
+                options(pure, nomem, nostack, preserves_flags)
+            );
         }
+        crc
     }
 
     /// CRC32 single round checksum for words (32 bits).
@@ -95,9 +105,14 @@ mod asm {
     #[cfg_attr(target_arch = "arm", target_feature(enable = "v8"))]
     pub unsafe fn __crc32w(mut crc: u32, data: u32) -> u32 {
         unsafe {
-            core::arch::asm!("crc32w {crc:w}, {crc:w}, {data:w}", crc = inout(reg) crc, data = in(reg) data);
-            crc
+            core::arch::asm!(
+                "crc32w {crc:w}, {crc:w}, {data:w}",
+                crc = inout(reg) crc,
+                data = in(reg) data,
+                options(pure, nomem, nostack, preserves_flags)
+            );
         }
+        crc
     }
 
     /// CRC32 single round checksum for double words (64 bits).
@@ -107,9 +122,14 @@ mod asm {
     #[target_feature(enable = "crc")]
     pub unsafe fn __crc32d(mut crc: u32, data: u64) -> u32 {
         unsafe {
-            core::arch::asm!("crc32x {crc:w}, {crc:w}, {data:x}", crc = inout(reg) crc, data = in(reg) data);
-            crc
+            core::arch::asm!(
+                "crc32x {crc:w}, {crc:w}, {data:x}",
+                crc = inout(reg) crc,
+                data = in(reg) data,
+                options(pure, nomem, nostack, preserves_flags)
+            );
         }
+        crc
     }
 }
 
