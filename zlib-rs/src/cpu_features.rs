@@ -108,3 +108,11 @@ pub fn is_enabled_simd128() -> bool {
 
     false
 }
+
+#[inline(always)]
+pub fn is_enabled_zbc() -> bool {
+    #[cfg(target_arch = "riscv64")]
+    return cfg!(target_feature = "zbc");
+
+    false
+}

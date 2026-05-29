@@ -13,6 +13,8 @@ mod pclmulqdq;
 #[cfg(target_arch = "x86_64")]
 #[cfg(feature = "vpclmulqdq")]
 mod vpclmulqdq;
+#[cfg(target_arch = "riscv64")]
+mod zbc;
 
 pub use combine::{crc32_combine, crc32_combine_gen, crc32_combine_op};
 
@@ -80,6 +82,12 @@ impl Crc32Fold {
         #[cfg(target_arch = "aarch64")]
         if crate::cpu_features::is_enabled_crc() {
             self.value = unsafe { self::acle::crc32_acle_aarch64(self.value, src) };
+            return;
+        }
+
+        #[cfg(target_arch = "riscv64")]
+        if crate::cpu_features::is_enabled_zbc() {
+            self.value = unsafe { self::zbc::crc32_zbc_riscv64(self.value, src) };
             return;
         }
 
