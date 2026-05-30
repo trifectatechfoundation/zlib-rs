@@ -1,22 +1,62 @@
-pub fn crc32_loongarch64(crc: u32, buf: &[u8]) -> u32 {
-    let mut c = !crc as i32;
+use super::combine::{multmodp, x2nmodp};
 
-    // SAFETY: [u8; 8] safely transmutes into i64.
+const Z_BATCH: usize = 3990;
+const Z_BATCH_ZEROS: u32 = x2nmodp(Z_BATCH as u64, 6);
+const _: () = assert!(Z_BATCH_ZEROS == 0xa10d3d0c);
+const Z_BATCH_MIN: usize = 800;
+
+pub fn crc32_loongarch64(crc: u32, buf: &[u8]) -> u32 {
+    let mut crc = (!crc).cast_signed();
+
+    // SAFETY: [u8; 8] safely transmutes into u64.
     let (before, middle, after) = unsafe { buf.align_to::<i64>() };
 
-    c = remainder(c, before);
+    // SAFETY: requires the "crc" feature.
+    crc = unsafe { remainder(crc, before) };
 
-    if middle.is_empty() && after.is_empty() {
-        return !c as u32;
+    let mut words = middle;
+
+    while words.len() >= 3 * Z_BATCH {
+        let mut crc1: i32 = 0;
+        let mut crc2: i32 = 0;
+        for i in 0..Z_BATCH {
+            // SAFETY: requires the "crc" feature.
+            crc = crc_w_d_w(words[i], crc);
+            crc1 = crc_w_d_w(words[i + Z_BATCH], crc1);
+            crc2 = crc_w_d_w(words[i + 2 * Z_BATCH], crc2);
+        }
+        words = &words[3 * Z_BATCH..];
+        crc = multmodp(Z_BATCH_ZEROS, crc.cast_unsigned()).cast_signed() ^ crc1;
+        crc = multmodp(Z_BATCH_ZEROS, crc.cast_unsigned()).cast_signed() ^ crc2;
     }
 
-    for d in middle {
-        c = crc_w_d_w(*d, c);
+    let last = words.len() / 3;
+    if last >= Z_BATCH_MIN {
+        let mut crc1: i32 = 0;
+        let mut crc2: i32 = 0;
+        for i in 0..last {
+            // SAFETY: requires the "crc" feature.
+            unsafe {
+                crc = crc_w_d_w(words[i], crc);
+                crc1 = crc_w_d_w(words[i + last], crc1);
+                crc2 = crc_w_d_w(words[i + 2 * last], crc2);
+            }
+        }
+        words = &words[3 * last..];
+        let val = x2nmodp(last as u64, 6);
+        crc = multmodp(val, crc.cast_unsigned()).cast_signed() ^ crc1;
+        crc = multmodp(val, crc.cast_unsigned()).cast_signed() ^ crc2;
     }
 
-    c = remainder(c, after);
+    for &w in words {
+        // SAFETY: requires the "crc" feature.
+        crc = crc_w_d_w(w, crc);
+    }
 
-    !c as u32
+    // SAFETY: requires the "crc" feature.
+    crc = unsafe { remainder(crc, after) };
+
+    (!crc).cast_unsigned()
 }
 
 #[inline]
