@@ -77,14 +77,23 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     /* do remaining bytes (less than NMAX, still just one modulo) */
-    adler32_len_64(adler, it.remainder(), sum2)
+    let remainder = it.remainder();
+    if remainder.is_empty() {
+        /* adler and sum2 already reduced from the outer loop */
+        return adler | (sum2 << 16);
+    }
+    adler32_len_64(adler, remainder, sum2)
 }
 
 pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     adler += buf[0] as u32;
-    adler %= BASE;
+    if adler >= BASE {
+        adler -= BASE;
+    }
     sum2 += adler;
-    sum2 %= BASE;
+    if sum2 >= BASE {
+        sum2 -= BASE;
+    }
     adler | (sum2 << 16)
 }
 
@@ -94,7 +103,11 @@ pub(crate) fn adler32_len_16(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
         sum2 += adler;
     }
 
-    adler %= BASE;
+    // callers guarantee adler < BASE on entry, so after at most 15 additions of ≤ 255
+    // adler < BASE + 15 * 255 < 2 * BASE — one conditional subtract suffices
+    if adler >= BASE {
+        adler -= BASE;
+    }
     sum2 %= BASE; /* only added so many BASE's */
     /* return recombined sums */
     adler | (sum2 << 16)
@@ -112,5 +125,6 @@ pub(crate) fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     }
 
     /* Process tail (len < 16).  */
+    adler %= BASE;
     adler32_len_16(adler, it.remainder(), sum2)
 }
