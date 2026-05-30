@@ -67,20 +67,22 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
         let big_chunk = unsafe { buf.get_unchecked(..NMAX as usize) };
         buf = unsafe { buf.get_unchecked(NMAX as usize..) };
 
-        /* Do-while countdown matching C's `do { } while (--n)`: one branch per iteration.
-         * The exit check is at the end so LLVM generates a single backward branch
-         * rather than a forward exit + unconditional backedge. */
-        let mut pos = 0;
+        /* Advance a raw pointer through big_chunk, matching C's `buf += 16`.
+         * This avoids the per-iteration base-pointer recomputation that
+         * the offset-based `get_unchecked(pos..pos+N)` requires. */
+        let mut ptr = big_chunk.as_ptr();
+        // SAFETY: big_chunk.len() == NMAX, so ptr.add(NMAX) is one-past-end and valid to form
+        let end = unsafe { ptr.add(NMAX as usize) };
         loop {
-            // SAFETY: pos ranges 0..NMAX in steps of N; pos + N <= NMAX holds before the break
-            let chunk = unsafe { big_chunk.get_unchecked(pos..pos + N) };
+            // SAFETY: ptr < end before this point, so [ptr, ptr+N) lies within big_chunk
+            let chunk = unsafe { core::slice::from_raw_parts(ptr, N) };
             if N == 16 {
                 do16!(adler, sum2, chunk);
             } else {
                 do8!(adler, sum2, chunk, 0);
             }
-            pos += N;
-            if pos == NMAX as usize {
+            ptr = unsafe { ptr.add(N) };
+            if ptr == end {
                 break;
             }
         }
@@ -131,18 +133,20 @@ pub(crate) fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     let tail_start = n_chunks * N;
 
     if n_chunks > 0 {
-        /* Do-while countdown: one branch per iteration. */
-        let mut pos = 0;
+        /* Advance a raw pointer through buf, matching C's `buf += 16`. */
+        let mut ptr = buf.as_ptr();
+        // SAFETY: tail_start <= buf.len(), so ptr.add(tail_start) is valid to form
+        let end = unsafe { ptr.add(tail_start) };
         loop {
-            // SAFETY: pos ranges 0..tail_start in steps of N; pos + N <= tail_start before break
-            let chunk = unsafe { buf.get_unchecked(pos..pos + N) };
+            // SAFETY: ptr < end before this point, so [ptr, ptr+N) lies within buf
+            let chunk = unsafe { core::slice::from_raw_parts(ptr, N) };
             if N == 16 {
                 do16!(adler, sum2, chunk);
             } else {
                 do8!(adler, sum2, chunk, 0);
             }
-            pos += N;
-            if pos == tail_start {
+            ptr = unsafe { ptr.add(N) };
+            if ptr == end {
                 break;
             }
         }
