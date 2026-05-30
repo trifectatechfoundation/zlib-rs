@@ -60,22 +60,10 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
         return adler32_len_16(adler, buf, sum2);
     }
 
-    const N: usize = if UNROLL_MORE { 16 } else { 8 };
-    let mut buf = buf;
-    while buf.len() >= NMAX as usize {
-        // SAFETY: buf.len() >= NMAX
-        let big_chunk = unsafe { buf.get_unchecked(..NMAX as usize) };
-        buf = unsafe { buf.get_unchecked(NMAX as usize..) };
-
-        /* Advance a raw pointer through big_chunk, matching C's `buf += 16`.
-         * This avoids the per-iteration base-pointer recomputation that
-         * the offset-based `get_unchecked(pos..pos+N)` requires. */
-        let mut ptr = big_chunk.as_ptr();
-        // SAFETY: big_chunk.len() == NMAX, so ptr.add(NMAX) is one-past-end and valid to form
-        let end = unsafe { ptr.add(NMAX as usize) };
-        loop {
-            // SAFETY: ptr < end before this point, so [ptr, ptr+N) lies within big_chunk
-            let chunk = unsafe { core::slice::from_raw_parts(ptr, N) };
+    let (big_chunks, rest) = slice_as_chunks::<_, { NMAX as usize }>(buf);
+    for big_chunk in big_chunks {
+        const N: usize = if UNROLL_MORE { 16 } else { 8 } as usize;
+        for chunk in big_chunk.as_chunks::<N>().0 {
             if N == 16 {
                 do16!(adler, sum2, chunk);
             } else {
@@ -92,11 +80,7 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     /* do remaining bytes (less than NMAX, still just one modulo) */
-    if buf.is_empty() {
-        /* adler and sum2 already reduced from the outer loop */
-        return adler | (sum2 << 16);
-    }
-    adler32_len_64(adler, buf, sum2)
+    adler32_len_64(adler, rest, sum2)
 }
 
 pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
@@ -129,31 +113,28 @@ pub(crate) fn adler32_len_16(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
 
 pub(crate) fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
     const N: usize = if UNROLL_MORE { 16 } else { 8 };
-    let n_chunks = buf.len() / N;
-    let tail_start = n_chunks * N;
-
-    if n_chunks > 0 {
-        /* Advance a raw pointer through buf, matching C's `buf += 16`. */
-        let mut ptr = buf.as_ptr();
-        // SAFETY: tail_start <= buf.len(), so ptr.add(tail_start) is valid to form
-        let end = unsafe { ptr.add(tail_start) };
-        loop {
-            // SAFETY: ptr < end before this point, so [ptr, ptr+N) lies within buf
-            let chunk = unsafe { core::slice::from_raw_parts(ptr, N) };
-            if N == 16 {
-                do16!(adler, sum2, chunk);
-            } else {
-                do8!(adler, sum2, chunk, 0);
-            }
-            ptr = unsafe { ptr.add(N) };
-            if ptr == end {
-                break;
-            }
+    let (chunks, rest) = slice_as_chunks::<_, N>(buf);
+    for chunk in chunks {
+        if N == 16 {
+            do16!(adler, sum2, chunk);
+        } else {
+            do8!(adler, sum2, chunk, 0);
         }
     }
 
-    /* Process tail (len < N). */
-    adler %= BASE;
-    // SAFETY: tail_start = (buf.len() / N) * N <= buf.len()
-    adler32_len_16(adler, unsafe { buf.get_unchecked(tail_start..) }, sum2)
+    /* Process tail (len < 16).  */
+    adler32_len_16(adler, rest, sum2)
+}
+
+// FIXME use the method on slices once available.
+pub fn slice_as_chunks<T, const N: usize>(slice: &[T]) -> (&[[T; N]], &[T]) {
+    assert!(N != 0, "chunk size must be non-zero");
+    let len_rounded_down = slice.len() / N * N;
+    // SAFETY: The rounded-down value is always the same or smaller than the
+    // original length, and thus must be in-bounds of the slice.
+    let (multiple_of_n, remainder) = unsafe { slice.split_at_unchecked(len_rounded_down) };
+    // SAFETY: We already panicked for zero, and ensured by construction
+    // that the length of the subslice is a multiple of N.
+    let array_slice = unsafe { multiple_of_n.as_chunks_unchecked() };
+    (array_slice, remainder)
 }
