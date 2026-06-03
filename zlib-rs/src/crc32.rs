@@ -14,7 +14,7 @@ mod pclmulqdq;
 #[cfg(feature = "vpclmulqdq")]
 mod vpclmulqdq;
 #[cfg(target_arch = "riscv64")]
-mod zbc;
+mod zbkc;
 
 pub use combine::{crc32_combine, crc32_combine_gen, crc32_combine_op};
 
@@ -86,8 +86,8 @@ impl Crc32Fold {
         }
 
         #[cfg(target_arch = "riscv64")]
-        if crate::cpu_features::is_enabled_zbc() {
-            self.value = unsafe { self::zbc::crc32_zbc_riscv64(self.value, src) };
+        if crate::cpu_features::is_enabled_zbkc() {
+            self.value = unsafe { self::zbkc::crc32_zbkc_riscv64(self.value, src) };
             return;
         }
 

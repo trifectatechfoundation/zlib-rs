@@ -110,9 +110,11 @@ pub fn is_enabled_simd128() -> bool {
 }
 
 #[inline(always)]
-pub fn is_enabled_zbc() -> bool {
+pub fn is_enabled_zbkc() -> bool {
+    // FIXME: std::arch::is_riscv64_feature_detected is stabilized in 1.78. Switch to runtime
+    // feature detection once MSRV is bumped. Until then, zbkc support is compile-time only.
     #[cfg(target_arch = "riscv64")]
-    return cfg!(target_feature = "zbc");
+    return cfg!(target_feature = "zbkc");
 
     false
 }
