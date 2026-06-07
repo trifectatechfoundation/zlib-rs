@@ -72,26 +72,31 @@ impl Crc32Fold {
     }
 
     pub fn fold(&mut self, src: &[u8], _start: u32) {
-        #[cfg(target_arch = "x86_64")]
-        if crate::cpu_features::is_enabled_pclmulqdq() {
-            return unsafe { self.fold.fold(src, _start) };
+        crate::cfg_select! {
+            target_arch = "x86_64" => {
+                if crate::cpu_features::is_enabled_pclmulqdq() {
+                    return unsafe { self.fold.fold(src, _start) };
+                }
+            }
+            target_arch = "aarch64" => {
+                if crate::cpu_features::is_enabled_crc() {
+                    self.value = unsafe { self::acle::crc32_acle_aarch64(self.value, src) };
+                    return;
+                }
+            }
+            target_arch = "loongarch64" => {
+                // On loongarch64 no target feature is needed for crc instructions.
+                if true {
+                    // NOTE: the start value is ignored.
+                    self.value = self::loongarch::crc32_loongarch64(self.value, src);
+                    return;
+                }
+            }
+            _ => { /* fall through */ }
         }
 
-        #[cfg(target_arch = "aarch64")]
-        if crate::cpu_features::is_enabled_crc() {
-            self.value = unsafe { self::acle::crc32_acle_aarch64(self.value, src) };
-            return;
-        }
-
-        #[cfg(target_arch = "loongarch64")]
-        {
-            self.value = self::loongarch::crc32_loongarch64(self.value, src);
-        }
-        #[cfg(not(target_arch = "loongarch64"))]
-        {
-            // in this case the start value is ignored
-            self.value = braid::crc32_braid::<5>(self.value, src);
-        }
+        // NOTE: the start value is ignored.
+        self.value = braid::crc32_braid::<5>(self.value, src);
     }
 
     pub fn fold_copy(&mut self, dst: &mut [u8], src: &[u8]) {
