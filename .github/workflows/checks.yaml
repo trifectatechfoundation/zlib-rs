@@ -647,15 +647,16 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx512vl,+avx512bw"
 
-  miri-neon:
-    name: "Miri neon"
-    runs-on: ubuntu-24.04-arm
+  miri-simd:
+    name: "Miri SIMD"
+    runs-on: ubuntu-24.04-arm # so we don't need to install gcc 
     strategy:
       matrix:
         include:
           - target: aarch64-unknown-linux-gnu
           # Errors out on miri atm, see https://github.com/rust-lang/miri/pull/5075.
           # - target: aarch64_be-unknown-linux-gnu
+          - target: loongarch64-unknown-linux-gnu
     env:
       QUICKCHECK_TESTS: 10
     steps:
@@ -673,10 +674,16 @@ jobs:
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
           tool: cargo-nextest
-      - name: Test with `+neon,+crc`
+      - name: Test aarch64 with `+neon,+crc`
+        if: ${{ contains(matrix.target, 'aarch64') }}
         run: "cargo +nightly miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
         env:
           RUSTFLAGS: "-Ctarget-feature=+crc"
+      - name: Test loongarch64
+        if: ${{ contains(matrix.target, 'loongarch64') }}
+        # FIXME: the -p zlib-rs is needed because github's ubuntu
+        # does not have loongarch64 gcc for building our C dependencies.
+        run: "cargo +nightly miri test  --target ${{ matrix.target }} -p zlib-rs -- crc32 adler32 compare256"
 
   run-flate2-test-suite:
     name: run flate2 test suite

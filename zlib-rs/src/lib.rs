@@ -1,5 +1,7 @@
 #![doc = core::include_str!("../README.md")]
 #![cfg_attr(not(any(test, feature = "rust-allocator")), no_std)]
+// For testing the loongarch64 crc32 implementation.
+#![cfg_attr(all(miri, target_arch = "loongarch64"), feature(stdarch_loongarch))]
 
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
