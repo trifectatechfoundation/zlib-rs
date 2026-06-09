@@ -2,6 +2,45 @@ use core::ffi::{c_int, c_uchar, c_uint, c_void};
 use core::mem::MaybeUninit;
 use libz_sys as libz_ng_sys;
 
+use crate::assert_eq_rs_ng;
+
+#[test]
+fn edge_cases() {
+    let mut tiny_window = [0u8; 16];
+
+    assert_eq!(
+        assert_eq_rs_ng! {
+            {
+                let mut stream = MaybeUninit::uninit();
+                inflateBackInit_(
+                    stream.as_mut_ptr(),
+                    20,
+                    tiny_window.as_mut_ptr(),
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as _ ,
+                )
+            }
+        },
+        libz_ng_sys::Z_STREAM_ERROR
+    );
+
+    assert_eq!(
+        assert_eq_rs_ng! {
+            {
+                let mut stream = MaybeUninit::uninit();
+                inflateBackInit_(
+                    stream.as_mut_ptr(),
+                    15,
+                    core::ptr::null_mut(),
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as _ ,
+                )
+            }
+        },
+        libz_ng_sys::Z_STREAM_ERROR
+    );
+}
+
 #[test]
 fn blow_up_the_stack_1() {
     const INPUT: &[u8] = include_bytes!("test-data/blow_up_the_stack_1.gz");
@@ -46,8 +85,13 @@ fn differential_inflate_back<const CHUNK: usize>(input: &[u8]) {
     // Per the documentation, only window_bits 15 is supported.
     let window_bits = 15;
 
-    let ng_out = run_inflate_back_ng::<CHUNK>(input, window_bits);
     let rs_out = run_inflate_back_rs::<CHUNK>(input, window_bits);
+
+    if cfg!(miri) {
+        return;
+    }
+
+    let ng_out = run_inflate_back_ng::<CHUNK>(input, window_bits);
 
     if let (Ok(ng_out), Ok(rs_out)) = (&ng_out, &rs_out) {
         assert_eq!(ng_out.len(), rs_out.len());

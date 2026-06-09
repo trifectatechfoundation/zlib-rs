@@ -5,27 +5,6 @@ use libz_sys as libz_ng_sys;
 
 use std::{ffi::c_ulong, path::PathBuf};
 
-#[cfg(not(target_family = "wasm"))]
-unsafe fn uncompress(
-    dest: *mut u8,
-    dest_len: *mut std::ffi::c_ulong,
-    source: *const u8,
-    source_len: std::ffi::c_ulong,
-) -> std::ffi::c_int {
-    let lib = libloading::Library::new("/home/folkertdev/rust/zlib-ng/libz-ng.so").unwrap();
-
-    type Func = unsafe extern "C" fn(
-        dest: *mut u8,
-        dest_len: *mut std::ffi::c_ulong,
-        source: *const u8,
-        source_len: std::ffi::c_ulong,
-    ) -> std::ffi::c_int;
-
-    let f: libloading::Symbol<Func> = lib.get(b"zng_uncompress").unwrap();
-
-    f(dest, dest_len, source, source_len)
-}
-
 fn main() {
     let mut it = std::env::args();
 
@@ -82,34 +61,6 @@ fn main() {
 
             drop(dest_vec)
         }
-        #[cfg(not(target_family = "wasm"))]
-        "xx" => {
-            let path = it.next().unwrap();
-            let input = std::fs::read(&path).unwrap();
-
-            let mut dest_vec = vec![0u8; 1 << 28];
-
-            let mut dest_len = dest_vec.len() as std::ffi::c_ulong;
-            let dest = dest_vec.as_mut_ptr();
-
-            let source = input.as_ptr();
-            let source_len = input.len() as _;
-
-            let err = unsafe { uncompress(dest, &mut dest_len, source, source_len) };
-
-            if err != 0 {
-                panic!();
-            }
-
-            dest_vec.truncate(dest_len as usize);
-
-            let path = PathBuf::from(path);
-            std::fs::write(path.with_extension(""), &dest_vec).unwrap();
-
-            drop(dest_vec)
-        }
-        #[cfg(target_family = "wasm")]
-        "xx" => panic!("wasm doesn't support dlopen"),
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
 }

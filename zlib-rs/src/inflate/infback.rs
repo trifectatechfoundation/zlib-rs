@@ -10,6 +10,7 @@ use crate::inflate::{
     INFLATE_FAST_MIN_HAVE, INFLATE_FAST_MIN_LEFT, INFLATE_STRICT, MAX_BITS, MAX_DIST_EXTRA_BITS,
 };
 use crate::{c_api::z_stream, inflate::writer::Writer, ReturnCode};
+use crate::{MAX_WBITS, MIN_WBITS};
 
 macro_rules! tracev {
     ($template:expr) => {
@@ -25,6 +26,10 @@ macro_rules! tracev {
 /// Initialize the stream in an inflate state
 pub fn back_init(stream: &mut z_stream, config: InflateConfig, window: Window) -> ReturnCode {
     assert_eq!(1 << config.window_bits, window.buffer_size());
+
+    if !(MIN_WBITS..=MAX_WBITS).contains(&config.window_bits) {
+        return ReturnCode::StreamError as _;
+    }
 
     stream.msg = core::ptr::null_mut();
 
@@ -106,7 +111,7 @@ pub unsafe fn back(
     let mut have = if !next.is_null() { strm.avail_in } else { 0 };
     let mut hold = 0;
     let mut bits = 0u8;
-    let mut put = strm.state.window.as_ptr().cast_mut();
+    let mut put = strm.state.window.as_mut_ptr();
     let mut left = strm.state.window.buffer_size();
 
     let state = &mut strm.state;
@@ -177,8 +182,7 @@ pub unsafe fn back(
             () => {
                 if left == 0 {
                     left = state.window.buffer_size();
-                    let window = state.window.as_slice();
-                    put = window.as_ptr().cast_mut();
+                    put = state.window.as_mut_ptr();
 
                     unsafe { state.window.set_have(left) };
 
@@ -713,7 +717,7 @@ pub unsafe fn back(
         && unsafe {
             out(
                 out_desc,
-                state.window.as_ptr().cast_mut(),
+                state.window.as_mut_ptr(),
                 state.window.buffer_size() as u32 - left as u32,
             )
         } != 0

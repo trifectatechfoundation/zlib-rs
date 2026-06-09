@@ -63,7 +63,7 @@ jobs:
           cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium
       - name: Benchmark
-        uses: trifectatechfoundation/benchmarker-action@main
+        uses: trifectatechfoundation/benchmarker-action@main # zizmor: ignore[unpinned-uses] controlled by us
         with:
           deploy-key: "${{ secrets.BENCH_DATA_DEPLOY_KEY }}"
           bench-repo: "git@github.com:trifectatechfoundation/zlib-rs-bench.git"

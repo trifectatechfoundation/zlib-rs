@@ -3,7 +3,7 @@ name: checks
 permissions:
   contents: read
 
-on:
+on: # zizmor: ignore[cache-poisoning] not actually used for releases
   push:
     branches:
       - main
@@ -28,6 +28,9 @@ jobs:
       # s390x-unknown-linux-gnu
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER: s390x-linux-gnu-gcc
       CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER: qemu-s390x -L /usr/s390x-linux-gnu
+      # powerpc64le-unknown-linux-gnu
+      CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_LINKER: powerpc64le-linux-gnu-gcc
+      CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_RUNNER: qemu-ppc64le -L /usr/powerpc64le-linux-gnu
       # wasm32-wasip1 (std for wasip2 is unstable)
       WASI_SDK_PATH: /tmp/wasi-sdk-24.0-x86_64-linux
       CC_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/clang
@@ -74,6 +77,11 @@ jobs:
             codecov: false
             packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-static
 
+          - target: "powerpc64le-unknown-linux-gnu"
+            os: ubuntu-latest
+            codecov: false
+            packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-static
+
           - target: "wasm32-wasip1"
             os: ubuntu-latest
             flags: "-p zlib-rs -p libz-rs-sys -p test-libz-rs-sys"
@@ -117,7 +125,7 @@ jobs:
           tool: cargo-llvm-cov,cargo-nextest
       - name: Cache apt packages
         if: matrix.packages != ''
-        uses: awalsh128/cache-apt-pkgs-action@v1
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
         with:
           packages: "${{ matrix.packages }}"
           version: 2
@@ -441,7 +449,7 @@ jobs:
           targets: ${{matrix.target}}
 
       - name: Install apt packages
-        uses: awalsh128/cache-apt-pkgs-action@v1
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
         with:
           packages: build-essential cmake pkg-config abigail-tools binutils
           version: 2
@@ -523,9 +531,8 @@ jobs:
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
 
-
-  miri:
-    name: "Miri"
+  miri-zlib-rs:
+    name: "Miri (zlib-rs)"
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -535,7 +542,42 @@ jobs:
     env:
       QUICKCHECK_TESTS: 10
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+      - name: Install Miri
+        run: |
+          rustup target add ${{ matrix.target }}
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Install gcc
+        if: ${{ contains(matrix.target, 'windows') }}
+        run: |
+          sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          x86_64-w64-mingw32-gcc --help
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
+        with:
+          tool: cargo-nextest
+      - name: Test with miri
+        run: "cargo +nightly miri nextest run -p zlib-rs --target ${{ matrix.target }}"
+
+  miri-libz-rs-sys:
+    name: "Miri (libz-rs-sys)"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-pc-windows-gnu
+    env:
+      QUICKCHECK_TESTS: 10
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
@@ -551,19 +593,17 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test public C api with NULL arguments
-        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} null::"
+        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} null::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1"
-      - name: Test allocator with miri
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} allocate::"
       - name: Test gz internals with miri
         working-directory: libz-rs-sys
-        run: "cargo +nightly miri nextest run -j4 -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
+        run: "cargo +nightly miri nextest run -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
       - name: Test gz api with miri
         if: ${{ contains(matrix.target, 'linux') }}
-        run: "cargo +nightly miri nextest run -j4 -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
+        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
         env:
           MIRIFLAGS: "-Zmiri-no-short-fd-operations -Zmiri-disable-isolation"
 
@@ -577,7 +617,10 @@ jobs:
     env:
       QUICKCHECK_TESTS: 10
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
@@ -592,6 +635,10 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+vpclmulqdq,+avx512f"
       - name: Test avx512 adler32 implementation
+        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::avx512::test"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1,+avx512f,+avx512bw"
+      - name: Test avx512 vnni adler32 implementation
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1,+avx512f,+avx512bw,+avx512vnni"
@@ -599,6 +646,44 @@ jobs:
         run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 compare256"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx512vl,+avx512bw"
+
+  miri-simd:
+    name: "Miri SIMD"
+    runs-on: ubuntu-24.04-arm # so we don't need to install gcc 
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+          # Errors out on miri atm, see https://github.com/rust-lang/miri/pull/5075.
+          # - target: aarch64_be-unknown-linux-gnu
+          - target: loongarch64-unknown-linux-gnu
+    env:
+      QUICKCHECK_TESTS: 10
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
+        with:
+          tool: cargo-nextest
+      - name: Test aarch64 with `+neon,+crc`
+        if: ${{ contains(matrix.target, 'aarch64') }}
+        run: "cargo +nightly miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+crc"
+      - name: Test loongarch64
+        if: ${{ contains(matrix.target, 'loongarch64') }}
+        # FIXME: the -p zlib-rs is needed because github's ubuntu
+        # does not have loongarch64 gcc for building our C dependencies.
+        run: "cargo +nightly miri test  --target ${{ matrix.target }} -p zlib-rs -- crc32 adler32 compare256"
 
   run-flate2-test-suite:
     name: run flate2 test suite
