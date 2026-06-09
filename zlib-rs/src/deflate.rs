@@ -601,7 +601,7 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
 
 pub fn copy<'a>(
     dest: &mut MaybeUninit<DeflateStream<'a>>,
-    source: &mut DeflateStream<'a>,
+    source: &DeflateStream<'a>,
 ) -> ReturnCode {
     let w_size = source.state.w_size;
     let window_bits = source.state.w_bits() as usize;
