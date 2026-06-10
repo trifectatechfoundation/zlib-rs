@@ -108,3 +108,30 @@ pub fn is_enabled_simd128() -> bool {
 
     false
 }
+
+// PowerPC 64-bit: compile-time only detection (no stable runtime detection available).
+// Enable with `-C target-feature=+altivec,+vsx` or `-C target-cpu=pwr8` (or higher).
+
+#[inline(always)]
+pub fn is_enabled_altivec() -> bool {
+    #[cfg(target_arch = "powerpc64")]
+    return cfg!(target_feature = "altivec");
+
+    false
+}
+
+#[inline(always)]
+pub fn is_enabled_vsx() -> bool {
+    #[cfg(target_arch = "powerpc64")]
+    return cfg!(target_feature = "vsx");
+
+    false
+}
+
+#[inline(always)]
+pub fn is_enabled_power9() -> bool {
+    #[cfg(target_arch = "powerpc64")]
+    return cfg!(target_feature = "power9-altivec");
+
+    false
+}
