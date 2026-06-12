@@ -1,7 +1,7 @@
 use core::{ffi::c_uint, mem::MaybeUninit};
 
-use crate::deflate::{DeflateConfig, self};
-use crate::inflate::{InflateConfig, self};
+use crate::deflate::{self, DeflateConfig};
+use crate::inflate::{self, InflateConfig};
 use crate::ReturnCode;
 pub use crate::{DeflateFlush, InflateFlush};
 
@@ -246,15 +246,15 @@ impl Inflate {
     pub fn try_clone(&self) -> Result<Self, InflateCloneError> {
         let mut new_inner = MaybeUninit::uninit();
         // Safety: self is initialized
-        match unsafe {inflate::copy(&mut new_inner, &self.inner)} {
-            ReturnCode::Ok => {},
+        match unsafe { inflate::copy(&mut new_inner, &self.inner) } {
+            ReturnCode::Ok => {}
             ReturnCode::MemError => return Err(InflateCloneError::MemError),
             ReturnCode::StreamError => return Err(InflateCloneError::StreamError),
             other => unreachable!("deflate::copy does not return {other:?}"),
         };
         // Safety: successful inflate::copy guarantees to initialize dest.
         let inner = unsafe { new_inner.assume_init() };
-        Ok(Self{
+        Ok(Self {
             inner,
             total_in: self.total_in,
             total_out: self.total_out,
@@ -484,13 +484,13 @@ impl Deflate {
     pub fn try_clone(&self) -> Result<Self, DeflateCloneError> {
         let mut new_inner = MaybeUninit::uninit();
         match deflate::copy(&mut new_inner, &self.inner) {
-            ReturnCode::Ok => {},
+            ReturnCode::Ok => {}
             ReturnCode::MemError => return Err(DeflateCloneError::MemError),
             other => unreachable!("deflate::copy does not return {other:?}"),
         };
         // Safety: successful deflate::copy guarantees to initialize dest.
         let inner = unsafe { new_inner.assume_init() };
-        Ok(Self{
+        Ok(Self {
             inner,
             total_in: self.total_in,
             total_out: self.total_out,
