@@ -1,7 +1,7 @@
 use core::{ffi::c_uint, mem::MaybeUninit};
 
-use crate::deflate::DeflateConfig;
-use crate::inflate::InflateConfig;
+use crate::deflate::{self, DeflateConfig};
+use crate::inflate::{self, InflateConfig};
 use crate::ReturnCode;
 pub use crate::{DeflateFlush, InflateFlush};
 
@@ -61,6 +61,32 @@ impl From<InflateError> for ReturnCode {
 }
 
 impl InflateError {
+    pub fn as_str(self) -> &'static str {
+        ReturnCode::from(self).error_message_str()
+    }
+}
+
+/// Errors that can occur when cloning [`Inflate`]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(i32)]
+pub enum InflateCloneError {
+    /// The [`Inflate`] is in an inconsistent state, most likely
+    /// due to an invalid configuration parameter.
+    StreamError = -2,
+    /// A memory allocation failed.
+    MemError = -4,
+}
+
+impl From<InflateCloneError> for ReturnCode {
+    fn from(value: InflateCloneError) -> Self {
+        match value {
+            InflateCloneError::StreamError => ReturnCode::StreamError,
+            InflateCloneError::MemError => ReturnCode::MemError,
+        }
+    }
+}
+
+impl InflateCloneError {
     pub fn as_str(self) -> &'static str {
         ReturnCode::from(self).error_message_str()
     }
@@ -212,6 +238,42 @@ impl Inflate {
             other => unreachable!("set_dictionary does not return {other:?}"),
         }
     }
+
+    /// Clone the [`Inflate`] state.
+    ///
+    /// This is conceptually like [`Clone::clone`](`core::clone::Clone::clone`),
+    /// except it's fallible.
+    pub fn try_clone(&self) -> Result<Self, InflateCloneError> {
+        let mut new_inner = MaybeUninit::uninit();
+        // Safety: self is initialized
+        match unsafe { inflate::copy(&mut new_inner, &self.inner) } {
+            ReturnCode::Ok => {}
+            ReturnCode::MemError => return Err(InflateCloneError::MemError),
+            ReturnCode::StreamError => return Err(InflateCloneError::StreamError),
+            other => unreachable!("deflate::copy does not return {other:?}"),
+        };
+        // Safety: successful inflate::copy guarantees to initialize dest.
+        let inner = unsafe { new_inner.assume_init() };
+        Ok(Self {
+            inner,
+            total_in: self.total_in,
+            total_out: self.total_out,
+        })
+    }
+}
+
+impl Clone for Inflate {
+    /// Returns a duplicate of the value.
+    ///
+    /// # Panics
+    /// Panics if [`Inflate::try_clone`] returns an error.
+    fn clone(&self) -> Self {
+        match self.try_clone() {
+            Ok(new) => new,
+            Err(InflateCloneError::MemError) => panic!("allocation failed"),
+            Err(InflateCloneError::StreamError) => panic!("Inflate in inconsistent state"),
+        }
+    }
 }
 
 impl Drop for Inflate {
@@ -261,6 +323,27 @@ impl From<ReturnCode> for Result<Status, DeflateError> {
             ReturnCode::BufError => Ok(Status::BufError),
             ReturnCode::VersionError => unreachable!("the rust API does not use the version"),
         }
+    }
+}
+
+/// Errors that can occur when cloning [`Deflate`].
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DeflateCloneError {
+    /// A memory allocation failed.
+    MemError = -4,
+}
+
+impl From<DeflateCloneError> for ReturnCode {
+    fn from(value: DeflateCloneError) -> Self {
+        match value {
+            DeflateCloneError::MemError => ReturnCode::MemError,
+        }
+    }
+}
+
+impl DeflateCloneError {
+    pub fn as_str(self) -> &'static str {
+        ReturnCode::from(self).error_message_str()
     }
 }
 
@@ -391,6 +474,39 @@ impl Deflate {
             ReturnCode::StreamError => Err(DeflateError::StreamError),
             ReturnCode::BufError => Ok(Status::BufError),
             other => unreachable!("set_level does not return {other:?}"),
+        }
+    }
+
+    /// Clone the [`Deflate`] state.
+    ///
+    /// This is conceptually like [`Clone::clone`](`core::clone::Clone::clone`),
+    /// except it's fallible.
+    pub fn try_clone(&self) -> Result<Self, DeflateCloneError> {
+        let mut new_inner = MaybeUninit::uninit();
+        match deflate::copy(&mut new_inner, &self.inner) {
+            ReturnCode::Ok => {}
+            ReturnCode::MemError => return Err(DeflateCloneError::MemError),
+            other => unreachable!("deflate::copy does not return {other:?}"),
+        };
+        // Safety: successful deflate::copy guarantees to initialize dest.
+        let inner = unsafe { new_inner.assume_init() };
+        Ok(Self {
+            inner,
+            total_in: self.total_in,
+            total_out: self.total_out,
+        })
+    }
+}
+
+impl Clone for Deflate {
+    /// Returns a duplicate of the value.
+    ///
+    /// # Panics
+    /// Panics if [`Deflate::try_clone`] returns an error.
+    fn clone(&self) -> Self {
+        match self.try_clone() {
+            Ok(new) => new,
+            Err(DeflateCloneError::MemError) => panic!("allocation failed"),
         }
     }
 }
