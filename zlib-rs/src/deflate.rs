@@ -1047,12 +1047,12 @@ impl<'a> BitWriter<'a> {
 
     fn send_bits_overflow(&mut self, val: u64, total_bits: u8) {
         if self.bits_used == Self::BIT_BUF_SIZE {
-            self.pending.extend(&self.bit_buffer.to_le_bytes());
+            self.pending.extend_const(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val;
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
         } else {
             self.bit_buffer |= val << self.bits_used;
-            self.pending.extend(&self.bit_buffer.to_le_bytes());
+            self.pending.extend_const(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
             self.bits_used = total_bits - Self::BIT_BUF_SIZE;
         }
