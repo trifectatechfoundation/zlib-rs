@@ -1114,7 +1114,8 @@ pub unsafe extern "C" fn inflateSetDictionary(
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`inflateInit_`] or similar
 /// * Either
 ///     - `head` is `NULL`
-///     - `head` satisfies the requirements of `&mut *head`
+///     - `head` satisfies the requirements of `&mut *head` for as long as this header is
+///       configured
 /// * If `head` is not `NULL`:
 ///     - if `head.extra` is not NULL, it must be writable for at least `head.extra_max` bytes
 ///     - if `head.name` is not NULL, it must be writable for at least `head.name_max` bytes
@@ -1255,7 +1256,8 @@ pub unsafe extern "C" fn deflate(strm: *mut z_stream, flush: i32) -> c_int {
 ///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
 /// * Either
 ///     - `head` is `NULL`
-///     - `head` satisfies the requirements of `&mut *head` and satisfies the following:
+///     - `head` satisfies the requirements of `&mut *head` for as long as this header is
+///       configured, and satisfies the following:
 ///         - `head.extra` is `NULL` or is readable for at least `head.extra_len` bytes
 ///         - `head.name` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
 ///         - `head.comment` is `NULL` or satisfies the requirements of [`core::ffi::CStr::from_ptr`]
