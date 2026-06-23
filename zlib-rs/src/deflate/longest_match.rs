@@ -70,7 +70,7 @@ fn longest_match_help<const SLOW: bool>(
     }
 
     let mut mbase_start = window.as_ptr();
-    let mut mbase_end = window[offset..].as_ptr();
+    let mut mbase_end = mbase_start.wrapping_add(offset);
 
     // Don't waste too much time by following a chain if we already have a good match
     chain_length = state.max_chain_length;
@@ -130,8 +130,8 @@ fn longest_match_help<const SLOW: bool>(
         early_exit = state.level < EARLY_EXIT_TRIGGER_LEVEL;
     }
 
-    let scan_start = window[strstart..].as_ptr();
-    let mut scan_end = window[strstart + offset..].as_ptr();
+    let scan_start = scan.as_ptr();
+    let mut scan_end = scan_start.wrapping_add(offset);
 
     assert!(
         strstart <= state.window_size.saturating_sub(MIN_LOOKAHEAD),

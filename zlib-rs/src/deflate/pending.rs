@@ -77,6 +77,24 @@ impl<'a> Pending<'a> {
         self.pending += buf.len();
     }
 
+    /// Like [`extend`](Self::extend), but for a fixed-size array.
+    ///
+    /// Because the length is a compile-time constant, the optimizer collapses the
+    /// capacity check and the slice-index bounds check (which are mathematically
+    /// identical: `out + pending + N <= buf.len()`) into a single comparison, and
+    /// emits the copy as one fixed-width store.
+    #[inline(always)]
+    #[track_caller]
+    pub fn extend_const<const N: usize>(&mut self, buf: &[u8; N]) {
+        // SAFETY: [u8; N] is valid [MaybeUninit<u8>; N]
+        let buf = unsafe { &*(buf as *const [u8; N] as *const [MaybeUninit<u8>; N]) };
+
+        let start = self.out + self.pending;
+        self.buf.as_mut_slice()[start..][..N].copy_from_slice(buf);
+
+        self.pending += N;
+    }
+
     pub(crate) unsafe fn from_raw_parts(ptr: *mut MaybeUninit<u8>, len: usize) -> Self {
         let buf = unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) };
 
