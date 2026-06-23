@@ -4294,6 +4294,26 @@ mod test {
         fuzz_based_test(&input, config, &expected);
     }
 
+    #[test]
+    fn send_bits_full_buffer() {
+        // Exercise the `bits_used == BIT_BUF_SIZE` branch in `send_bits_overflow`:
+        // when the bit buffer is exactly full (64 bits), the buffered bits must be
+        // flushed before the new value is placed into a fresh buffer.
+        let mut buf = [MaybeUninit::<u8>::uninit(); 32];
+        let pending = unsafe { Pending::from_raw_parts(buf.as_mut_ptr(), buf.len()) };
+        let mut bw = BitWriter::from_pending(pending);
+
+        bw.bit_buffer = 0x0807060504030201_u64;
+        bw.bits_used = BitWriter::BIT_BUF_SIZE; // exactly 64 — buffer is full
+
+        bw.send_bits(0b101, 3);
+
+        // The full 64-bit buffer was flushed as 8 LE bytes; the 3 new bits start fresh.
+        assert_eq!(bw.pending.pending(), &0x0807060504030201_u64.to_le_bytes());
+        assert_eq!(bw.bit_buffer, 0b101);
+        assert_eq!(bw.bits_used, 3);
+    }
+
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     mod _cache_lines {
         use super::State;
