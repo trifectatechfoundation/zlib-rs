@@ -31,6 +31,9 @@ jobs:
       # powerpc64le-unknown-linux-gnu
       CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_LINKER: powerpc64le-linux-gnu-gcc
       CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_RUNNER: qemu-ppc64le -L /usr/powerpc64le-linux-gnu
+      # loongarch64-unknown-linux-gnu
+      CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER: loongarch64-linux-gnu-gcc
+      CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-loongarch64 -L /usr/loongarch64-linux-gnu
       # wasm32-wasip1 (std for wasip2 is unstable)
       WASI_SDK_PATH: /tmp/wasi-sdk-24.0-x86_64-linux
       CC_wasm32_wasip1: /tmp/wasi-sdk-24.0-x86_64-linux/bin/clang
@@ -81,6 +84,11 @@ jobs:
             os: ubuntu-latest
             codecov: false
             packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-static
+
+          - target: "loongarch64-unknown-linux-gnu"
+            os: ubuntu-26.04
+            codecov: false
+            packages: gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu qemu-user qemu-user-binfmt
 
           - target: "wasm32-wasip1"
             os: ubuntu-latest
