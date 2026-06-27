@@ -34,7 +34,9 @@ mod cpu_features;
 mod stable;
 mod weak_slice;
 
-pub use stable::{Deflate, DeflateError, Inflate, InflateError, Status};
+pub use stable::{
+    Deflate, DeflateCloneError, DeflateError, Inflate, InflateCloneError, InflateError, Status,
+};
 
 pub use deflate::{DeflateConfig, Method, Strategy};
 pub use inflate::InflateConfig;
