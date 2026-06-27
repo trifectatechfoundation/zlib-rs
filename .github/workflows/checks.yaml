@@ -76,14 +76,14 @@ jobs:
             packages: gcc-i686-linux-gnu g++-i686-linux-gnu
 
           - target: "s390x-unknown-linux-gnu"
-            os: ubuntu-latest
+            os: ubuntu-26.04
             codecov: false
-            packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-static
+            packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-binfmt
 
           - target: "powerpc64le-unknown-linux-gnu"
-            os: ubuntu-latest
+            os: ubuntu-26.04
             codecov: false
-            packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-static
+            packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-binfmt
 
           - rust: nightly
             target: "loongarch64-unknown-linux-gnu"
