@@ -85,9 +85,11 @@ jobs:
             codecov: false
             packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-static
 
-          - target: "loongarch64-unknown-linux-gnu"
+          - rust: nightly
+            target: "loongarch64-unknown-linux-gnu"
             os: ubuntu-26.04
             codecov: false
+            flags: "--features=lsx"
             packages: gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu qemu-user qemu-user-binfmt
 
           - target: "wasm32-wasip1"
