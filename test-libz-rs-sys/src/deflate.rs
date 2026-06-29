@@ -7,7 +7,7 @@ use core::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 
 use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
-    Z_NO_FLUSH,
+    Z_NO_FLUSH, Z_OK,
 };
 use zlib_rs::{
     c_api::Z_BEST_COMPRESSION,
@@ -1174,6 +1174,164 @@ fn test_deflate_pending() {
 
         let err = deflateEnd(strm);
         assert_eq!(err, 0);
+    }
+}
+
+#[test]
+fn test_deflate_used() {
+    const HELLO: &str = "hello, hello!\0";
+
+    let config = DeflateConfig::default();
+
+    let mut strm = MaybeUninit::zeroed();
+
+    unsafe {
+        // a NULL stream is a stream error
+        assert_eq!(
+            libz_rs_sys::deflateUsed(core::ptr::null_mut(), &mut 0),
+            ReturnCode::StreamError as i32,
+        );
+
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let strm = strm.assume_init_mut();
+
+        // A NULL `bits` pointer is tolerated (and just ignored), still Z_OK
+        let err = libz_rs_sys::deflateUsed(strm, std::ptr::null_mut());
+        assert_eq!(err, 0);
+
+        // Before any flush to a byte boundary, the value is 0
+        let mut bits = -1;
+        let err = libz_rs_sys::deflateUsed(strm, &mut bits);
+        assert_eq!(err, 0);
+        assert_eq!(bits, 0);
+
+        let mut compr = [0; 32];
+        strm.next_in = HELLO.as_ptr() as *mut u8;
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_in = HELLO.len() as _;
+        strm.avail_out = compr.len() as _;
+
+        let err = deflate(strm, libz_rs_sys::Z_FINISH);
+        assert_eq!(err, libz_rs_sys::Z_STREAM_END);
+
+        // after flushing the final block to a byte boundary, the number of bits
+        // used in the last byte is in 1..=8.
+        let mut bits = -1;
+        let err = libz_rs_sys::deflateUsed(strm, &mut bits);
+        assert_eq!(err, 0);
+
+        // 7 bits is what stock zlib reports.
+        assert_eq!(bits, 7);
+
+        let err = deflateEnd(strm);
+        assert_eq!(err, 0);
+    }
+}
+
+/// The stored (level 0) implementation has some custom logic for `bits_used`.
+#[test]
+fn test_deflate_used_stored() {
+    let config = DeflateConfig {
+        level: 0,
+        ..DeflateConfig::default()
+    };
+
+    let mut strm = MaybeUninit::zeroed();
+
+    unsafe {
+        let err = libz_rs_sys::deflateInit2_(
+            strm.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let strm = strm.assume_init_mut();
+
+        let input = b"a stored block carries raw bytes\0";
+        let mut compr = [0; 128];
+        strm.next_in = input.as_ptr() as *mut u8;
+        strm.next_out = compr.as_mut_ptr();
+        strm.avail_in = input.len() as _;
+        strm.avail_out = compr.len() as _;
+
+        let err = deflate(strm, libz_rs_sys::Z_FINISH);
+        assert_eq!(err, libz_rs_sys::Z_STREAM_END);
+
+        let mut bits = -1;
+        let err = libz_rs_sys::deflateUsed(strm, &mut bits);
+        assert_eq!(err, 0);
+
+        // Always a full byte.
+        assert_eq!(bits, 8);
+
+        let err = deflateEnd(strm);
+        assert_eq!(err, 0);
+    }
+}
+
+#[test]
+fn test_deflate_used_copy() {
+    let config = DeflateConfig::default();
+
+    let mut source = MaybeUninit::zeroed();
+
+    unsafe {
+        let err = libz_rs_sys::deflateInit2_(
+            source.as_mut_ptr(),
+            config.level,
+            config.method as i32,
+            config.window_bits,
+            config.mem_level,
+            config.strategy as i32,
+            VERSION,
+            STREAM_SIZE,
+        );
+        assert_eq!(err, 0);
+
+        let source = source.assume_init_mut();
+
+        let input = b"just some string...\0";
+        let mut compr = [0; 128];
+        source.next_in = input.as_ptr() as *mut u8;
+        source.next_out = compr.as_mut_ptr();
+        source.avail_in = input.len() as _;
+        source.avail_out = compr.len() as _;
+
+        let err = deflate(source, libz_rs_sys::Z_FINISH);
+        assert_eq!(err, libz_rs_sys::Z_STREAM_END);
+
+        let mut src_bits = -1;
+        assert_eq!(libz_rs_sys::deflateUsed(source, &mut src_bits), Z_OK);
+        assert!((1..=8).contains(&src_bits));
+
+        let mut dest = MaybeUninit::zeroed();
+        let err = libz_rs_sys::deflateCopy(dest.as_mut_ptr(), source);
+        assert_eq!(err, Z_OK);
+        let dest = dest.assume_init_mut();
+
+        let mut dst_bits = -1;
+        assert_eq!(libz_rs_sys::deflateUsed(dest, &mut dst_bits), Z_OK);
+        assert_eq!(dst_bits, src_bits);
+
+        assert_eq!(deflateEnd(source), 0);
+        assert_eq!(deflateEnd(dest), 0);
     }
 }
 
