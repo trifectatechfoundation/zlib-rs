@@ -650,8 +650,9 @@ pub fn copy<'a>(
     };
 
     let mut bit_writer = BitWriter::from_pending(pending);
-    bit_writer.bits_valid = source_state.bit_writer.bits_valid;
     bit_writer.bit_buffer = source_state.bit_writer.bit_buffer;
+    bit_writer.bits_valid = source_state.bit_writer.bits_valid;
+    bit_writer.bits_used = source_state.bit_writer.bits_used;
 
     let dest_state = State {
         status: source_state.status,
@@ -900,8 +901,15 @@ pub(crate) const DIST_CODE_LEN: usize = 512;
 
 struct BitWriter<'a> {
     pub(crate) pending: Pending<'a>, // output still pending
+
+    /// Output buffer. bits are inserted starting at the bottom (least significant bits).
     pub(crate) bit_buffer: u64,
+
+    /// Number of valid bits in bi_buf.  All bits above the last valid bit are always zero.
     pub(crate) bits_valid: u8,
+
+    /// Last number of used bits when going to a byte boundary.
+    pub(crate) bits_used: u8,
 
     /// total bit length of compressed file (NOTE: zlib-ng uses a 32-bit integer here)
     #[cfg(feature = "ZLIB_DEBUG")]
@@ -963,6 +971,7 @@ impl<'a> BitWriter<'a> {
             pending,
             bit_buffer: 0,
             bits_valid: 0,
+            bits_used: 0,
 
             #[cfg(feature = "ZLIB_DEBUG")]
             compressed_len: 0,
@@ -989,8 +998,12 @@ impl<'a> BitWriter<'a> {
         let src = &self.bit_buffer.to_le_bytes();
         self.pending.extend(&src[..keep_bytes as usize]);
 
-        self.bits_valid = 0;
+        self.bits_used = match self.bits_valid {
+            0 => 8,
+            _ => ((self.bits_valid - 1) & 7) + 1,
+        };
         self.bit_buffer = 0;
+        self.bits_valid = 0;
 
         self.sent_bits_align();
     }
@@ -1591,6 +1604,7 @@ impl<'a> State<'a> {
 
         self.bit_writer.bit_buffer = 0;
         self.bit_writer.bits_valid = 0;
+        self.bit_writer.bits_used = 0;
 
         #[cfg(feature = "ZLIB_DEBUG")]
         {

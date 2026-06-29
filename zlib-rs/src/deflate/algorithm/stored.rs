@@ -161,7 +161,9 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         state.block_start = state.strstart as isize;
     }
 
+    // If the last block was written to next_out, then done.
     if last {
+        stream.state.bit_writer.bits_used = 8;
         return BlockState::FinishDone;
     }
 
@@ -241,6 +243,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
 
     // We've done all we can with the available input and output.
     if last {
+        stream.state.bit_writer.bits_used = 8;
         BlockState::FinishStarted
     } else {
         BlockState::NeedMore
