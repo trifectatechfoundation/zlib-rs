@@ -125,6 +125,11 @@ impl<'a> DeflateStream<'a> {
         )
     }
 
+    /// Last number of used bits when going to a byte boundary.
+    pub fn bits_used(&self) -> u8 {
+        self.state.bit_writer.bits_used
+    }
+
     pub fn new(config: DeflateConfig) -> Self {
         let mut inner = crate::c_api::z_stream::default();
 
