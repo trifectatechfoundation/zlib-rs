@@ -768,13 +768,13 @@ fn deflate_bound_gzip_header_basic() {
     ignore = "we don't support DFLTCC, which changes the bounds in zlib-ng"
 )]
 fn test_compress_bound_windows() {
-    let source_len = 4294967289 as core::ffi::c_ulong;
+    let source_len = (u32::MAX - 6) as core::ffi::c_ulong;
 
     assert_eq_rs_ng!({ compressBound(source_len as _) });
 
     assert_eq!(
-        libz_rs_sys::compressBound(source_len as _) as usize,
-        libz_rs_sys::compressBound_z(source_len as _)
+        libz_rs_sys::compressBound(source_len as _),
+        libz_rs_sys::compressBound_z(source_len as _) as c_ulong,
     );
 }
 
@@ -790,8 +790,8 @@ fn test_compress_bound() {
         assert_eq_rs_ng!({ compressBound(source_len as _) });
 
         assert_eq!(
-            libz_rs_sys::compressBound(source_len as _) as usize,
-            libz_rs_sys::compressBound_z(source_len as _)
+            libz_rs_sys::compressBound(source_len as _),
+            libz_rs_sys::compressBound_z(source_len as _) as c_ulong,
         );
 
         true
@@ -976,8 +976,6 @@ fn test_deflate_prime() {
 
         err = libz_rs_sys::deflate(strm, DeflateFlush::Finish as i32);
         assert_eq!(err, ReturnCode::StreamEnd as i32);
-
-        dbg!(strm.total_out);
 
         /* Gzip uncompressed data crc32 */
         let crc = libz_rs_sys::crc32(0, HELLO.as_ptr(), HELLO.len() as _);
