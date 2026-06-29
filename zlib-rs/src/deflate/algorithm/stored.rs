@@ -27,7 +27,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
         let mut len = MAX_STORED;
 
         // number of header bytes
-        have = ((stream.state.bit_writer.bits_used + 42) / 8) as usize;
+        have = ((stream.state.bit_writer.bits_valid + 42) / 8) as usize;
 
         // we need room for at least the header
         if stream.avail_out < have as u32 {
@@ -216,7 +216,7 @@ pub fn deflate_stored(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockS
 
     // number of header bytes
     let state = &mut stream.state;
-    let have = ((state.bit_writer.bits_used + 42) >> 3) as usize;
+    let have = ((state.bit_writer.bits_valid + 42) >> 3) as usize;
 
     // maximum stored block length that will fit in pending:
     let have = Ord::min(state.bit_writer.pending.capacity() - have, MAX_STORED);

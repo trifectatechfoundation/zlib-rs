@@ -121,7 +121,7 @@ impl<'a> DeflateStream<'a> {
     pub fn pending(&self) -> (usize, u8) {
         (
             self.state.bit_writer.pending.pending,
-            self.state.bit_writer.bits_used,
+            self.state.bit_writer.bits_valid,
         )
     }
 
@@ -576,17 +576,17 @@ pub fn prime(stream: &mut DeflateStream, mut bits: i32, value: i32) -> ReturnCod
     let mut put;
 
     loop {
-        put = BitWriter::BIT_BUF_SIZE - state.bit_writer.bits_used;
+        put = BitWriter::BIT_BUF_SIZE - state.bit_writer.bits_valid;
         let put = Ord::min(put as i32, bits);
 
-        if state.bit_writer.bits_used == 0 {
+        if state.bit_writer.bits_valid == 0 {
             state.bit_writer.bit_buffer = value64;
         } else {
             state.bit_writer.bit_buffer |=
-                (value64 & ((1 << put) - 1)) << state.bit_writer.bits_used;
+                (value64 & ((1 << put) - 1)) << state.bit_writer.bits_valid;
         }
 
-        state.bit_writer.bits_used += put as u8;
+        state.bit_writer.bits_valid += put as u8;
         state.bit_writer.flush_bits();
         value64 >>= put;
         bits -= put;
@@ -650,7 +650,7 @@ pub fn copy<'a>(
     };
 
     let mut bit_writer = BitWriter::from_pending(pending);
-    bit_writer.bits_used = source_state.bit_writer.bits_used;
+    bit_writer.bits_valid = source_state.bit_writer.bits_valid;
     bit_writer.bit_buffer = source_state.bit_writer.bit_buffer;
 
     let dest_state = State {
@@ -901,7 +901,7 @@ pub(crate) const DIST_CODE_LEN: usize = 512;
 struct BitWriter<'a> {
     pub(crate) pending: Pending<'a>, // output still pending
     pub(crate) bit_buffer: u64,
-    pub(crate) bits_used: u8,
+    pub(crate) bits_valid: u8,
 
     /// total bit length of compressed file (NOTE: zlib-ng uses a 32-bit integer here)
     #[cfg(feature = "ZLIB_DEBUG")]
@@ -962,7 +962,7 @@ impl<'a> BitWriter<'a> {
         Self {
             pending,
             bit_buffer: 0,
-            bits_used: 0,
+            bits_valid: 0,
 
             #[cfg(feature = "ZLIB_DEBUG")]
             compressed_len: 0,
@@ -972,24 +972,24 @@ impl<'a> BitWriter<'a> {
     }
 
     fn flush_bits(&mut self) {
-        debug_assert!(self.bits_used <= 64);
-        let removed = self.bits_used.saturating_sub(7).next_multiple_of(8);
-        let keep_bytes = self.bits_used / 8; // can never divide by zero
+        debug_assert!(self.bits_valid <= 64);
+        let removed = self.bits_valid.saturating_sub(7).next_multiple_of(8);
+        let keep_bytes = self.bits_valid / 8; // can never divide by zero
 
         let src = &self.bit_buffer.to_le_bytes();
         self.pending.extend(&src[..keep_bytes as usize]);
 
-        self.bits_used -= removed;
+        self.bits_valid -= removed;
         self.bit_buffer = self.bit_buffer.checked_shr(removed as u32).unwrap_or(0);
     }
 
     fn emit_align(&mut self) {
-        debug_assert!(self.bits_used <= 64);
-        let keep_bytes = self.bits_used.div_ceil(8);
+        debug_assert!(self.bits_valid <= 64);
+        let keep_bytes = self.bits_valid.div_ceil(8);
         let src = &self.bit_buffer.to_le_bytes();
         self.pending.extend(&src[..keep_bytes as usize]);
 
-        self.bits_used = 0;
+        self.bits_valid = 0;
         self.bit_buffer = 0;
 
         self.sent_bits_align();
@@ -1030,31 +1030,31 @@ impl<'a> BitWriter<'a> {
     #[inline(always)]
     fn send_bits(&mut self, val: u64, len: u8) {
         debug_assert!(len <= 64);
-        debug_assert!(self.bits_used <= 64);
+        debug_assert!(self.bits_valid <= 64);
 
-        let total_bits = len + self.bits_used;
+        let total_bits = len + self.bits_valid;
 
         self.send_bits_trace(val, len);
         self.sent_bits_add(len as usize);
 
         if total_bits < Self::BIT_BUF_SIZE {
-            self.bit_buffer |= val << self.bits_used;
-            self.bits_used = total_bits;
+            self.bit_buffer |= val << self.bits_valid;
+            self.bits_valid = total_bits;
         } else {
             self.send_bits_overflow(val, total_bits);
         }
     }
 
     fn send_bits_overflow(&mut self, val: u64, total_bits: u8) {
-        if self.bits_used == Self::BIT_BUF_SIZE {
+        if self.bits_valid == Self::BIT_BUF_SIZE {
             self.pending.extend(&self.bit_buffer.to_le_bytes());
             self.bit_buffer = val;
-            self.bits_used = total_bits - Self::BIT_BUF_SIZE;
+            self.bits_valid = total_bits - Self::BIT_BUF_SIZE;
         } else {
-            self.bit_buffer |= val << self.bits_used;
+            self.bit_buffer |= val << self.bits_valid;
             self.pending.extend(&self.bit_buffer.to_le_bytes());
-            self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_used);
-            self.bits_used = total_bits - Self::BIT_BUF_SIZE;
+            self.bit_buffer = val >> (Self::BIT_BUF_SIZE - self.bits_valid);
+            self.bits_valid = total_bits - Self::BIT_BUF_SIZE;
         }
     }
 
@@ -1590,7 +1590,7 @@ impl<'a> State<'a> {
         self.bl_desc.stat_desc = &StaticTreeDesc::BL;
 
         self.bit_writer.bit_buffer = 0;
-        self.bit_writer.bits_used = 0;
+        self.bit_writer.bits_valid = 0;
 
         #[cfg(feature = "ZLIB_DEBUG")]
         {
@@ -2777,7 +2777,7 @@ pub fn deflate(stream: &mut DeflateStream, flush: DeflateFlush) -> ReturnCode {
     }
 
     if stream.state.bit_writer.pending.pending().is_empty() {
-        assert_eq!(stream.state.bit_writer.bits_used, 0, "bi_buf not flushed");
+        assert_eq!(stream.state.bit_writer.bits_valid, 0, "bi_buf not flushed");
         return ReturnCode::StreamEnd;
     }
     ReturnCode::Ok
