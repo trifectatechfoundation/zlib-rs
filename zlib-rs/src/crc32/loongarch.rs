@@ -87,8 +87,8 @@ crate::cfg_select! {
     }
 }
 
-// FIXME: there are intrinsics for these in the standard library, but currently
-// unstable behind the stdarch_loongarch feature
+// FIXME: the intrinsics below are stable since Rust 1.98.0, remove them and
+// use the standard library versions once our MSRV reaches that version
 //
 // CRC32 instructions are part of the basic integer operations and therefore
 // always available.
