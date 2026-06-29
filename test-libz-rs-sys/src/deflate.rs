@@ -771,6 +771,11 @@ fn test_compress_bound_windows() {
     let source_len = 4294967289 as core::ffi::c_ulong;
 
     assert_eq_rs_ng!({ compressBound(source_len as _) });
+
+    assert_eq!(
+        libz_rs_sys::compressBound(source_len as _) as usize,
+        libz_rs_sys::compressBound_z(source_len as _)
+    );
 }
 
 #[test]
@@ -783,6 +788,11 @@ fn test_compress_bound() {
 
     fn test(source_len: core::ffi::c_ulong) -> bool {
         assert_eq_rs_ng!({ compressBound(source_len as _) });
+
+        assert_eq!(
+            libz_rs_sys::compressBound(source_len as _) as usize,
+            libz_rs_sys::compressBound_z(source_len as _)
+        );
 
         true
     }

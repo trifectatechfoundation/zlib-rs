@@ -912,6 +912,13 @@ mod null {
     )]
     fn deflate_bound() {
         assert_eq_rs_ng!({ deflateBound(core::ptr::null_mut(), 1024) });
+
+        unsafe {
+            assert_eq!(
+                libz_rs_sys::deflateBound(core::ptr::null_mut(), 1024) as usize,
+                libz_rs_sys::deflateBound_z(core::ptr::null_mut(), 1024),
+            );
+        }
     }
 
     #[test]
