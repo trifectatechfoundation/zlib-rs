@@ -910,7 +910,7 @@ struct BitWriter<'a> {
     /// Output buffer. bits are inserted starting at the bottom (least significant bits).
     pub(crate) bit_buffer: u64,
 
-    /// Number of valid bits in bi_buf.  All bits above the last valid bit are always zero.
+    /// Number of valid bits in bit_buffer. All bits above the last valid bit are always zero.
     pub(crate) bits_valid: u8,
 
     /// Last number of used bits when going to a byte boundary.
