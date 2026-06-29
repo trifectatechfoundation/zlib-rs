@@ -531,6 +531,7 @@ jobs:
           objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep "ZLIB"
           objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1\.2\.2\.3.*deflateTune" || (echo "symbol not found!" && exit 1)
           objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1\.3\.1\.2.*deflateUsed" || (echo "symbol not found!" && exit 1)
+          objdump -T target/${{matrix.target}}/release/libz_rs.versioned.so | grep -q -E "ZLIB_1\.3\.2.*uncompress_z" || (echo "symbol not found!" && exit 1)
 
       - name: ABI comparison vs zlib-ng
         working-directory: libz-rs-sys-cdylib
