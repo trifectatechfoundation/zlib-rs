@@ -1093,6 +1093,118 @@ fn copy_direct_from_next_in_to_next_out() {
     });
 }
 
+/// Unit tests for the _z variants of (un)compress(2).
+#[test]
+fn compress_uncompress_z() {
+    use libz_rs_sys::{compress, compress_z, uncompress, uncompress_z};
+
+    let source = b"there is no horizon";
+
+    let mut compr_z = vec![0u8; 128];
+    let mut compr_z_len = compr_z.len();
+
+    let mut compr = vec![0u8; 128];
+    let mut compr_len = compr.len() as c_ulong;
+
+    unsafe {
+        assert_eq!(
+            compress_z(
+                compr_z.as_mut_ptr(),
+                &mut compr_z_len,
+                source.as_ptr(),
+                source.len(),
+            ),
+            Z_OK,
+        );
+        assert_eq!(
+            compress(
+                compr.as_mut_ptr(),
+                &mut compr_len,
+                source.as_ptr(),
+                source.len() as c_ulong,
+            ),
+            Z_OK,
+        );
+    }
+
+    assert_eq!(compr_z_len, compr_len as usize);
+    assert_eq!(&compr_z[..compr_z_len], &compr[..compr_len as usize]);
+
+    let mut compr2_z = vec![0u8; 128];
+    let mut compr2_z_len = compr2_z.len();
+
+    let mut compr2 = vec![0u8; 128];
+    let mut compr2_len = compr2.len() as c_ulong;
+
+    unsafe {
+        assert_eq!(
+            libz_rs_sys::compress2_z(
+                compr2_z.as_mut_ptr(),
+                &mut compr2_z_len,
+                source.as_ptr(),
+                source.len(),
+                9,
+            ),
+            Z_OK,
+        );
+        assert_eq!(
+            libz_rs_sys::compress2(
+                compr2.as_mut_ptr(),
+                &mut compr2_len,
+                source.as_ptr(),
+                source.len() as c_ulong,
+                9,
+            ),
+            Z_OK,
+        );
+    }
+
+    assert_eq!(compr2_z_len, compr2_len as usize);
+    assert_eq!(&compr2_z[..compr2_z_len], &compr2[..compr2_len as usize]);
+
+    let mut dest_z = vec![0u8; source.len()];
+    let mut dest_z_len = dest_z.len();
+
+    let mut dest = vec![0u8; source.len()];
+    let mut dest_len = dest.len() as c_ulong;
+
+    unsafe {
+        assert_eq!(
+            uncompress_z(
+                dest_z.as_mut_ptr(),
+                &mut dest_z_len,
+                compr_z.as_ptr(),
+                compr_z_len,
+            ),
+            Z_OK,
+        );
+        assert_eq!(
+            uncompress(dest.as_mut_ptr(), &mut dest_len, compr.as_ptr(), compr_len),
+            Z_OK,
+        );
+
+        let mut dest2 = vec![0u8; source.len()];
+        let mut dest2_len = dest2.len();
+        let mut source2_len = compr_z_len;
+        assert_eq!(
+            libz_rs_sys::uncompress2_z(
+                dest2.as_mut_ptr(),
+                &mut dest2_len,
+                compr_z.as_ptr(),
+                &mut source2_len,
+            ),
+            Z_OK,
+        );
+
+        assert_eq!(source2_len, compr_z_len);
+        assert_eq!(&dest2[..dest2_len], source);
+    }
+
+    assert_eq!(dest_z_len, dest_len as usize);
+    assert_eq!(&dest_z[..dest_z_len], source);
+    assert_eq!(&dest[..dest_len as usize], source);
+}
+
 #[test]
 fn hello_world_fixed() {
     // "Hello World!" compressed with `minideflate -k -f -9`
