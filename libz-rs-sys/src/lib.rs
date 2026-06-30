@@ -1637,6 +1637,39 @@ pub unsafe extern "C" fn deflatePending(
     ReturnCode::Ok as _
 }
 
+/// Writes into `bits` the most recent number of deflate bits used in the last
+/// byte when flushing to a byte boundary. The result is in `1..=8`, or 0 if
+/// there has not yet been a flush. This helps determine the location of the
+/// last bit of a deflate stream.
+///
+/// # Returns
+///
+/// - [`Z_OK`] if success
+/// - [`Z_STREAM_ERROR`] if the source stream state was inconsistent
+///
+/// # Safety
+///
+/// The caller must guarantee that
+///
+/// * Either
+///     - `strm` is `NULL`
+///     - `strm` satisfies the requirements of `&mut *strm` and was initialized with [`deflateInit_`] or similar
+/// * Either
+///     - `bits` is `NULL`
+///     - `bits` satisfies the requirements of [`core::ptr::write::<c_int>`]
+#[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateUsed))]
+pub unsafe extern "C" fn deflateUsed(strm: z_streamp, bits: *mut c_int) -> c_int {
+    let Some(stream) = (unsafe { DeflateStream::from_stream_mut(strm) }) else {
+        return ReturnCode::StreamError as _;
+    };
+
+    if let Some(bits) = unsafe { bits.as_mut() } {
+        *bits = c_int::from(stream.bits_used());
+    }
+
+    ReturnCode::Ok as _
+}
+
 /// Sets the destination stream as a complete copy of the source stream.
 ///
 /// This function can be useful when several compression strategies will be tried, for example when there are several ways of pre-processing the input data with a filter.
