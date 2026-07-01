@@ -252,6 +252,78 @@ impl<'a> Writer<'a> {
         self.copy_match_help::<8>(offset_from_end, length)
     }
 
+    /// Like [`copy_match_with_features`], but skips the per-match bounds check.
+    ///
+    /// The inflate fast loop guarantees `INFLATE_FAST_MIN_LEFT` bytes of spare
+    /// capacity, which covers the longest match plus the chunked copy's overshoot,
+    /// so the check `copy_match_help` performs on every match is redundant there.
+    ///
+    /// # Safety
+    ///
+    /// `offset_from_end <= self.filled` and `self.filled + length + 32 <= self.capacity()`.
+    ///
+    /// [`copy_match_with_features`]: Writer::copy_match_with_features
+    #[inline(always)]
+    pub unsafe fn copy_match_unchecked_with_features<const FEATURES: usize>(
+        &mut self,
+        offset_from_end: usize,
+        length: usize,
+    ) {
+        match FEATURES {
+            #[cfg(target_arch = "x86_64")]
+            CpuFeatures::AVX2 => unsafe {
+                self.copy_match_unchecked::<32>(offset_from_end, length)
+            },
+            // Other targets keep the checked path; the margin only matters for the
+            // unchecked copy above.
+            _ => self.copy_match_runtime_dispatch(offset_from_end, length),
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `offset_from_end <= self.filled` and `self.filled + length + N <= self.capacity()`.
+    #[inline(always)]
+    unsafe fn copy_match_unchecked<const N: usize>(
+        &mut self,
+        offset_from_end: usize,
+        length: usize,
+    ) {
+        let current = self.filled;
+        self.filled += length;
+        let ptr = self.buf.as_mut_ptr();
+
+        if length > offset_from_end {
+            match offset_from_end {
+                1 => {
+                    // The referenced byte repeats; a slice `fill` lowers to `memset`.
+                    // SAFETY: `current >= 1` and `current + length` is in bounds by the margin.
+                    let element = unsafe { ptr.add(current - 1).read() };
+                    let dst = unsafe { core::slice::from_raw_parts_mut(ptr.add(current), length) };
+                    dst.fill(element);
+                }
+                _ => {
+                    // Overlapping match with a small distance: byte-by-byte, no overshoot.
+                    // SAFETY: reads trail writes by `offset_from_end`, all in bounds.
+                    for i in 0..length {
+                        let byte = unsafe { ptr.add(current - offset_from_end + i).read() };
+                        unsafe { ptr.add(current + i).write(byte) };
+                    }
+                }
+            }
+        } else {
+            // SAFETY: the caller guarantees `length + N` bytes of spare capacity, so the
+            // chunked copy's overshoot of at most `N` bytes stays in bounds.
+            unsafe {
+                Self::copy_chunk_unchecked::<N>(
+                    ptr.add(current - offset_from_end),
+                    ptr.add(current),
+                    length,
+                )
+            }
+        }
+    }
+
     #[inline(always)]
     fn copy_match_help<const N: usize>(&mut self, offset_from_end: usize, length: usize) {
         let capacity = self.buf.len();
