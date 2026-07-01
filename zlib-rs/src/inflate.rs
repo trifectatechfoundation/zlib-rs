@@ -552,7 +552,10 @@ const fn zswap32(q: u32) -> u32 {
 }
 
 const INFLATE_FAST_MIN_HAVE: usize = 15;
-const INFLATE_FAST_MIN_LEFT: usize = 260;
+// 260 = up to 2 literals from the fast-path plus one max-length (258) match. The
+// unchecked match copy overshoots by up to 32 bytes (one SIMD chunk), so the
+// margin covers both, letting the fast loop skip the per-match bounds check.
+const INFLATE_FAST_MIN_LEFT: usize = 260 + 32;
 
 impl State<'_> {
     // This logic is split into its own function for two reasons
@@ -2110,7 +2113,16 @@ unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _star
                         } else if extra_safe {
                             todo!()
                         } else {
-                            writer.copy_match_with_features::<FEATURES>(dist as usize, len as usize)
+                            // SAFETY: `dist <= written` (the `else` of the window-copy
+                            // branch) gives `offset_from_end <= filled`, and
+                            // INFLATE_FAST_MIN_LEFT guarantees at least `len + 32` bytes of
+                            // spare capacity for this iteration's writes.
+                            unsafe {
+                                writer.copy_match_unchecked_with_features::<FEATURES>(
+                                    dist as usize,
+                                    len as usize,
+                                )
+                            }
                         }
                     } else if (op & 64) == 0 {
                         // 2nd level distance code
