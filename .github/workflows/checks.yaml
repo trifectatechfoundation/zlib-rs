@@ -235,6 +235,40 @@ jobs:
         run: |
           cargo doc --target ${{matrix.target}} -p libz-rs-sys
 
+  check-msrv:
+    name: MSRV check (${{ matrix.target }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Roughly the targets for which we have custom SIMD.
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - wasm32-unknown-unknown
+          - loongarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          persist-credentials: false
+
+      - name: Determine MSRV
+        run: |
+          echo "MSRV=$(grep rust-version Cargo.toml | grep MSRV | awk -F '"' '{print $2}')" >> "$GITHUB_ENV"
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: ${{ env.MSRV }}
+          targets: ${{ matrix.target }}
+
+      # Don't check the test crate (it would need a linker etc. to run build.rs).
+      - name: Cargo check
+        run: cargo check --target ${{ matrix.target }} -p zlib-rs -p libz-rs-sys
+
   fuzz:
     name: Smoke-test fuzzing targets
     runs-on: ubuntu-latest
