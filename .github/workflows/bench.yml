@@ -37,6 +37,9 @@ jobs:
           - name: macos-arm64
             os: [benchmark, ARM64, macOS]
             target: "aarch64-apple-darwin"
+          - name: linux-loongarch64
+            os: [benchmark, loong64, linux]
+            target: "loongarch64-unknown-linux-musl"
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
