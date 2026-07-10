@@ -41,6 +41,7 @@ jobs:
             os: [benchmark, loong64, linux]
             target: "loongarch64-unknown-linux-musl"
             flags: "--features=lsx"
+            rust: nightly
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -48,11 +49,17 @@ jobs:
           persist-credentials: false
           ref: "${{inputs.ref}}"
           fetch-depth: 0 # ensure the base commit to compare against is available
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
+        with:
+          toolchain: ${{ matrix.rust || 'stable' }}
+          targets: "${{ matrix.target }}"
       - name: cargo build
         env:
           RUSTFLAGS: "-Cllvm-args=-enable-dfa-jump-thread"
         run: |
           . "$HOME/.cargo/env"
+          rustc --version
           cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
