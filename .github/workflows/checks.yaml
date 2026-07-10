@@ -146,7 +146,7 @@ jobs:
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
           curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz | tar xz --directory /tmp
 
-      # build.
+      # build
       - name: cargo build
         run: cargo build --target ${{matrix.target}} ${{ matrix.flags }}
 
