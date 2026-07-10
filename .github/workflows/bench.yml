@@ -66,9 +66,9 @@ jobs:
           # switch the C implementation from zlib-ng to zlib-chromium
           # sed on macOS is a bit annoying
           if sed --version 2>/dev/null | grep -q GNU; then
-              sed -i '/^libz-sys =/c\libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "4671e8e16bf277d06ff2397e3091db3515c6f934", default-features = false, features = ["zlib-ng"] }' Cargo.toml
+              sed -i '/^libz-sys =/c\libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "93540b00ee96276f1da69fa6a6942603d10ebff3", default-features = false, features = ["zlib-ng"] }' Cargo.toml
           else
-              printf '%s\n' '/^libz-sys =/c\' 'libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "4671e8e16bf277d06ff2397e3091db3515c6f934", default-features = false, features = ["zlib-ng"] }' | sed -i '' -f - Cargo.toml
+              printf '%s\n' '/^libz-sys =/c\' 'libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "93540b00ee96276f1da69fa6a6942603d10ebff3", default-features = false, features = ["zlib-ng"] }' | sed -i '' -f - Cargo.toml
           fi
           cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium
