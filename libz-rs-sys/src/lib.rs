@@ -2111,7 +2111,7 @@ pub unsafe extern "C" fn deflateTune(
 pub const extern "C" fn zError(err: c_int) -> *const c_char {
     match ReturnCode::try_from_c_int(err) {
         Some(return_code) => return_code.error_message(),
-        None => [0 as c_char].as_ptr(),
+        None => [0].as_ptr(),
     }
 }
 
