@@ -2047,6 +2047,8 @@ fn test_inflate_flush_block() {
                 break;
             }
         }
+
+        unsafe { libz_sys::inflateEnd(stream) };
     }
 
     // Log the stream positions and data_type output from libz_rs and compare
@@ -2088,6 +2090,8 @@ fn test_inflate_flush_block() {
                 break;
             }
         }
+
+        unsafe { inflateEnd(stream) };
     }
 }
 
