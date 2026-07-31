@@ -361,6 +361,13 @@ impl Deflate {
         self.total_in += (self.inner.next_in as usize - start_in as usize) as u64;
         self.total_out += (self.inner.next_out as usize - start_out as usize) as u64;
 
+        // Clear these pointers so there can be no use after free.
+        self.inner.next_in = core::ptr::null_mut();
+        self.inner.next_out = core::ptr::null_mut();
+
+        self.inner.avail_in = 0;
+        self.inner.avail_out = 0;
+
         ret
     }
 
@@ -386,6 +393,13 @@ impl Deflate {
     /// compression level. Flushing the stream before calling this method
     /// ensures that the function will succeed on the first call.
     pub fn set_level(&mut self, level: i32) -> Result<Status, DeflateError> {
+        // Clear these pointers so there can be no use after free.
+        self.inner.next_in = core::ptr::null_mut();
+        self.inner.next_out = core::ptr::null_mut();
+
+        self.inner.avail_in = 0;
+        self.inner.avail_out = 0;
+
         match crate::deflate::params(&mut self.inner, level, Default::default()) {
             ReturnCode::Ok => Ok(Status::Ok),
             ReturnCode::StreamError => Err(DeflateError::StreamError),
