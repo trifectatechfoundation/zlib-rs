@@ -3289,4 +3289,20 @@ mod stable_api {
         // Due to NoFlush there is data to write, but no buffer to write it into.
         assert_eq!(d.set_level(9), Err(zlib_rs::DeflateError::StreamError));
     }
+
+    /// Test that the Deflate state does not retain the dictionary.
+    #[test]
+    fn set_dictionary_drop_dictionary() {
+        let mut d = zlib_rs::Deflate::new(1, true, 15);
+
+        {
+            let dict = vec![b'a'; 128];
+            d.set_dictionary(&dict).unwrap();
+        }
+
+        let input = vec![b'a'; 128];
+        let mut output = vec![MaybeUninit::<u8>::uninit(); 512];
+        d.compress_uninit(&input, &mut output, DeflateFlush::NoFlush)
+            .unwrap();
+    }
 }
