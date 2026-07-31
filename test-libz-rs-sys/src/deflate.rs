@@ -1,9 +1,8 @@
+use core::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 use std::{ffi::CString, mem::MaybeUninit};
 
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
-
-use core::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 
 use libz_rs_sys::{
     deflate, deflateEnd, deflateInit2_, inflate, inflateEnd, inflateInit2_, Z_DEFLATED, Z_FILTERED,
@@ -3184,6 +3183,8 @@ mod deflate_reset_deterministic {
 }
 
 mod stable_api {
+    use core::mem::MaybeUninit;
+
     use zlib_rs::{
         inflate::{decompress_slice, InflateConfig},
         DeflateFlush, ReturnCode, Status,
@@ -3271,5 +3272,21 @@ mod stable_api {
         );
         assert_eq!(ret, ReturnCode::Ok);
         assert_eq!(decompressed2, input2.as_bytes());
+    }
+
+    #[test]
+    fn set_level_no_flush() {
+        let mut d = zlib_rs::Deflate::new(1, true, 15);
+
+        let input = vec![b'a'; 128];
+
+        {
+            let mut output = vec![MaybeUninit::<u8>::uninit(); 512];
+            d.compress_uninit(&input, &mut output, DeflateFlush::NoFlush)
+                .unwrap();
+        }
+
+        // Due to NoFlush there is data to write, but no buffer to write it into.
+        assert_eq!(d.set_level(9), Err(zlib_rs::DeflateError::StreamError));
     }
 }
