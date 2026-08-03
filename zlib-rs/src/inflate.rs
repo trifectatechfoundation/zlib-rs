@@ -20,7 +20,7 @@ use crate::{
     adler32::adler32,
     c_api::{gz_header, z_checksum, z_size, z_stream, Z_DEFLATED},
     inflate::writer::Writer,
-    Code, InflateFlush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
+    traceln, Code, InflateFlush, ReturnCode, DEF_WBITS, MAX_WBITS, MIN_WBITS,
 };
 
 use crate::crc32::{crc32, Crc32Fold};
@@ -679,7 +679,7 @@ impl State<'_> {
                         } else if here.op & 32 != 0 {
                             // end of block
 
-                            // eprintln!("inflate:         end of block");
+                            traceln!("inflate:         end of block");
 
                             self.back = usize::MAX;
                             mode = Mode::Type;
@@ -707,8 +707,7 @@ impl State<'_> {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
                         if writer.is_full() {
                             restore!();
-                            #[cfg(all(test, feature = "std"))]
-                            eprintln!("Ok: writer is full ({} bytes)", self.writer.capacity());
+                            traceln!("Ok: writer is full ({} bytes)", self.writer.capacity());
                             return ControlFlow::Break(ReturnCode::Ok);
                         }
 
@@ -734,7 +733,7 @@ impl State<'_> {
                             self.back += extra;
                         }
 
-                        // eprintln!("inflate: length {}", state.length);
+                        traceln!("inflate: length {}", state.length);
 
                         self.was = self.length;
 
@@ -819,7 +818,7 @@ impl State<'_> {
                             );
                         }
 
-                        // eprintln!("inflate: distance {}", state.offset);
+                        traceln!("inflate: distance {}", state.offset);
 
                         break 'top Mode::Match;
                     }
@@ -827,8 +826,7 @@ impl State<'_> {
                         // NOTE: this branch must be kept in sync with its counterpart in `dispatch`
                         if writer.is_full() {
                             restore!();
-                            #[cfg(all(feature = "std", test))]
-                            eprintln!(
+                            traceln!(
                                 "BufError: writer is full ({} bytes)",
                                 self.writer.capacity()
                             );
@@ -1300,14 +1298,14 @@ impl State<'_> {
 
                         match self.bit_reader.bits(2) {
                             0b00 => {
-                                // eprintln!("inflate:     stored block (last = {last})");
+                                traceln!("inflate:     stored block (last = {last})");
 
                                 self.bit_reader.drop_bits(2);
 
                                 break 'blk Mode::Stored;
                             }
                             0b01 => {
-                                // eprintln!("inflate:     fixed codes block (last = {last})");
+                                traceln!("inflate:     fixed codes block (last = {last})");
 
                                 self.len_table = Table {
                                     codes: Codes::Fixed,
@@ -1330,14 +1328,14 @@ impl State<'_> {
                                 }
                             }
                             0b10 => {
-                                // eprintln!("inflate:     dynamic codes block (last = {last})");
+                                traceln!("inflate:     dynamic codes block (last = {last})");
 
                                 self.bit_reader.drop_bits(2);
 
                                 break 'blk Mode::Table;
                             }
                             0b11 => {
-                                // eprintln!("inflate:     invalid block type");
+                                traceln!("inflate:     invalid block type");
 
                                 self.bit_reader.drop_bits(2);
 
@@ -1357,7 +1355,7 @@ impl State<'_> {
 
                         let hold = self.bit_reader.bits(32) as u32;
 
-                        // eprintln!("hold {hold:#x}");
+                        traceln!("hold {hold:#x}");
 
                         if hold as u16 != !((hold >> 16) as u16) {
                             mode = Mode::Bad;
@@ -1365,7 +1363,7 @@ impl State<'_> {
                         }
 
                         self.length = hold as usize & 0xFFFF;
-                        // eprintln!("inflate:     stored length {}", state.length);
+                        traceln!("inflate:     stored length {}", state.length);
 
                         self.bit_reader.init_bits();
 
@@ -1455,7 +1453,7 @@ impl State<'_> {
                             self.back += extra;
                         }
 
-                        // eprintln!("inflate: length {}", state.length);
+                        traceln!("inflate: length {}", state.length);
 
                         self.was = self.length;
 
@@ -1464,8 +1462,7 @@ impl State<'_> {
                     Mode::Lit => {
                         // NOTE: this branch must be kept in sync with its counterpart in `len_and_friends`
                         if self.writer.is_full() {
-                            #[cfg(all(test, feature = "std"))]
-                            eprintln!("Ok: writer is full ({} bytes)", self.writer.capacity());
+                            traceln!("Ok: writer is full ({} bytes)", self.writer.capacity());
                             break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
@@ -1537,7 +1534,7 @@ impl State<'_> {
                             break 'label self.bad("invalid distance code too far back\0");
                         }
 
-                        // eprintln!("inflate: distance {}", state.offset);
+                        traceln!("inflate: distance {}", state.offset);
 
                         break 'blk Mode::Match;
                     }
@@ -1546,8 +1543,7 @@ impl State<'_> {
 
                         'match_: loop {
                             if self.writer.is_full() {
-                                #[cfg(all(feature = "std", test))]
-                                eprintln!(
+                                traceln!(
                                     "BufError: writer is full ({} bytes)",
                                     self.writer.capacity()
                                 );
@@ -2321,8 +2317,7 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
     }
 
     if window_bits != 0 && !(MIN_WBITS..=MAX_WBITS).contains(&window_bits) {
-        #[cfg(feature = "std")]
-        eprintln!("invalid windowBits");
+        traceln!("invalid windowBits");
         return ReturnCode::StreamError;
     }
 

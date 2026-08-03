@@ -44,6 +44,16 @@ pub use inflate::InflateConfig;
 pub use deflate::{compress_bound, compress_slice};
 pub use inflate::decompress_slice;
 
+macro_rules! traceln {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "ZLIB_DEBUG")]
+        {
+            eprintln!($($arg)*)
+        }
+    };
+}
+pub(crate) use traceln;
+
 macro_rules! trace {
     ($($arg:tt)*) => {
         #[cfg(feature = "ZLIB_DEBUG")]
