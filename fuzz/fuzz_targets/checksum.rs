@@ -5,17 +5,36 @@
 
 use libfuzzer_sys::fuzz_target;
 
-fuzz_target!(|input: (Vec<u8>, u32)| {
-    let (input, start) = input;
+const BASE: u32 = 65521;
+
+fn adler32_scalar(start: u32, data: &[u8]) -> u32 {
+    let mut s1 = start & 0xffff;
+    let mut s2 = (start >> 16) & 0xffff;
+    for &b in data {
+        s1 = (s1 + b as u32) % BASE;
+        s2 = (s2 + s1) % BASE;
+    }
+    (s2 << 16) | s1
+}
+
+fuzz_target!(|input: (Vec<u8>, u8, u32)| {
+    let (input, offset, start) = input;
+
+    // Add an offset to the input because some of the checksum algorithms are sensitive to
+    // alignment.
+    let offset = offset & 15;
+    let Some(input) = input.get(usize::from(offset)..) else {
+        return;
+    };
 
     {
         let expected = {
             let mut h = crc32fast::Hasher::new_with_initial(start);
-            h.update(&input[..]);
+            h.update(input);
             h.finalize()
         };
 
-        let actual = zlib_rs::crc32::crc32(start, input.as_slice());
+        let actual = zlib_rs::crc32::crc32(start, input);
 
         assert_eq!(expected, actual);
     }
@@ -54,9 +73,16 @@ fuzz_target!(|input: (Vec<u8>, u32)| {
     }
 
     {
+        use zlib_rs::adler32::adler32;
+        assert_eq!(adler32(start, &input), adler32_scalar(start, &input));
+    }
+
+    {
         use zlib_rs::adler32::{adler32, adler32_combine};
 
         let data = &input;
+
+        assert_eq!(adler32(start, data), adler32_scalar(start, data));
 
         let Some(buf_len) = data.first().copied() else {
             return;
