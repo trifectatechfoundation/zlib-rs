@@ -68,12 +68,20 @@ impl InflateError {
 
 /// The state that is used to decompress an input.
 pub struct Inflate {
-    inner: crate::inflate::InflateStream<'static>,
+    // A `z_stream` rather than an `InflateStream`, because the latter holds a `&mut State`. That
+    // reference is protected while an `Inflate` is passed by value, which makes the deallocation
+    // in `inflate::end` undefined behavior. A raw pointer is not retagged, so no protector exists.
+    inner: crate::c_api::z_stream,
     total_in: u64,
     total_out: u64,
 }
 
 impl Inflate {
+    fn stream(&mut self) -> &mut crate::inflate::InflateStream<'static> {
+        // SAFETY: `Inflate::new` initialized `self.inner` with `inflate::init`.
+        unsafe { crate::inflate::InflateStream::from_stream_mut(&mut self.inner) }.unwrap()
+    }
+
     /// The amount of bytes consumed from the input so far.
     pub fn total_in(&self) -> u64 {
         self.total_in
@@ -126,8 +134,12 @@ impl Inflate {
             },
         };
 
+        let mut inner = crate::c_api::z_stream::default();
+        let ret = crate::inflate::init(&mut inner, config);
+        assert_eq!(ret, ReturnCode::Ok);
+
         Self {
-            inner: crate::inflate::InflateStream::new(config),
+            inner,
             total_in: 0,
             total_out: 0,
         }
@@ -144,7 +156,7 @@ impl Inflate {
         self.total_in = 0;
         self.total_out = 0;
 
-        crate::inflate::reset_with_config(&mut self.inner, config);
+        crate::inflate::reset_with_config(self.stream(), config);
     }
 
     /// Decompress `input` and write all decompressed bytes into `output`,
@@ -184,7 +196,7 @@ impl Inflate {
         let start_out = self.inner.next_out;
 
         // SAFETY: the inflate state was properly initialized.
-        let ret = unsafe { crate::inflate::inflate(&mut self.inner, flush) };
+        let ret = unsafe { crate::inflate::inflate(self.stream(), flush) };
 
         self.total_in += (self.inner.next_in as usize - start_in as usize) as u64;
         self.total_out += (self.inner.next_out as usize - start_out as usize) as u64;
@@ -205,7 +217,7 @@ impl Inflate {
     }
 
     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, InflateError> {
-        match crate::inflate::set_dictionary(&mut self.inner, dictionary) {
+        match crate::inflate::set_dictionary(self.stream(), dictionary) {
             ReturnCode::Ok => Ok(self.inner.adler as u32),
             ReturnCode::StreamError => Err(InflateError::StreamError),
             ReturnCode::DataError => Err(InflateError::DataError),
@@ -216,7 +228,7 @@ impl Inflate {
 
 impl Drop for Inflate {
     fn drop(&mut self) {
-        let _ = crate::inflate::end(&mut self.inner);
+        let _ = crate::inflate::end(self.stream());
     }
 }
 
@@ -266,12 +278,18 @@ impl From<ReturnCode> for Result<Status, DeflateError> {
 
 /// The state that is used to compress an input.
 pub struct Deflate {
-    inner: crate::deflate::DeflateStream<'static>,
+    // See the note on `Inflate::inner`.
+    inner: crate::c_api::z_stream,
     total_in: u64,
     total_out: u64,
 }
 
 impl Deflate {
+    fn stream(&mut self) -> &mut crate::deflate::DeflateStream<'static> {
+        // SAFETY: `Deflate::new` initialized `self.inner` with `deflate::init`.
+        unsafe { crate::deflate::DeflateStream::from_stream_mut(&mut self.inner) }.unwrap()
+    }
+
     /// The number of bytes that were read from the input.
     pub fn total_in(&self) -> u64 {
         self.total_in
@@ -305,8 +323,12 @@ impl Deflate {
             ..DeflateConfig::default()
         };
 
+        let mut inner = crate::c_api::z_stream::default();
+        let ret = crate::deflate::init(&mut inner, config);
+        assert_eq!(ret, ReturnCode::Ok);
+
         Self {
-            inner: crate::deflate::DeflateStream::new(config),
+            inner,
             total_in: 0,
             total_out: 0,
         }
@@ -317,7 +339,7 @@ impl Deflate {
         self.total_in = 0;
         self.total_out = 0;
 
-        crate::deflate::reset(&mut self.inner);
+        crate::deflate::reset(self.stream());
     }
 
     /// Compress `input` and write compressed bytes to `output`,
@@ -356,7 +378,7 @@ impl Deflate {
         let start_in = self.inner.next_in;
         let start_out = self.inner.next_out;
 
-        let ret = crate::deflate::deflate(&mut self.inner, flush).into();
+        let ret = crate::deflate::deflate(self.stream(), flush).into();
 
         self.total_in += (self.inner.next_in as usize - start_in as usize) as u64;
         self.total_out += (self.inner.next_out as usize - start_out as usize) as u64;
@@ -375,7 +397,7 @@ impl Deflate {
     ///
     /// Returns the Adler-32 checksum of the dictionary.
     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, DeflateError> {
-        match crate::deflate::set_dictionary(&mut self.inner, dictionary) {
+        match crate::deflate::set_dictionary(self.stream(), dictionary) {
             ReturnCode::Ok => Ok(self.inner.adler as u32),
             ReturnCode::StreamError => Err(DeflateError::StreamError),
             other => unreachable!("set_dictionary does not return {other:?}"),
@@ -400,7 +422,7 @@ impl Deflate {
         self.inner.avail_in = 0;
         self.inner.avail_out = 0;
 
-        match crate::deflate::params(&mut self.inner, level, Default::default()) {
+        match crate::deflate::params(self.stream(), level, Default::default()) {
             ReturnCode::Ok => Ok(Status::Ok),
             ReturnCode::StreamError => Err(DeflateError::StreamError),
             ReturnCode::BufError => Ok(Status::BufError),
@@ -411,6 +433,160 @@ impl Deflate {
 
 impl Drop for Deflate {
     fn drop(&mut self) {
-        let _ = crate::deflate::end(&mut self.inner);
+        let _ = crate::deflate::end(self.stream());
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const INPUT: &[u8] = b"scatter scatter scatter, gather gather gather, scatter gather";
+
+    fn compress(input: &[u8]) -> Vec<u8> {
+        let mut deflate = Deflate::new(6, true, 15);
+        let mut output = vec![0u8; 256];
+
+        let status = deflate
+            .compress(input, &mut output, DeflateFlush::Finish)
+            .unwrap();
+
+        assert_eq!(status, Status::StreamEnd);
+        output.truncate(deflate.total_out() as usize);
+
+        output
+    }
+
+    fn decompress(input: &[u8]) -> Vec<u8> {
+        let mut inflate = Inflate::new(true, 15);
+        let mut output = vec![0u8; 256];
+
+        let status = inflate
+            .decompress(input, &mut output, InflateFlush::Finish)
+            .unwrap();
+
+        assert_eq!(status, Status::StreamEnd);
+        output.truncate(inflate.total_out() as usize);
+
+        output
+    }
+
+    #[test]
+    fn round_trip() {
+        assert_eq!(decompress(&compress(INPUT)), INPUT);
+    }
+
+    #[test]
+    fn reuse_after_reset() {
+        let compressed = compress(INPUT);
+
+        let mut inflate = Inflate::new(true, 15);
+        let mut output = vec![0u8; 256];
+
+        for _ in 0..2 {
+            inflate.reset(true);
+
+            let status = inflate
+                .decompress(&compressed, &mut output, InflateFlush::Finish)
+                .unwrap();
+
+            assert_eq!(status, Status::StreamEnd);
+            assert_eq!(&output[..inflate.total_out() as usize], INPUT);
+        }
+    }
+
+    #[test]
+    fn reuse_after_error() {
+        let mut compressed = compress(INPUT);
+        let last = compressed.len() - 1;
+        compressed[last] ^= 0xff;
+
+        let mut inflate = Inflate::new(true, 15);
+        let mut output = vec![0u8; 256];
+
+        assert!(inflate
+            .decompress(&compressed, &mut output, InflateFlush::Finish)
+            .is_err());
+
+        inflate.reset(true);
+
+        let compressed = compress(INPUT);
+        let status = inflate
+            .decompress(&compressed, &mut output, InflateFlush::Finish)
+            .unwrap();
+
+        assert_eq!(status, Status::StreamEnd);
+        assert_eq!(&output[..inflate.total_out() as usize], INPUT);
+    }
+
+    /// The state now lives behind a raw pointer, so moving the value must not invalidate it.
+    #[test]
+    fn usable_after_being_moved() {
+        fn make() -> Inflate {
+            Inflate::new(true, 15)
+        }
+
+        let mut boxed = Box::new(make());
+        let mut vec = vec![make()];
+        let mut output = vec![0u8; 256];
+
+        for inflate in [&mut *boxed, &mut vec[0]] {
+            let compressed = compress(INPUT);
+            let status = inflate
+                .decompress(&compressed, &mut output, InflateFlush::Finish)
+                .unwrap();
+
+            assert_eq!(status, Status::StreamEnd);
+            assert_eq!(&output[..inflate.total_out() as usize], INPUT);
+        }
+    }
+
+    /// Passing a value to a function by value retags the references reachable from it and
+    /// protects them for the duration of the call. Storing the state as a `&mut State` meant the
+    /// drop glue then freed the allocation that protected reference points into, which miri
+    /// rejects under both Stacked Borrows and Tree Borrows.
+    #[test]
+    fn drop_by_value() {
+        drop(Inflate::new(true, 15));
+        drop(Deflate::new(6, true, 15));
+    }
+
+    /// The retag is recursive, so burying the value in a field does not avoid the protector.
+    #[test]
+    fn drop_nested_by_value() {
+        struct Wrapper {
+            _inflate: Option<Inflate>,
+            _deflate: Box<Deflate>,
+        }
+
+        drop(Wrapper {
+            _inflate: Some(Inflate::new(true, 15)),
+            _deflate: Box::new(Deflate::new(6, true, 15)),
+        });
+    }
+
+    /// A value that has been used still has to survive the same drop.
+    #[test]
+    fn drop_by_value_after_use() {
+        let mut inflate = Inflate::new(true, 15);
+        let mut output = vec![0u8; 256];
+
+        inflate
+            .decompress(&compress(INPUT), &mut output, InflateFlush::Finish)
+            .unwrap();
+
+        drop(inflate);
+    }
+
+    /// The other drop shapes never created a protector, and must stay that way.
+    #[test]
+    fn drop_without_being_passed_by_value() {
+        let _scope_end = Inflate::new(true, 15);
+
+        let mut vec = vec![Inflate::new(true, 15)];
+        vec.clear();
+
+        let mut option = Some(Deflate::new(6, true, 15));
+        let _ = option.take();
     }
 }
