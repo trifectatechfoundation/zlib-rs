@@ -461,7 +461,7 @@ jobs:
         run: |
           rustup toolchain install nightly
           cargo +nightly build --release --target ${{matrix.target}} --no-default-features --features=gz,gzprintf,c-allocator
-          cc -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -o example example.c target/${{matrix.target}}/release/libz_rs.so
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
       - name: "cdylib: example.c with our .h files"
@@ -469,7 +469,10 @@ jobs:
           LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
         working-directory: libz-rs-sys-cdylib
         run: |
-          cc -o example example.c target/${{matrix.target}}/release/deps/libz_rs.so -I../libz-rs-sys/include/
+          ls target/${{matrix.target}}/release
+          echo "----"
+          ls target/${{matrix.target}}/release/deps
+          cc -o example example.c target/${{matrix.target}}/release/libz_rs.so -I../libz-rs-sys/include/
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
 
