@@ -1892,7 +1892,7 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 ///
 /// ```
 /// use core::mem::MaybeUninit;
-/// use libz_rs_sys::{z_stream, deflateInit_, zlibVersion, Z_OK};
+/// use libz_rs_sys::{z_stream, deflateInit_, deflateEnd, zlibVersion, Z_OK};
 ///
 /// // the zalloc and zfree fields are initialized as zero/NULL.
 /// // `deflateInit_` will set a default allocation  and deallocation function.
@@ -1911,6 +1911,8 @@ pub unsafe extern "C" fn deflateCopy(dest: z_streamp, source: z_streamp) -> c_in
 /// // the stream is now fully initialized. Prefer `assume_init_mut` over
 /// // `assume_init` so the stream does not get moved.
 /// let strm = unsafe { strm.assume_init_mut() };
+///
+/// assert_eq!(unsafe { deflateEnd(strm) }, Z_OK);
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateInit_))]
 pub unsafe extern "C" fn deflateInit_(
@@ -1974,7 +1976,7 @@ pub unsafe extern "C" fn deflateInit_(
 ///
 /// ```
 /// use core::mem::MaybeUninit;
-/// use libz_rs_sys::{z_stream, deflateInit2_, zlibVersion, Z_OK};
+/// use libz_rs_sys::{z_stream, deflateInit2_, deflateEnd, zlibVersion, Z_OK};
 ///
 /// // the zalloc and zfree fields are initialized as zero/NULL.
 /// // `deflateInit_` will set a default allocation  and deallocation function.
@@ -1997,6 +1999,8 @@ pub unsafe extern "C" fn deflateInit_(
 /// // the stream is now fully initialized. Prefer `assume_init_mut` over
 /// // `assume_init` so the stream does not get moved.
 /// let strm = unsafe { strm.assume_init_mut() };
+///
+/// assert_eq!(unsafe { deflateEnd(strm) }, Z_OK);
 /// ```
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(deflateInit2_))]
 pub unsafe extern "C" fn deflateInit2_(

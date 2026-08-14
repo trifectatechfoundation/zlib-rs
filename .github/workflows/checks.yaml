@@ -43,6 +43,7 @@ jobs:
       CARGO_TARGET_WASM32_WASIP1_RUSTFLAGS: "-Ctarget-feature=+simd128"
       BINDGEN_EXTRA_CLANG_ARGS_wasm32_wasip1: "--sysroot=/tmp/wasi-sdk-24.0-x86_64-linux/share/wasi-sysroot"
       RUSTFLAGS: ${{ matrix.rust == 'nightly' && matrix.target == 'x86_64-unknown-linux-gnu' && '-Zsanitizer=address' || '' }}
+      RUSTDOCFLAGS: ${{ matrix.rust == 'nightly' && matrix.target == 'x86_64-unknown-linux-gnu' && '-Zsanitizer=address' || '' }}
     strategy:
       matrix:
         include:
