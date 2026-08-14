@@ -733,7 +733,7 @@ impl State<'_> {
                             self.back += extra;
                         }
 
-                        traceln!("inflate: length {}", state.length);
+                        traceln!("inflate: length {}", self.length);
 
                         self.was = self.length;
 
@@ -818,7 +818,7 @@ impl State<'_> {
                             );
                         }
 
-                        traceln!("inflate: distance {}", state.offset);
+                        traceln!("inflate: distance {}", self.offset);
 
                         break 'top Mode::Match;
                     }
@@ -1291,9 +1291,8 @@ impl State<'_> {
                         }
 
                         need_bits!(self, 3);
-                        // self.last = self.bit_reader.bits(1) != 0;
-                        self.flags
-                            .update(Flags::IS_LAST_BLOCK, self.bit_reader.bits(1) != 0);
+                        let last = self.bit_reader.bits(1) != 0;
+                        self.flags.update(Flags::IS_LAST_BLOCK, last);
                         self.bit_reader.drop_bits(1);
 
                         match self.bit_reader.bits(2) {
@@ -1363,7 +1362,7 @@ impl State<'_> {
                         }
 
                         self.length = hold as usize & 0xFFFF;
-                        traceln!("inflate:     stored length {}", state.length);
+                        traceln!("inflate:     stored length {}", self.length);
 
                         self.bit_reader.init_bits();
 
@@ -1453,7 +1452,7 @@ impl State<'_> {
                             self.back += extra;
                         }
 
-                        traceln!("inflate: length {}", state.length);
+                        traceln!("inflate: length {}", self.length);
 
                         self.was = self.length;
 
@@ -1534,7 +1533,7 @@ impl State<'_> {
                             break 'label self.bad("invalid distance code too far back\0");
                         }
 
-                        traceln!("inflate: distance {}", state.offset);
+                        traceln!("inflate: distance {}", self.offset);
 
                         break 'blk Mode::Match;
                     }
