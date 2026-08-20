@@ -4,7 +4,7 @@
 //! extension.
 use core::arch::aarch64::{
     uint16x8_t, uint16x8x2_t, uint16x8x4_t, uint8x16_t, vaddq_u32, vaddw_high_u8, vaddw_u8,
-    vdupq_n_u16, vdupq_n_u32, vextq_u8, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
+    vdupq_n_u16, vdupq_n_u32, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
     vget_low_u8, vld1q_u8_x4, vmlal_high_u16, vmlal_u16, vpadalq_u16, vpadalq_u8, vpadd_u32,
     vpaddlq_u8, vsetq_lane_u32, vshlq_n_u32,
 };
@@ -121,6 +121,7 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn swap_64bit_lanes_when_be(v: uint8x16_t) -> uint8x16_t {
+            #[rustfmt::skip]
             crate::cfg_select! {
                 target_endian = "big" => { vextq_u8(v, v, 8) }
                 target_endian = "little" => { v }

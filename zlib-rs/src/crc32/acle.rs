@@ -99,10 +99,10 @@ unsafe fn remainder(mut c: u32, mut buf: &[u8]) -> u32 {
 
 crate::cfg_select! {
     miri => {
-        use core::arch::aarch64::{__crc32b, __crc32h, __crc32d, __crc32w};
+        use core::arch::aarch64::{__crc32b, __crc32d, __crc32h, __crc32w};
     }
     _ => {
-        use asm::{__crc32b, __crc32h, __crc32d, __crc32w};
+        use asm::{__crc32b, __crc32d, __crc32h, __crc32w};
     }
 }
 

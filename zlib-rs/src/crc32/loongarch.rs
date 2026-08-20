@@ -80,10 +80,10 @@ fn remainder(mut c: i32, mut buf: &[u8]) -> i32 {
 
 crate::cfg_select! {
     miri => {
-        use core::arch::loongarch64::{crc_w_b_w, crc_w_h_w, crc_w_w_w, crc_w_d_w};
+        use core::arch::loongarch64::{crc_w_b_w, crc_w_d_w, crc_w_h_w, crc_w_w_w};
     }
     _ => {
-        use asm::{crc_w_b_w, crc_w_h_w, crc_w_w_w, crc_w_d_w};
+        use asm::{crc_w_b_w, crc_w_d_w, crc_w_h_w, crc_w_w_w};
     }
 }
 
