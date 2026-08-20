@@ -93,8 +93,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
             }
         }
 
-        let lc: u8;
-        if state.lookahead >= WANT_MIN_MATCH {
+        let lc = if state.lookahead >= WANT_MIN_MATCH {
             macro_rules! first_four_bytes {
                 ($slice:expr, $offset:expr) => {
                     u32::from_le_bytes($slice[$offset..$offset + 4].try_into().unwrap())
@@ -137,10 +136,10 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                     }
                 }
             }
-            lc = str_val as u8;
+            str_val as u8
         } else {
-            lc = state.window.filled()[state.strstart];
-        }
+            state.window.filled()[state.strstart]
+        };
         state.bit_writer.emit_lit(StaticTreeDesc::L.static_tree, lc);
         state.strstart += 1;
         state.lookahead -= 1;

@@ -121,6 +121,7 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn swap_64bit_lanes_when_be(v: uint8x16_t) -> uint8x16_t {
+            #[rustfmt::skip]
             crate::cfg_select! {
                 target_endian = "big" => { vextq_u8(v, v, 8) }
                 target_endian = "little" => { v }
