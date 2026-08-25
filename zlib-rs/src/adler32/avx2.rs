@@ -145,7 +145,11 @@ unsafe fn helper_32_bytes(mut adler0: u32, mut adler1: u32, src: &[__m256i]) -> 
 }
 
 #[cfg(test)]
-#[cfg(target_feature = "avx2")]
+#[cfg(all(
+    target_feature = "avx2",
+    target_feature = "bmi1",
+    target_feature = "bmi2"
+))]
 mod test {
     use super::*;
 
