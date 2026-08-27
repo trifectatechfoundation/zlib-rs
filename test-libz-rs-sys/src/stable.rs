@@ -1,5 +1,6 @@
 use zlib_rs::{
-    compress_slice, DeflateConfig, Inflate, InflateConfig, InflateFlush, ReturnCode, Status,
+    compress_slice, DeflateConfig, Inflate, InflateConfig, InflateError, InflateFlush, ReturnCode,
+    Status,
 };
 
 use crate::helpers::uncompress_slice_ng;
@@ -95,6 +96,27 @@ fn inflate_new_valid_inputs() {
     // 32 working is a quirk in the logic, and we don't document that this works.
     assert_inflates(true, 32, &gzip_wbits_9_lvl_9(), expected.as_bytes());
     assert_inflates(true, 32, &gzip_wbits_15_lvl_9(), expected.as_bytes());
+}
+
+#[test]
+fn gzip_inflate_rejects_distance_beyond_configured_window() {
+    let mut inflate = Inflate::new(true, 16 + 9);
+    let input = gzip_wbits_15_lvl_9();
+    let mut output = [0; 256];
+
+    for _ in 0..input_text().len() {
+        let input = &input[inflate.total_in() as usize..];
+        match inflate.decompress(input, &mut output, InflateFlush::NoFlush) {
+            Err(error) => {
+                assert_eq!(error, InflateError::DataError);
+                return;
+            }
+            Ok(Status::StreamEnd) => panic!("accepted a distance beyond the configured window"),
+            Ok(Status::Ok | Status::BufError) => {}
+        }
+    }
+
+    panic!("inflate made no terminal progress");
 }
 
 #[test]
