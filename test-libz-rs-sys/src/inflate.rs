@@ -9,6 +9,7 @@ use zlib_rs::inflate::{decompress_slice, set_mode_dict, InflateConfig, INFLATE_S
 use zlib_rs::{InflateFlush, ReturnCode, MAX_WBITS};
 
 use crate::assert_eq_rs_ng;
+use crate::helpers::gzip_wbits_15_lvl_9;
 
 const VERSION: *const c_char = libz_rs_sys::zlibVersion();
 const STREAM_SIZE: c_int = core::mem::size_of::<libz_rs_sys::z_stream>() as c_int;
@@ -3426,4 +3427,49 @@ fn mark_includes_distance_bits_after_input_resume() {
         assert_eq!((stream.total_in, stream.total_out), (4, 2));
         assert_eq!((mark >> 16, mark & 0xffff), (14, 1));
     })
+}
+
+#[test]
+fn gzip_inflate_rejects_distance_beyond_configured_window() {
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        let window_bits = 16 + 9;
+
+        assert_eq!(
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            ),
+            Z_OK
+        );
+
+        let stream = stream.assume_init_mut();
+        let mut input = gzip_wbits_15_lvl_9();
+        let mut output = [0u8; 256];
+
+        stream.next_in = input.as_mut_ptr();
+        stream.avail_in = input.len() as u32;
+
+        let result = loop {
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as u32;
+
+            let status = inflate(stream, Z_NO_FLUSH);
+
+            match status {
+                Z_DATA_ERROR => break status,
+                Z_STREAM_END => {
+                    panic!("accepted a distance beyond the configured window")
+                }
+                Z_OK | Z_BUF_ERROR => {}
+                other => panic!("unexpected inflate status: {other}"),
+            }
+        };
+
+        assert_eq!(result, Z_DATA_ERROR);
+        assert_eq!(inflateEnd(stream), Z_OK);
+    });
 }
