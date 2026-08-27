@@ -1,8 +1,9 @@
-use zlib_rs::{
-    compress_slice, DeflateConfig, Inflate, InflateConfig, InflateFlush, ReturnCode, Status,
-};
+use zlib_rs::{Inflate, InflateConfig, InflateError, InflateFlush, ReturnCode, Status};
 
-use crate::helpers::uncompress_slice_ng;
+use crate::helpers::{
+    gzip_wbits_15_lvl_9, gzip_wbits_9_lvl_9, input_text, raw_wbits_15_lvl_9, raw_wbits_9_lvl_9,
+    uncompress_slice_ng, zlib_wbits_15_lvl_9, zlib_wbits_9_lvl_9,
+};
 
 #[track_caller]
 fn assert_inflates(expect_header: bool, window_bits: u8, input: &[u8], expected: &[u8]) {
@@ -13,60 +14,6 @@ fn assert_inflates(expect_header: bool, window_bits: u8, input: &[u8], expected:
 
     assert_eq!(status, Status::StreamEnd);
     assert_eq!(out, expected);
-}
-
-fn input_text() -> String {
-    // Has some long sequences that repeat.
-    let paragraph = concat!(
-        "Tweebuffelsmeteenslagmorsdoodgeskietfontein is 'n plaas wat in die provinsie Noordwes ongeveer 200 km wes van ", 
-        "Pretoria lê en amptelik by die Landmeter-Generaal geregistreer is.", 
-        "\n\n", 
-        "Die naam illustreer die saamflansende kenmerk van 'n Afrikaanse samestelling: ", 
-        "al die beskrywende aspekte van 'n konsep kan in die algemeen saamgebind word in een lang woord. ", 
-        "'n Ander voorbeeld sou wees wildewaatlemoenkonfytkompetisiebeoordelaarshandleiding of wat van een met so 70 letters: ", 
-        "maketaanwaatlemoenkonfyttentoonstellingbeoordelaarshandleidingsboekies. ", 
-        "Sulke uiterste gebruik is egter nie algemeen nie, en daar is ooreenstemming dat woorde met koppeltekens geskei word", 
-        "indien dit té lank begin raak."
-    );
-
-    // We want a reasonably sized input so that the window size actually has some effect.
-    paragraph.repeat(64)
-}
-
-fn compress(window_bits: i32, level: i32) -> Vec<u8> {
-    let mut output = vec![0; 1 << 16];
-
-    let config = DeflateConfig {
-        level,
-        window_bits,
-
-        ..Default::default()
-    };
-    let (slice, ret) = compress_slice(&mut output, input_text().as_bytes(), config);
-    assert_eq!(ret, ReturnCode::Ok);
-    let n = slice.len();
-    output.truncate(n);
-
-    output
-}
-
-fn raw_wbits_9_lvl_9() -> Vec<u8> {
-    compress(-9, 9)
-}
-fn raw_wbits_15_lvl_9() -> Vec<u8> {
-    compress(-15, 9)
-}
-fn zlib_wbits_9_lvl_9() -> Vec<u8> {
-    compress(9, 9)
-}
-fn zlib_wbits_15_lvl_9() -> Vec<u8> {
-    compress(15, 9)
-}
-fn gzip_wbits_9_lvl_9() -> Vec<u8> {
-    compress(16 + 9, 9)
-}
-fn gzip_wbits_15_lvl_9() -> Vec<u8> {
-    compress(16 + 15, 9)
 }
 
 #[test]
@@ -157,4 +104,25 @@ fn gzip_window_bits_0() {
     assert_eq!(result, ReturnCode::DataError);
 
     assert_inflates(true, 00, &gzip_wbits_9_lvl_9(), input_text().as_bytes());
+}
+
+#[test]
+fn gzip_inflate_rejects_distance_beyond_configured_window() {
+    let mut inflate = Inflate::new(true, 16 + 9);
+    let input = gzip_wbits_15_lvl_9();
+    let mut output = [0; 256];
+
+    for _ in 0..input_text().len() {
+        let input = &input[inflate.total_in() as usize..];
+        match inflate.decompress(input, &mut output, InflateFlush::NoFlush) {
+            Err(error) => {
+                assert_eq!(error, InflateError::DataError);
+                return;
+            }
+            Ok(Status::StreamEnd) => panic!("accepted a distance beyond the configured window"),
+            Ok(Status::Ok | Status::BufError) => {}
+        }
+    }
+
+    panic!("inflate made no terminal progress");
 }

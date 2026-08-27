@@ -189,3 +189,65 @@ pub fn uncompress_slice_ng<'a>(
 
     (output_slice, ret)
 }
+
+#[cfg(test)]
+pub fn input_text() -> String {
+    // Has some long sequences that repeat.
+    let paragraph = concat!(
+        "Tweebuffelsmeteenslagmorsdoodgeskietfontein is 'n plaas wat in die provinsie Noordwes ongeveer 200 km wes van ",
+        "Pretoria lê en amptelik by die Landmeter-Generaal geregistreer is.",
+        "\n\n",
+        "Die naam illustreer die saamflansende kenmerk van 'n Afrikaanse samestelling: ",
+        "al die beskrywende aspekte van 'n konsep kan in die algemeen saamgebind word in een lang woord. ",
+        "'n Ander voorbeeld sou wees wildewaatlemoenkonfytkompetisiebeoordelaarshandleiding of wat van een met so 70 letters: ",
+        "maketaanwaatlemoenkonfyttentoonstellingbeoordelaarshandleidingsboekies. ",
+        "Sulke uiterste gebruik is egter nie algemeen nie, en daar is ooreenstemming dat woorde met koppeltekens geskei word",
+        "indien dit té lank begin raak."
+    );
+
+    // We want a reasonably sized input so that the window size actually has some effect.
+    paragraph.repeat(64)
+}
+
+#[cfg(test)]
+fn compress(window_bits: i32, level: i32) -> Vec<u8> {
+    let mut output = vec![0; 1 << 16];
+
+    let config = DeflateConfig {
+        level,
+        window_bits,
+
+        ..Default::default()
+    };
+    let (slice, ret) = zlib_rs::compress_slice(&mut output, input_text().as_bytes(), config);
+    assert_eq!(ret, ReturnCode::Ok);
+    let n = slice.len();
+    output.truncate(n);
+
+    output
+}
+
+#[cfg(test)]
+pub fn raw_wbits_9_lvl_9() -> Vec<u8> {
+    compress(-9, 9)
+}
+#[cfg(test)]
+pub fn raw_wbits_15_lvl_9() -> Vec<u8> {
+    compress(-15, 9)
+}
+#[cfg(test)]
+pub fn zlib_wbits_9_lvl_9() -> Vec<u8> {
+    compress(9, 9)
+}
+#[cfg(test)]
+pub fn zlib_wbits_15_lvl_9() -> Vec<u8> {
+    compress(15, 9)
+}
+#[cfg(test)]
+pub fn gzip_wbits_9_lvl_9() -> Vec<u8> {
+    compress(16 + 9, 9)
+}
+#[cfg(test)]
+pub fn gzip_wbits_15_lvl_9() -> Vec<u8> {
+    compress(16 + 15, 9)
+}
