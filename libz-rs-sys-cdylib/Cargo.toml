@@ -51,7 +51,10 @@ version = "1.3.0" # the zlib api version we match
 name = "z_rs"
 
 [package.metadata.capi.header]
-enabled = false
+generation = false
+
+[package.metadata.capi.install.include]
+asset = [{from="../libz-rs-sys/include/*"}]
 
 [package.metadata.capi.pkg_config]
 name = "libz_rs"
