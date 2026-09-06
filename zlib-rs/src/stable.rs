@@ -212,6 +212,32 @@ impl Inflate {
             other => unreachable!("set_dictionary does not return {other:?}"),
         }
     }
+
+    /// A copy of the decompressor at its current point, like `inflateCopy` in the C API:
+    /// both continue independently from here. This is what random access into a
+    /// deflate stream is built on: copies saved while the stream is read through, and
+    /// decoding resumed later from the nearest one below the wanted position.
+    ///
+    /// Fails with [`InflateError::MemError`] when the state cannot be allocated.
+    pub fn try_clone(&self) -> Result<Self, InflateError> {
+        let mut inner = MaybeUninit::<crate::inflate::InflateStream<'static>>::uninit();
+
+        // SAFETY: `self.inner` is a valid, initialized stream; on success `copy` initializes
+        // `inner` with a state allocation of its own, and leaves it untouched otherwise.
+        let ret = unsafe { crate::inflate::copy(&mut inner, &self.inner) };
+
+        match ret {
+            ReturnCode::Ok => Ok(Self {
+                // SAFETY: `copy` returned `Ok`, so `inner` is initialized.
+                inner: unsafe { inner.assume_init() },
+                total_in: self.total_in,
+                total_out: self.total_out,
+            }),
+            ReturnCode::MemError => Err(InflateError::MemError),
+            ReturnCode::StreamError => Err(InflateError::StreamError),
+            other => unreachable!("copy does not return {other:?}"),
+        }
+    }
 }
 
 impl Drop for Inflate {
@@ -422,5 +448,55 @@ impl Deflate {
 impl Drop for Deflate {
     fn drop(&mut self) {
         let _ = crate::deflate::end(&mut self.inner);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// "hello" as one stored, final deflate block.
+    const HELLO: &[u8] = &[0x01, 0x05, 0x00, 0xfa, 0xff, b'h', b'e', b'l', b'l', b'o'];
+
+    #[test]
+    fn inflate_try_clone_continues_from_the_same_point() {
+        let mut inflate = Inflate::new(false, 15);
+        let mut out = [0u8; 16];
+        // The block header and the first two bytes of data.
+        assert_eq!(
+            inflate.decompress(&HELLO[..7], &mut out, InflateFlush::NoFlush),
+            Ok(Status::Ok)
+        );
+        assert_eq!(inflate.total_out(), 2);
+        assert_eq!(&out[..2], b"he");
+
+        let mut copy = inflate.try_clone().unwrap();
+        assert_eq!(copy.total_in(), inflate.total_in());
+        assert_eq!(copy.total_out(), 2);
+
+        let mut a = [0u8; 16];
+        let mut b = [0u8; 16];
+        assert_eq!(
+            inflate.decompress(&HELLO[7..], &mut a, InflateFlush::Finish),
+            Ok(Status::StreamEnd)
+        );
+        assert_eq!(
+            copy.decompress(&HELLO[7..], &mut b, InflateFlush::Finish),
+            Ok(Status::StreamEnd)
+        );
+        assert_eq!(&a[..3], b"llo");
+        assert_eq!(&b[..3], b"llo");
+    }
+
+    #[test]
+    fn inflate_try_clone_works_before_the_first_call() {
+        let fresh = Inflate::new(false, 15);
+        let mut copy = fresh.try_clone().unwrap();
+        let mut out = [0u8; 16];
+        assert_eq!(
+            copy.decompress(HELLO, &mut out, InflateFlush::Finish),
+            Ok(Status::StreamEnd)
+        );
+        assert_eq!(&out[..5], b"hello");
     }
 }
