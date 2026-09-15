@@ -2019,9 +2019,9 @@ fn gen_bitlen<const N: usize>(
     // number of elements with bit length too large
     let mut overflow: i32 = 0;
 
-    for h in heap.heap_max + 1..HEAP_SIZE {
-        let n = heap.heap[h] as usize;
-        let mut bits = tree[tree[n].dad() as usize].len() + 1;
+    for &n in &heap.heap[heap.heap_max + 1..HEAP_SIZE] {
+        let n = n as usize;
+        let mut bits = tree[usize::from(tree[n].dad())].len() + 1;
 
         if bits > max_length {
             bits = max_length;
@@ -2036,7 +2036,7 @@ fn gen_bitlen<const N: usize>(
             continue;
         }
 
-        bl_count[bits as usize] += 1;
+        bl_count[usize::from(bits)] += 1;
         let mut xbits = 0;
         if n >= base {
             xbits = extra[n - base] as usize;
