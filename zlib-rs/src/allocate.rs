@@ -120,7 +120,7 @@ unsafe extern "C" fn zalloc_rust(_opaque: *mut c_void, count: c_uint, size: c_ui
 
     // SAFETY: alloc requires that the layout have a nonzero size, so we return null
     // above (and never reach this call) if the requested count * size is zero.
-    let ptr = unsafe { std::alloc::alloc(layout) };
+    let ptr = unsafe { alloc::alloc::alloc(layout) };
 
     ptr as *mut c_void
 }
@@ -144,7 +144,7 @@ unsafe extern "C" fn zalloc_rust_calloc(
 
     // SAFETY: alloc_zeroed requires that the layout have a nonzero size, so we return
     // null above (and never reach this call) if the requested count * size is zero.
-    let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+    let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
 
     ptr as *mut c_void
 }
@@ -182,7 +182,7 @@ unsafe extern "C" fn zfree_rust(opaque: *mut c_void, ptr: *mut c_void) {
     // SAFETY: The caller ensured that ptr was allocated with the `alloc` allocator,
     // and the size check above ensures that we are not trying to use a zero-size layout
     // that would produce undefined behavior in the allocator.
-    unsafe { std::alloc::dealloc(ptr.cast(), layout) };
+    unsafe { alloc::alloc::dealloc(ptr.cast(), layout) };
 }
 
 #[cfg(test)]
