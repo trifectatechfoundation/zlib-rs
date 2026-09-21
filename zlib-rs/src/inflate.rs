@@ -968,6 +968,7 @@ impl State<'_> {
 
                         if self.wbits == 0 {
                             self.wbits = len;
+                            self.window.set_size(1 << len);
                         }
 
                         if len as i32 > MAX_WBITS || len > self.wbits {
@@ -2272,7 +2273,13 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
 
     let window_allocation = unsafe { buf.add(allocs.window_pos) };
-    let window = unsafe { Window::from_raw_parts(window_allocation, (1 << MAX_WBITS) + 64) };
+    let window = unsafe {
+        Window::from_padded_raw_parts(
+            window_allocation,
+            (1 << MAX_WBITS) + 64,
+            1 << MAX_WBITS,
+        )
+    };
     state.window = window;
 
     let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
@@ -2322,6 +2329,10 @@ pub fn reset_with_config(stream: &mut InflateStream, config: InflateConfig) -> R
 
     stream.state.wrap = wrap as u8;
     stream.state.wbits = window_bits as _;
+    stream
+        .state
+        .window
+        .set_size(1 << if window_bits == 0 { MAX_WBITS } else { window_bits });
 
     reset(stream)
 }

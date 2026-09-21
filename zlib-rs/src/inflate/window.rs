@@ -6,15 +6,16 @@ use crate::{
 
 // translation guide:
 //
-// wsize -> buf.capacity()
+// wsize -> size
 // wnext -> buf.ptr
 // whave -> buf.filled.len()
 #[derive(Debug)]
 pub struct Window<'a> {
     buf: WeakSliceMut<'a, u8>,
+    size: usize,
 
     have: usize, // number of bytes logically written to the window. this can be higher than
-    // buf.len() if we run out of space in the window
+    // size if we run out of space in the window
     next: usize, // write head
 }
 
@@ -26,13 +27,29 @@ impl<'a> Window<'a> {
     pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
         Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            size: len,
+            have: 0,
+            next: 0,
+        }
+    }
+
+    pub(crate) unsafe fn from_padded_raw_parts(
+        ptr: *mut u8,
+        len: usize,
+        size: usize,
+    ) -> Self {
+        debug_assert!(size + Self::padding() <= len);
+
+        Self {
+            buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            size,
             have: 0,
             next: 0,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.size() == 0
+        self.buf.is_empty()
     }
 
     /// The size of the underlying buffer. For inflate, use `size` instead. This function is used
@@ -43,9 +60,12 @@ impl<'a> Window<'a> {
     }
 
     pub fn size(&self) -> usize {
-        // `self.len == 0` is used for uninitialized buffers
-        assert!(self.buf.is_empty() || self.buf.len() >= Self::padding());
-        self.buf.len().saturating_sub(Self::padding())
+        self.size
+    }
+
+    pub(crate) fn set_size(&mut self, size: usize) {
+        assert!(size + Self::padding() <= self.buf.len());
+        self.size = size;
     }
 
     /// number of bytes in the window. Saturates at `Self::capacity`.
@@ -65,6 +85,7 @@ impl<'a> Window<'a> {
     pub fn empty() -> Self {
         Self {
             buf: WeakSliceMut::empty(),
+            size: 0,
             have: 0,
             next: 0,
         }
@@ -174,6 +195,7 @@ impl<'a> Window<'a> {
 
         Some(Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr.as_ptr(), len) },
+            size: 1 << window_bits,
             have: 0,
             next: 0,
         })
@@ -186,6 +208,7 @@ impl<'a> Window<'a> {
 
         Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, len) },
+            size: self.size,
             have: self.have,
             next: self.next,
         }
