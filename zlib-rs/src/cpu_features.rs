@@ -18,6 +18,15 @@ pub fn is_enabled_sse() -> bool {
 }
 
 #[inline(always)]
+pub fn is_enabled_sse2() -> bool {
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[cfg(feature = "std")]
+    return std::is_x86_feature_detected!("sse2");
+
+    false
+}
+
+#[inline(always)]
 pub fn is_enabled_sse42() -> bool {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     #[cfg(feature = "std")]
