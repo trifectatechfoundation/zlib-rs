@@ -439,14 +439,26 @@ impl Deflate {
     /// compression level. Flushing the stream before calling this method
     /// ensures that the function will succeed on the first call.
     pub fn set_level(&mut self, level: i32) -> Result<Status, DeflateError> {
-        // Clear these pointers so there can be no use after free.
+        // Clear the input pointer so there can be no use after free. Keep a
+        // non-null empty output buffer: `deflate` (called by `params` to flush
+        // remaining output with the previous compression level) rejects a null
+        // `next_out` with StreamError before it can report BufError for
+        // `avail_out == 0`, which is what C callers pass when changing levels
+        // after a flush.
         self.inner.next_in = core::ptr::null_mut();
-        self.inner.next_out = core::ptr::null_mut();
+        // FIXME: Use core::ptr::dangling_mut() once MSRV is raised beyond 1.84
+        self.inner.next_out = core::ptr::NonNull::dangling().as_ptr();
 
         self.inner.avail_in = 0;
         self.inner.avail_out = 0;
 
-        match crate::deflate::params(self.stream(), level, Default::default()) {
+        let rc = crate::deflate::params(self.stream(), level, Default::default());
+
+        // Actually clear the output pointer as well, so that any attempt to
+        // use it will fail with an error
+        self.inner.next_out = core::ptr::null_mut();
+
+        match rc {
             ReturnCode::Ok => Ok(Status::Ok),
             ReturnCode::StreamError => Err(DeflateError::StreamError),
             ReturnCode::BufError => Ok(Status::BufError),
@@ -614,5 +626,26 @@ mod test {
 
         let mut option = Some(Deflate::new(6, true, 15));
         let _ = option.take();
+    }
+
+    #[test]
+    fn set_level_after_sync_flush_changes_deflate_function() {
+        let input = vec![b'a'; 128];
+        let mut out = vec![0u8; 512];
+
+        let mut d = Deflate::new(1, true, 15);
+        d.compress(&input, &mut out, DeflateFlush::SyncFlush)
+            .unwrap();
+        assert_eq!(d.set_level(9), Ok(Status::Ok));
+    }
+
+    #[test]
+    fn set_level_without_flush_reports_buf_error() {
+        let input = vec![b'a'; 128];
+        let mut out = vec![0u8; 512];
+
+        let mut d = Deflate::new(1, true, 15);
+        d.compress(&input, &mut out, DeflateFlush::NoFlush).unwrap();
+        assert_eq!(d.set_level(9), Ok(Status::BufError));
     }
 }
