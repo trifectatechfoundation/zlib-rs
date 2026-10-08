@@ -569,7 +569,8 @@ impl State<'_> {
         let avail_out = self.writer.remaining();
 
         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
-            // SAFETY: INFLATE_FAST_MIN_HAVE is enough bytes remaining to satisfy the precondition.
+            // SAFETY: INFLATE_FAST_MIN_HAVE is enough bytes remaining to satisfy the precondition,
+            // and the output has space for INFLATE_FAST_MIN_LEFT bytes.
             unsafe { inflate_fast_help(self, 0) };
             match self.mode {
                 Mode::Len => {}
@@ -626,7 +627,8 @@ impl State<'_> {
                         // bytes
                         if avail_in >= INFLATE_FAST_MIN_HAVE && avail_out >= INFLATE_FAST_MIN_LEFT {
                             restore!();
-                            // SAFETY: INFLATE_FAST_MIN_HAVE >= 15.
+                            // SAFETY: INFLATE_FAST_MIN_HAVE >= 15, and the output has space for
+                            // INFLATE_FAST_MIN_LEFT bytes.
                             // Note that the restore macro does not do anything that would
                             // reduce the number of bytes available.
                             unsafe { inflate_fast_help(self, 0) };
@@ -1876,7 +1878,8 @@ impl State<'_> {
 /// # Safety
 ///
 /// `state.bit_reader` must have at least 15 bytes available to read, as
-/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`, and `state.writer` must have space for
+/// at least `INFLATE_FAST_MIN_LEFT` bytes.
 unsafe fn inflate_fast_help(state: &mut State, start: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if crate::cpu_features::is_enabled_avx2_and_bmi2() {
@@ -1891,7 +1894,8 @@ unsafe fn inflate_fast_help(state: &mut State, start: usize) {
 /// # Safety
 ///
 /// `state.bit_reader` must have at least 15 bytes available to read, as
-/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`, and `state.writer` must have space for
+/// at least `INFLATE_FAST_MIN_LEFT` bytes.
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[target_feature(enable = "avx2")]
 #[target_feature(enable = "bmi2")]
@@ -1904,7 +1908,8 @@ unsafe fn inflate_fast_help_avx2(state: &mut State, start: usize) {
 /// # Safety
 ///
 /// `state.bit_reader` must have at least 15 bytes available to read, as
-/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`, and `state.writer` must have space for
+/// at least `INFLATE_FAST_MIN_LEFT` bytes.
 unsafe fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
     // SAFETY: `bytes_remaining` checked by our caller
     unsafe { inflate_fast_help_impl::<{ CpuFeatures::NONE }>(state, start) };
@@ -1913,7 +1918,8 @@ unsafe fn inflate_fast_help_vanilla(state: &mut State, start: usize) {
 /// # Safety
 ///
 /// `state.bit_reader` must have at least 15 bytes available to read, as
-/// indicated by `state.bit_reader.bytes_remaining() >= 15`
+/// indicated by `state.bit_reader.bytes_remaining() >= 15`, and `state.writer` must have space for
+/// at least `INFLATE_FAST_MIN_LEFT` bytes.
 #[inline(always)]
 unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _start: usize) {
     let mut bit_reader = BitReader::new(&[]);
@@ -1922,6 +1928,7 @@ unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _star
 
     let mut writer = Writer::new(&mut []);
     core::mem::swap(&mut writer, &mut state.writer);
+    debug_assert!(writer.remaining() >= INFLATE_FAST_MIN_LEFT);
 
     let lcode = state.len_table_ref();
     let dcode = state.dist_table_ref();
@@ -1983,12 +1990,16 @@ unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _star
         };
 
         if here.op == 0 {
-            writer.push(here.val as u8);
+            // SAFETY: the loop condition ensures `INFLATE_FAST_MIN_LEFT` bytes of space, and an
+            // iteration writes at most 2 literals plus 1 literal or a match of at most 258 bytes.
+            unsafe { writer.push_unchecked(here.val as u8) };
             bit_reader.drop_bits(here.bits);
             here = lcode[(bit_reader.hold() & lmask) as usize];
 
             if here.op == 0 {
-                writer.push(here.val as u8);
+                // SAFETY: the loop condition ensures `INFLATE_FAST_MIN_LEFT` bytes of space, and an
+                // iteration writes at most 2 literals plus 1 literal or a match of at most 258 bytes.
+                unsafe { writer.push_unchecked(here.val as u8) };
                 bit_reader.drop_bits(here.bits);
                 here = lcode[(bit_reader.hold() & lmask) as usize];
             }
@@ -1999,7 +2010,9 @@ unsafe fn inflate_fast_help_impl<const FEATURES: usize>(state: &mut State, _star
             let op = here.op;
 
             if op == 0 {
-                writer.push(here.val as u8);
+                // SAFETY: the loop condition ensures `INFLATE_FAST_MIN_LEFT` bytes of space, and an
+                // iteration writes at most 2 literals plus 1 literal or a match of at most 258 bytes.
+                unsafe { writer.push_unchecked(here.val as u8) };
             } else if op & 16 != 0 {
                 let op = op & MAX_BITS;
                 let mut len = here.val + bit_reader.bits(op as usize) as u16;

@@ -93,6 +93,19 @@ impl<'a> Writer<'a> {
         self.filled += 1;
     }
 
+    /// # Safety
+    ///
+    /// The buffer must not be full, i.e. `self.remaining() > 0`.
+    #[inline(always)]
+    pub unsafe fn push_unchecked(&mut self, byte: u8) {
+        debug_assert!(self.remaining() > 0);
+
+        // SAFETY: the caller guarantees that `self.filled < self.buf.len()`.
+        unsafe { *self.buf.as_mut_slice().get_unchecked_mut(self.filled) = MaybeUninit::new(byte) };
+
+        self.filled += 1;
+    }
+
     /// Appends data to the buffer
     #[inline(always)]
     pub fn extend(&mut self, buf: &[u8]) {

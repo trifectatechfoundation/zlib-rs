@@ -937,12 +937,11 @@ const fn encode_len(ltree: &[Value], lc: u8) -> (u64, usize) {
     let lnode = ltree[c];
     let mut match_bits: u64 = lnode.code() as u64;
     let mut match_bits_len = lnode.len() as usize;
+    // For codes without extra bits `lc == BASE_LENGTH[code]`, so this is branchless.
     let extra = StaticTreeDesc::EXTRA_LBITS[code] as usize;
-    if extra != 0 {
-        lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
-        match_bits |= (lc as u64) << match_bits_len;
-        match_bits_len += extra;
-    }
+    lc -= self::trees_tbl::BASE_LENGTH[code] as usize;
+    match_bits |= (lc as u64) << match_bits_len;
+    match_bits_len += extra;
 
     (match_bits, match_bits_len)
 }
@@ -958,12 +957,23 @@ const fn encode_dist(dtree: &[Value], mut dist: u16) -> (u64, usize) {
     let dnode = dtree[code];
     let mut match_bits = dnode.code() as u64;
     let mut match_bits_len = dnode.len() as usize;
+    // For codes without extra bits `dist == BASE_DIST[code]`, so this is branchless.
     let extra = StaticTreeDesc::EXTRA_DBITS[code] as usize;
-    if extra != 0 {
-        dist -= self::trees_tbl::BASE_DIST[code];
-        match_bits |= (dist as u64) << match_bits_len;
-        match_bits_len += extra;
-    }
+    dist -= self::trees_tbl::BASE_DIST[code];
+    match_bits |= (dist as u64) << match_bits_len;
+    match_bits_len += extra;
+
+    (match_bits, match_bits_len)
+}
+
+#[inline]
+const fn encode_match(ltree: &[Value], dtree: &[Value], lc: u8, dist: u16) -> (u64, usize) {
+    let (mut match_bits, mut match_bits_len) = encode_len(ltree, lc);
+
+    let (dist_match_bits, dist_match_bits_len) = encode_dist(dtree, dist);
+
+    match_bits |= dist_match_bits << match_bits_len;
+    match_bits_len += dist_match_bits_len;
 
     (match_bits, match_bits_len)
 }
@@ -1063,6 +1073,26 @@ impl<'a> BitWriter<'a> {
         }
     }
 
+    /// Like `send_bits`, but flushes all complete bytes without branching. Requires that at most
+    /// 7 bits are buffered, and that `len` is at most 56.
+    #[inline(always)]
+    fn send_bits_flush(&mut self, val: u64, len: u8) {
+        debug_assert!(self.bits_valid <= 7);
+        debug_assert!(len <= 56);
+
+        self.send_bits_trace(val, len);
+        self.sent_bits_add(len as usize);
+
+        self.bit_buffer |= val << self.bits_valid;
+        self.bits_valid += len;
+
+        let bytes = self.bits_valid / 8;
+        self.pending
+            .extend_partial(self.bit_buffer.to_le_bytes(), bytes as usize);
+        self.bit_buffer >>= bytes * 8;
+        self.bits_valid &= 7;
+    }
+
     fn send_bits_overflow(&mut self, val: u64, total_bits: u8) {
         if self.bits_valid == Self::BIT_BUF_SIZE {
             self.pending.extend(&self.bit_buffer.to_le_bytes());
@@ -1128,26 +1158,7 @@ impl<'a> BitWriter<'a> {
         ltree[c as usize].len()
     }
 
-    pub(crate) fn emit_dist(
-        &mut self,
-        ltree: &[Value],
-        dtree: &[Value],
-        lc: u8,
-        dist: u16,
-    ) -> usize {
-        let (mut match_bits, mut match_bits_len) = encode_len(ltree, lc);
-
-        let (dist_match_bits, dist_match_bits_len) = encode_dist(dtree, dist);
-
-        match_bits |= dist_match_bits << match_bits_len;
-        match_bits_len += dist_match_bits_len;
-
-        self.send_bits(match_bits, match_bits_len as u8);
-
-        match_bits_len
-    }
-
-    pub(crate) fn emit_dist_static(&mut self, lc: u8, dist: u16) -> usize {
+    fn encode_dist_static(lc: u8, dist: u16) -> (u64, usize) {
         let precomputed_len = trees_tbl::STATIC_LTREE_ENCODINGS[lc as usize];
         let mut match_bits = precomputed_len.code() as u64;
         let mut match_bits_len = precomputed_len.len() as usize;
@@ -1158,17 +1169,29 @@ impl<'a> BitWriter<'a> {
         match_bits |= dist_match_bits << match_bits_len;
         match_bits_len += dist_match_bits_len;
 
+        (match_bits, match_bits_len)
+    }
+
+    pub(crate) fn emit_dist_static(&mut self, lc: u8, dist: u16) -> usize {
+        let (match_bits, match_bits_len) = Self::encode_dist_static(lc, dist);
+
         self.send_bits(match_bits, match_bits_len as u8);
 
         match_bits_len
     }
 
     fn compress_block_help(&mut self, sym_buf: &SymBuf, ltree: &[Value], dtree: &[Value]) {
+        self.flush_bits();
+
         for (dist, lc) in sym_buf.iter() {
-            match dist {
-                0 => self.emit_lit(ltree, lc) as usize,
-                _ => self.emit_dist(ltree, dtree, lc, dist),
+            let (bits, len) = match dist {
+                0 => {
+                    let node = ltree[lc as usize];
+                    (node.code() as u64, node.len() as usize)
+                }
+                _ => encode_match(ltree, dtree, lc, dist),
             };
+            self.send_bits_flush(bits, len as u8);
         }
 
         self.emit_end_block(ltree, false)
@@ -1551,11 +1574,17 @@ impl<'a> State<'a> {
 
     fn compress_block_static_trees(&mut self) {
         let ltree = self::trees_tbl::STATIC_LTREE.as_slice();
+        self.bit_writer.flush_bits();
+
         for (dist, lc) in self.sym_buf.iter() {
-            match dist {
-                0 => self.bit_writer.emit_lit(ltree, lc) as usize,
-                _ => self.bit_writer.emit_dist_static(lc, dist),
+            let (bits, len) = match dist {
+                0 => {
+                    let node = ltree[lc as usize];
+                    (node.code() as u64, node.len() as usize)
+                }
+                _ => BitWriter::encode_dist_static(lc, dist),
             };
+            self.bit_writer.send_bits_flush(bits, len as u8);
         }
 
         self.bit_writer.emit_end_block(ltree, false)

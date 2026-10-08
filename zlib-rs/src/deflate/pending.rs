@@ -61,6 +61,19 @@ impl<'a> Pending<'a> {
         }
     }
 
+    /// Write all 8 bytes, but only add the first `n` of them to the pending bytes.
+    #[inline(always)]
+    #[track_caller]
+    pub fn extend_partial(&mut self, bytes: [u8; 8], n: usize) {
+        debug_assert!(n <= bytes.len());
+        assert!(self.remaining() >= bytes.len(), "8 bytes must fit in remaining()");
+
+        let dst = &mut self.buf.as_mut_slice()[self.out + self.pending..][..bytes.len()];
+        dst.copy_from_slice(&bytes.map(MaybeUninit::new));
+
+        self.pending += n;
+    }
+
     #[inline(always)]
     #[track_caller]
     pub fn extend(&mut self, buf: &[u8]) {
