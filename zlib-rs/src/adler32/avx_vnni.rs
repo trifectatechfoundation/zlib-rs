@@ -113,22 +113,41 @@ unsafe fn adler32_avx_vnni_help(adler: u32, src: &[u8]) -> u32 {
 #[target_feature(enable = "avxvnni")]
 unsafe fn helper_32_bytes(mut adler0: u32, mut adler1: u32, src: &[__m256i]) -> (u32, u32) {
     let mut vs1 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler0 as i32));
-    let mut vs2 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler1 as i32));
+    let mut vs2_0 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler1 as i32));
+    let mut vs2_1 = ZERO;
+    let mut vs2_2 = ZERO;
+    let mut vs2_3 = ZERO;
 
     let mut vs1_0 = vs1;
     let mut vs3 = ZERO;
 
-    for vbuf in src.iter().copied() {
-        let vs1_sad = _mm256_sad_epu8(vbuf, ZERO); // Sum of abs diff, resulting in 2 x int32's
+    macro_rules! step {
+        ($acc:ident, $vbuf:expr) => {{
+            let vbuf = $vbuf;
+            let vs1_sad = _mm256_sad_epu8(vbuf, ZERO); // Sum of abs diff, resulting in 2 x int32's
 
-        vs1 = _mm256_add_epi32(vs1, vs1_sad);
-        vs3 = _mm256_add_epi32(vs3, vs1_0);
-        // AVX-VNNI: one dpbusd computes the weighted byte sum-of-products that
-        // the AVX2 path builds with maddubs + madd + add.
-        vs2 = _mm256_dpbusd_avx_epi32(vs2, vbuf, DOT2V);
-        vs1_0 = vs1;
+            vs1 = _mm256_add_epi32(vs1, vs1_sad);
+            vs3 = _mm256_add_epi32(vs3, vs1_0);
+            $acc = _mm256_dpbusd_avx_epi32($acc, vbuf, DOT2V);
+            vs1_0 = vs1;
+        }};
     }
 
+    let mut it = src.chunks_exact(4);
+    for chunk in it.by_ref() {
+        step!(vs2_0, chunk[0]);
+        step!(vs2_1, chunk[1]);
+        step!(vs2_2, chunk[2]);
+        step!(vs2_3, chunk[3]);
+    }
+
+    for &vbuf in it.remainder() {
+        step!(vs2_0, vbuf);
+    }
+
+    let mut vs2 = _mm256_add_epi32(vs2_0, vs2_1);
+    vs2 = _mm256_add_epi32(vs2, vs2_2);
+    vs2 = _mm256_add_epi32(vs2, vs2_3);
     /* Defer the multiplication with 32 to outside of the loop */
     vs3 = _mm256_slli_epi32(vs3, 5);
     vs2 = _mm256_add_epi32(vs2, vs3);
@@ -181,6 +200,30 @@ mod test {
                 let rust = crate::adler32::generic::adler32_rust(start, &INPUT[i..]);
 
                 assert_eq!(avxvnni, rust, "offset = {i}, start = {start}");
+            }
+        }
+    }
+
+    #[test]
+    fn unrolled_chunk_boundaries() {
+        let input = vec![u8::MAX; 2 * NMAX as usize + 160];
+        for offset in 0..32 {
+            for len in (0..=160).chain([
+                NMAX as usize - 1,
+                NMAX as usize,
+                NMAX as usize + 1,
+                2 * NMAX as usize - 1,
+                2 * NMAX as usize,
+                2 * NMAX as usize + 1,
+            ]) {
+                let src = &input[offset..offset + len];
+                for start in [crate::ADLER32_INITIAL_VALUE as u32, 42, u32::MAX] {
+                    assert_eq!(
+                        adler32_avx_vnni(start, src),
+                        crate::adler32::generic::adler32_rust(start, src),
+                        "offset = {offset}, len = {len}, start = {start}",
+                    );
+                }
             }
         }
     }
