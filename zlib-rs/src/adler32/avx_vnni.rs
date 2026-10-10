@@ -77,15 +77,16 @@ unsafe fn adler32_avx_vnni_help(adler: u32, src: &[u8]) -> u32 {
     // SAFETY: [u8; 32] safely transmutes into __m256i.
     let (before, middle, after) = unsafe { src.align_to::<__m256i>() };
 
+    // SAFETY: align_to yields a prefix shorter than the 32-byte alignment of __m256i.
+    unsafe { core::hint::assert_unchecked(before.len() < 32) };
+
     let mut adler1 = (adler >> 16) & 0xffff;
     let mut adler0 = adler & 0xffff;
 
     let adler = if before.len() < 16 {
         adler32_len_16(adler0, before, adler1)
-    } else if before.len() < 32 {
-        adler32_len_64(adler0, before, adler1)
     } else {
-        adler
+        adler32_len_64(adler0, before, adler1)
     };
 
     adler1 = (adler >> 16) & 0xffff;
