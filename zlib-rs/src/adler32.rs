@@ -2,14 +2,14 @@
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;
-#[cfg(target_arch = "x86_64")]
-mod avx_vnni;
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
 mod avx512_vnni;
+#[cfg(target_arch = "x86_64")]
+mod avx_vnni;
 mod generic;
 #[cfg(all(target_arch = "loongarch64", feature = "lsx"))]
 mod lsx;

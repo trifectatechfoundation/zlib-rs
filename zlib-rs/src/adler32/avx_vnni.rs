@@ -1,6 +1,6 @@
 //! # Safety
 //!
-//! The functions in this module should only be executed on x86 machines with the AVX2 extension.
+//! The functions in this module should only be executed on x86 machines with the AVX-VNNI extension.
 use core::arch::x86_64::{
     __m256i, _mm256_add_epi32, _mm256_castsi256_si128, _mm256_dpbusd_avx_epi32,
     _mm256_extracti128_si256, _mm256_permutevar8x32_epi32, _mm256_sad_epu8, _mm256_slli_epi32,
@@ -66,7 +66,6 @@ pub fn adler32_avx_vnni(adler: u32, src: &[u8]) -> u32 {
     unsafe { adler32_avx_vnni_help(adler, src) }
 }
 
-#[target_feature(enable = "avx2")]
 #[target_feature(enable = "avxvnni")]
 #[target_feature(enable = "bmi2")]
 #[target_feature(enable = "bmi1")]
@@ -110,36 +109,33 @@ unsafe fn adler32_avx_vnni_help(adler: u32, src: &[u8]) -> u32 {
     adler0 | (adler1 << 16)
 }
 
-#[target_feature(enable = "avx2")]
 #[target_feature(enable = "avxvnni")]
 unsafe fn helper_32_bytes(mut adler0: u32, mut adler1: u32, src: &[__m256i]) -> (u32, u32) {
-    unsafe {
-        let mut vs1 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler0 as i32));
-        let mut vs2 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler1 as i32));
+    let mut vs1 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler0 as i32));
+    let mut vs2 = _mm256_zextsi128_si256(_mm_cvtsi32_si128(adler1 as i32));
 
-        let mut vs1_0 = vs1;
-        let mut vs3 = ZERO;
+    let mut vs1_0 = vs1;
+    let mut vs3 = ZERO;
 
-        for vbuf in src.iter().copied() {
-            let vs1_sad = _mm256_sad_epu8(vbuf, ZERO); // Sum of abs diff, resulting in 2 x int32's
+    for vbuf in src.iter().copied() {
+        let vs1_sad = _mm256_sad_epu8(vbuf, ZERO); // Sum of abs diff, resulting in 2 x int32's
 
-            vs1 = _mm256_add_epi32(vs1, vs1_sad);
-            vs3 = _mm256_add_epi32(vs3, vs1_0);
-            // AVX-VNNI: one dpbusd computes the weighted byte sum-of-products that
-            // the AVX2 path builds with maddubs + madd + add.
-            vs2 = _mm256_dpbusd_avx_epi32(vs2, vbuf, DOT2V);
-            vs1_0 = vs1;
-        }
-
-        /* Defer the multiplication with 32 to outside of the loop */
-        vs3 = _mm256_slli_epi32(vs3, 5);
-        vs2 = _mm256_add_epi32(vs2, vs3);
-
-        adler0 = partial_hsum256(vs1) % BASE;
-        adler1 = hsum256(vs2) % BASE;
-
-        (adler0, adler1)
+        vs1 = _mm256_add_epi32(vs1, vs1_sad);
+        vs3 = _mm256_add_epi32(vs3, vs1_0);
+        // AVX-VNNI: one dpbusd computes the weighted byte sum-of-products that
+        // the AVX2 path builds with maddubs + madd + add.
+        vs2 = _mm256_dpbusd_avx_epi32(vs2, vbuf, DOT2V);
+        vs1_0 = vs1;
     }
+
+    /* Defer the multiplication with 32 to outside of the loop */
+    vs3 = _mm256_slli_epi32(vs3, 5);
+    vs2 = _mm256_add_epi32(vs2, vs3);
+
+    adler0 = unsafe { partial_hsum256(vs1) } % BASE;
+    adler1 = unsafe { hsum256(vs2) } % BASE;
+
+    (adler0, adler1)
 }
 
 #[cfg(test)]
