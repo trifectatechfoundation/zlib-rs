@@ -76,6 +76,13 @@ pub struct Inflate {
     total_out: u64,
 }
 
+// SAFETY: `Inflate` exclusively owns its state and uses a thread-safe default allocator.
+// Input/output buffers are only accessed during calls borrowing them.
+unsafe impl Send for Inflate {}
+// SAFETY: Shared access only reads counters and a static error message. Mutating or freeing
+// the state requires exclusive access through `&mut self`.
+unsafe impl Sync for Inflate {}
+
 impl Inflate {
     fn stream(&mut self) -> &mut crate::inflate::InflateStream<'static> {
         // SAFETY: `Inflate::new` initialized `self.inner` with `inflate::init`.
@@ -284,6 +291,13 @@ pub struct Deflate {
     total_out: u64,
 }
 
+// SAFETY: `Deflate` exclusively owns its state and uses a thread-safe default allocator.
+// Input/output buffers are only accessed during calls borrowing them.
+unsafe impl Send for Deflate {}
+// SAFETY: Shared access only reads counters and a static error message. Mutating or freeing
+// the state requires exclusive access through `&mut self`.
+unsafe impl Sync for Deflate {}
+
 impl Deflate {
     fn stream(&mut self) -> &mut crate::deflate::DeflateStream<'static> {
         // SAFETY: `Deflate::new` initialized `self.inner` with `deflate::init`.
@@ -440,6 +454,14 @@ impl Drop for Deflate {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<Inflate>();
+        assert_send_sync::<Deflate>();
+    }
 
     const INPUT: &[u8] = b"scatter scatter scatter, gather gather gather, scatter gather";
 
