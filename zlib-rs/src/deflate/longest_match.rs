@@ -8,10 +8,12 @@ pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, u
     longest_match_help::<false>(state, cur_match)
 }
 
+#[cfg_attr(target_arch = "aarch64", inline)]
 pub fn longest_match_slow(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
     longest_match_help::<true>(state, cur_match)
 }
 
+#[cfg_attr(target_arch = "aarch64", inline)]
 fn longest_match_help<const SLOW: bool>(
     state: &crate::deflate::State,
     mut cur_match: u16,

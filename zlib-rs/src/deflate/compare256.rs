@@ -8,6 +8,28 @@ pub fn compare256_slice(src0: &[u8], src1: &[u8]) -> usize {
     compare256(src0, src1)
 }
 
+#[cfg(not(target_arch = "aarch64"))]
+pub use compare256_slice as compare256_quick_slice;
+
+/// `compare256_slice` for `deflate_quick`, which finds many short matches.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+pub fn compare256_quick_slice(src0: &[u8], src1: &[u8]) -> usize {
+    let src0 = first_chunk::<_, 256>(src0).unwrap();
+    let src1 = first_chunk::<_, 256>(src1).unwrap();
+
+    // `neon::compare256` only returns after comparing 64 bytes, so check the first 16 here.
+    let a = u128::from_le_bytes(*first_chunk(src0).unwrap());
+    let b = u128::from_le_bytes(*first_chunk(src1).unwrap());
+
+    let diff = a ^ b;
+    if diff != 0 {
+        return (diff.trailing_zeros() / 8) as usize;
+    }
+
+    compare256(src0, src1)
+}
+
 fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
     #[cfg(feature = "avx512")]
     #[cfg(target_arch = "x86_64")]
@@ -95,6 +117,7 @@ mod rust {
 
             let match_len = compare256(&str1, &str2);
             assert_eq!(match_len, i);
+            assert_eq!(super::compare256_quick_slice(&str1, &str2), i);
 
             str2[i] = b'a';
         }
