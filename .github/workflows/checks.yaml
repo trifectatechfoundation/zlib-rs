@@ -104,7 +104,7 @@ jobs:
             codecov: true
 
           - target: "aarch64-apple-darwin"
-            os: macos-14
+            os: macos-15
             codecov: true
 
           - target: "x86_64-pc-windows-gnu"
