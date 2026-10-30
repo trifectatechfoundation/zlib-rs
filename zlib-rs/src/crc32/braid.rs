@@ -78,7 +78,7 @@ fn crc32_words_inner(words: &[usize], start: u32, per_word_crcs: &[u32]) -> u32 
         value
             .to_le_bytes()
             .into_iter()
-            .zip(CRC32_WORD_TABLE)
+            .zip(&CRC32_WORD_TABLE)
             .fold(0u32, |crc, (b, tab)| crc ^ tab[usize::from(b)])
     })
 }
