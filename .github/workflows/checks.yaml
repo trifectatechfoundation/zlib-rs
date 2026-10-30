@@ -364,7 +364,7 @@ jobs:
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Install rustfilt
-        uses: taiki-e/install-action@56ab7930c591507f833cbaed864d201386d518a8
+        uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
           tool: rustfilt
       - name: Download custom decompression corpus
