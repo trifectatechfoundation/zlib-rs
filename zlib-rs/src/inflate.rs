@@ -2403,7 +2403,7 @@ pub unsafe fn inflate(stream: &mut InflateStream, flush: InflateFlush) -> Return
     let in_read = state.bit_reader.as_ptr() as usize - stream.next_in as usize;
     let out_written = state.out_available - (state.writer.capacity() - state.writer.len());
 
-    stream.total_in += in_read as z_size;
+    stream.total_in = stream.total_in.wrapping_add(in_read as z_size);
     state.total = state.total.wrapping_add(out_written);
     stream.total_out = state.total as _;
 
@@ -2498,7 +2498,7 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     // SAFETY: syncsearch() returns an index that is in-bounds of the slice.
     stream.next_in = unsafe { stream.next_in.add(len) };
     stream.avail_in -= len as u32;
-    stream.total_in += len as z_size;
+    stream.total_in = stream.total_in.wrapping_add(len as z_size);
 
     /* return no joy or set up to restart inflate() on a new block */
     if state.have != 4 {
