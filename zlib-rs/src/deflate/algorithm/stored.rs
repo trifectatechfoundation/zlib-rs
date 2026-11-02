@@ -282,7 +282,7 @@ fn read_buf_direct_copy(stream: &mut DeflateStream, size: usize) -> usize {
     }
 
     stream.next_in = stream.next_in.wrapping_add(len);
-    stream.total_in += len as crate::c_api::z_size;
+    stream.total_in = stream.total_in.wrapping_add(len as crate::c_api::z_size);
 
     stream.next_out = stream.next_out.wrapping_add(len as _);
     stream.avail_out = stream.avail_out.wrapping_sub(len as _);
