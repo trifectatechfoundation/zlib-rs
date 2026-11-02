@@ -3098,6 +3098,101 @@ fn test_issue_455() {
     );
 }
 
+#[test]
+fn total_out_wraps() {
+    let input = b"hello, hello! hello, hello! hello, hello!";
+
+    let mut strm = MaybeUninit::zeroed();
+    let err = unsafe {
+        deflateInit2_(
+            strm.as_mut_ptr(),
+            libz_rs_sys::Z_DEFAULT_COMPRESSION,
+            Z_DEFLATED,
+            15,
+            8,
+            Strategy::Default as i32,
+            VERSION,
+            STREAM_SIZE,
+        )
+    };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let strm = unsafe { strm.assume_init_mut() };
+    let start = c_ulong::MAX - 10;
+    strm.total_out = start;
+
+    let mut output = [0u8; 128];
+    strm.next_in = input.as_ptr() as *mut u8;
+    strm.avail_in = input.len() as _;
+    strm.next_out = output.as_mut_ptr();
+    strm.avail_out = output.len() as _;
+
+    let err = unsafe { deflate(strm, DeflateFlush::Finish as i32) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+
+    let written = output.len() - strm.avail_out as usize;
+    assert_eq!(strm.total_out, start.wrapping_add(written as c_ulong));
+
+    let mut decompressed = [0u8; 128];
+    let (decompressed, ret) = zlib_rs::inflate::decompress_slice(
+        &mut decompressed,
+        &output[..written],
+        InflateConfig { window_bits: 15 },
+    );
+    assert_eq!(ret, ReturnCode::Ok);
+    assert_eq!(decompressed, input);
+
+    let err = unsafe { deflateEnd(strm) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+}
+
+#[test]
+fn stored_total_in_wraps() {
+    let input = b"hello, hello! hello, hello!";
+
+    let mut strm = MaybeUninit::zeroed();
+    let err = unsafe {
+        deflateInit2_(
+            strm.as_mut_ptr(),
+            0,
+            Z_DEFLATED,
+            15,
+            8,
+            Strategy::Default as i32,
+            VERSION,
+            STREAM_SIZE,
+        )
+    };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+
+    let strm = unsafe { strm.assume_init_mut() };
+    let start = c_ulong::MAX - 3;
+    strm.total_in = start;
+
+    let mut output = [0u8; 128];
+    strm.next_in = input.as_ptr() as *mut u8;
+    strm.avail_in = input.len() as _;
+    strm.next_out = output.as_mut_ptr();
+    strm.avail_out = output.len() as _;
+
+    let err = unsafe { deflate(strm, DeflateFlush::Finish as i32) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::StreamEnd);
+    assert_eq!(strm.total_in, start.wrapping_add(input.len() as c_ulong));
+
+    let written = output.len() - strm.avail_out as usize;
+    let mut decompressed = [0u8; 128];
+    let (decompressed, ret) = zlib_rs::inflate::decompress_slice(
+        &mut decompressed,
+        &output[..written],
+        InflateConfig { window_bits: 15 },
+    );
+    assert_eq!(ret, ReturnCode::Ok);
+    assert_eq!(decompressed, input);
+
+    let err = unsafe { deflateEnd(strm) };
+    assert_eq!(ReturnCode::from(err), ReturnCode::Ok);
+}
+
 /// See https://github.com/trifectatechfoundation/zlib-rs/issues/459.
 mod deflate_reset_deterministic {
     use core::mem::MaybeUninit;

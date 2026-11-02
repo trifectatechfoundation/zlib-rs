@@ -2819,7 +2819,7 @@ pub(crate) fn flush_pending(stream: &mut DeflateStream) {
     unsafe { core::ptr::copy_nonoverlapping(pending.as_ptr(), stream.next_out, len) };
 
     stream.next_out = stream.next_out.wrapping_add(len);
-    stream.total_out += len as crate::c_api::z_size;
+    stream.total_out = stream.total_out.wrapping_add(len as crate::c_api::z_size);
     stream.avail_out -= len as crate::c_api::uInt;
 
     state.bit_writer.pending.advance(len);

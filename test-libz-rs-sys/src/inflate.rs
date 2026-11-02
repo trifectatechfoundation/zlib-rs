@@ -3177,3 +3177,70 @@ fn inflate_validate_toggles_checksum_update() {
         assert_eq!(inflateEnd(stream), Z_OK);
     });
 }
+
+#[test]
+fn total_in_wraps() {
+    use libz_rs_sys::*;
+
+    const ORIGINAL: &str = "The quick brown fox jumped over the lazy dog\0";
+
+    const COMPRESSED: [u8; 52] = [
+        0x78, 0x9c, 0x0b, 0xc9, 0x48, 0x55, 0x28, 0x2c, 0xcd, 0x4c, 0xce, 0x56, 0x48, 0x2a, 0xca,
+        0x2f, 0xcf, 0x53, 0x48, 0xcb, 0xaf, 0x50, 0xc8, 0x2a, 0xcd, 0x2d, 0x48, 0x4d, 0x51, 0xc8,
+        0x2f, 0x4b, 0x2d, 0x52, 0x28, 0xc9, 0x48, 0x55, 0xc8, 0x49, 0xac, 0xaa, 0x54, 0x48, 0xc9,
+        0x4f, 0x07, 0x00, 0x6b, 0x93, 0x10, 0x30,
+    ];
+
+    let mut stream = MaybeUninit::<z_stream>::zeroed();
+    let err = unsafe { inflateInit2_(stream.as_mut_ptr(), MAX_WBITS, VERSION, STREAM_SIZE) };
+    assert_eq!(err, Z_OK);
+
+    let stream = unsafe { stream.assume_init_mut() };
+    stream.total_in = c_ulong::MAX - 10;
+
+    let mut uncompressed = [0u8; 64];
+    stream.next_in = COMPRESSED.as_ptr() as *mut u8;
+    stream.avail_in = COMPRESSED.len() as _;
+    stream.next_out = uncompressed.as_mut_ptr();
+    stream.avail_out = uncompressed.len() as _;
+
+    let err = unsafe { inflate(stream, Z_NO_FLUSH) };
+    assert_eq!(err, Z_STREAM_END);
+
+    assert_eq!(&uncompressed[..ORIGINAL.len()], ORIGINAL.as_bytes());
+    assert_eq!(
+        stream.total_in,
+        (c_ulong::MAX - 10).wrapping_add(COMPRESSED.len() as c_ulong)
+    );
+
+    let err = unsafe { inflateEnd(stream) };
+    assert_eq!(err, Z_OK);
+}
+
+#[test]
+fn sync_total_in_wraps() {
+    use libz_rs_sys::*;
+
+    const INPUT: [u8; 7] = [0x12, 0x34, 0x56, 0x00, 0x00, 0xff, 0xff];
+
+    let mut stream = MaybeUninit::<z_stream>::zeroed();
+    let err = unsafe { inflateInit2_(stream.as_mut_ptr(), MAX_WBITS, VERSION, STREAM_SIZE) };
+    assert_eq!(err, Z_OK);
+
+    let stream = unsafe { stream.assume_init_mut() };
+    stream.total_in = c_ulong::MAX - 2;
+
+    stream.next_in = INPUT.as_ptr() as *mut u8;
+    stream.avail_in = INPUT.len() as _;
+
+    let err = unsafe { inflateSync(stream) };
+    assert_eq!(err, Z_OK);
+    assert_eq!(stream.avail_in, 0);
+    assert_eq!(
+        stream.total_in,
+        (c_ulong::MAX - 2).wrapping_add(INPUT.len() as c_ulong)
+    );
+
+    let err = unsafe { inflateEnd(stream) };
+    assert_eq!(err, Z_OK);
+}
