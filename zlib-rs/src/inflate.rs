@@ -1399,7 +1399,7 @@ impl State<'_> {
                         if !cfg!(feature = "__internal-fuzz-disable-checksum") && self.wrap != 0 {
                             need_bits!(self, 32);
 
-                            self.total += self.writer.len();
+                            self.total = self.total.wrapping_add(self.writer.len());
 
                             if self.wrap & 4 != 0 {
                                 if self.gzip_flags != 0 {
@@ -2730,5 +2730,43 @@ mod tests {
 
         let (_decompressed, err) = decompress_slice(&mut output, &input, config);
         assert_eq!(err, ReturnCode::DataError);
+    }
+
+    #[test]
+    fn check_total_wraps() {
+        const ORIGINAL: &str = "The quick brown fox jumped over the lazy dog";
+
+        const COMPRESSED: [u8; 52] = [
+            0x78, 0x9c, 0x0b, 0xc9, 0x48, 0x55, 0x28, 0x2c, 0xcd, 0x4c, 0xce, 0x56, 0x48, 0x2a,
+            0xca, 0x2f, 0xcf, 0x53, 0x48, 0xcb, 0xaf, 0x50, 0xc8, 0x2a, 0xcd, 0x2d, 0x48, 0x4d,
+            0x51, 0xc8, 0x2f, 0x4b, 0x2d, 0x52, 0x28, 0xc9, 0x48, 0x55, 0xc8, 0x49, 0xac, 0xaa,
+            0x54, 0x48, 0xc9, 0x4f, 0x07, 0x00, 0x6b, 0x93, 0x10, 0x30,
+        ];
+
+        let mut stream = z_stream::default();
+        let err = init(&mut stream, InflateConfig { window_bits: 15 });
+        assert_eq!(err, ReturnCode::Ok);
+
+        let stream = unsafe { InflateStream::from_stream_mut(&mut stream) }.unwrap();
+        let start = usize::MAX - 10;
+        stream.state.total = start;
+
+        let mut output = [0u8; 64];
+        stream.next_in = COMPRESSED.as_ptr() as *mut u8;
+        stream.avail_in = COMPRESSED.len() as _;
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as _;
+
+        let err = unsafe { inflate(stream, InflateFlush::NoFlush) };
+        assert_eq!(err, ReturnCode::StreamEnd);
+
+        assert_eq!(stream.avail_out as usize, output.len() - ORIGINAL.len());
+        assert_eq!(&output[..ORIGINAL.len()], ORIGINAL.as_bytes());
+        assert_eq!(
+            stream.total_out,
+            start.wrapping_add(ORIGINAL.len()) as crate::c_api::z_size
+        );
+
+        end(stream);
     }
 }
