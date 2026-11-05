@@ -1,9 +1,17 @@
-use std::ffi::{c_int, c_uint};
+use std::ffi::{c_char, c_int, c_uint, CStr};
 
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
 use zlib_rs::{DeflateFlush, ReturnCode};
+
+extern "C" {
+    // When zlib-ng is built in compat mode, zlibVersion returns the version
+    // of Mark Adler's zlib that zlib-ng is compatible with, rather than the
+    // actual version of zlib-ng. Fortunately, the z_vstring symbol is the
+    // zlib-ng version, but it is not exposed in libz-sys.
+    static z_vstring: c_char;
+}
 
 fn main() {
     let mut it = std::env::args();
@@ -11,7 +19,19 @@ fn main() {
     // skips the program name
     let _ = it.next().unwrap();
 
-    let level: i32 = it.next().unwrap().parse().unwrap();
+    let maybe_level = it.next().unwrap();
+    if maybe_level == "version-rs" {
+        println!(env!("CARGO_PKG_VERSION"));
+        return;
+    } else if maybe_level == "version-ng" {
+        let raw_version = unsafe { CStr::from_ptr(&z_vstring) };
+        let version_str = raw_version.to_str().unwrap().trim();
+        let version = version_str.strip_prefix("zlib-ng ").unwrap_or(version_str);
+        println!("{version}");
+        return;
+    }
+
+    let level: i32 = maybe_level.parse().unwrap();
 
     let mut dest_vec = vec![0u8; 1 << 28];
     let mut dest_len = dest_vec.len();

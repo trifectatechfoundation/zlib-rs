@@ -1,7 +1,16 @@
 //! a binary just so we can look at the optimized  assembly
+use std::ffi::{c_char, CStr};
 
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
+
+extern "C" {
+    // When zlib-ng is built in compat mode, zlibVersion returns the version
+    // of Mark Adler's zlib that zlib-ng is compatible with, rather than the
+    // actual version of zlib-ng. Fortunately, the z_vstring symbol is the
+    // zlib-ng version, but it is not exposed in libz-sys.
+    static z_vstring: c_char;
+}
 
 macro_rules! chunked_body {
     ($chunk_size:expr, $dest:expr, $source:expr) => {{
@@ -132,6 +141,15 @@ fn main() {
             for chunk in input.chunks(1 << chunk_log) {
                 adler = unsafe { libz_rs_sys::adler32(adler, chunk.as_ptr(), chunk.len() as _) };
             }
+        }
+        "version-rs" => {
+            println!(env!("CARGO_PKG_VERSION"));
+        }
+        "version-ng" => {
+            let raw_version = unsafe { CStr::from_ptr(&z_vstring) };
+            let version_str = raw_version.to_str().unwrap().trim();
+            let version = version_str.strip_prefix("zlib-ng ").unwrap_or(version_str);
+            println!("{version}");
         }
         other => panic!("invalid option '{other}', expected one of 'rs' or 'ng'"),
     }
