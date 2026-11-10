@@ -11,7 +11,9 @@ on:
     inputs:
       ref:
         description: "The commit or branch to benchmark"
-        required: true
+        type: string
+      pr:
+        description: "The pull request number to benchmark"
         type: string
   merge_group:
     branches:
@@ -50,7 +52,7 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-          ref: "${{inputs.ref}}"
+          ref: ${{ inputs.pr && format('refs/pull/{0}/merge', inputs.pr) || inputs.ref }}
           fetch-depth: 0 # ensure the base commit to compare against is available
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
