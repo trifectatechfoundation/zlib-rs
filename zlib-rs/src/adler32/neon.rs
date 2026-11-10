@@ -2,9 +2,11 @@
 //!
 //! The functions in this module should only be executed on aarch64 machines with the Neon
 //! extension.
+#[cfg(target_endian = "big")]
+use core::arch::aarch64::vextq_u8;
 use core::arch::aarch64::{
     uint16x8_t, uint16x8x2_t, uint16x8x4_t, uint8x16_t, vaddq_u32, vaddw_high_u8, vaddw_u8,
-    vdupq_n_u16, vdupq_n_u32, vextq_u8, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
+    vdupq_n_u16, vdupq_n_u32, vget_high_u32, vget_lane_u32, vget_low_u16, vget_low_u32,
     vget_low_u8, vld1q_u8_x4, vmlal_high_u16, vmlal_u16, vpadalq_u16, vpadalq_u8, vpadd_u32,
     vpaddlq_u8, vsetq_lane_u32, vshlq_n_u32,
 };
@@ -131,7 +133,7 @@ unsafe fn accum32(s: (u32, u32), buf: &[uint8x16_t]) -> (u32, u32) {
         for chunk in &mut it {
             // SAFETY: the chunks_exact iterator ensures chunk always references a 16x4 block within buf.
             let d0_d3 = {
-                let mut tmp = unsafe { vld1q_u8_x4(chunk.as_ptr() as *const u8) };
+                let mut tmp = vld1q_u8_x4(chunk.as_ptr() as *const u8);
 
                 tmp.0 = swap_64bit_lanes_when_be(tmp.0);
                 tmp.1 = swap_64bit_lanes_when_be(tmp.1);
