@@ -4,6 +4,14 @@
     all(any(miri, feature = "lsx"), target_arch = "loongarch64"),
     feature(stdarch_loongarch)
 )]
+#![cfg_attr(
+    all(any(miri, feature = "altivec"), target_arch = "powerpc64"),
+    feature(
+        stdarch_powerpc_feature_detection,
+        stdarch_powerpc,
+        powerpc_target_feature
+    )
+)]
 
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
