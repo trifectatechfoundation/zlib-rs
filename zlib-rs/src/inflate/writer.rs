@@ -151,6 +151,11 @@ impl<'a> Writer<'a> {
             return self.extend_from_window_help::<16>(window, range);
         }
 
+        #[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+        if crate::cpu_features::is_enabled_altivec() {
+            return self.extend_from_window_help::<16>(window, range);
+        }
+
         #[cfg(target_arch = "wasm32")]
         if crate::cpu_features::is_enabled_simd128() {
             return self.extend_from_window_help::<16>(window, range);
@@ -251,6 +256,11 @@ impl<'a> Writer<'a> {
 
         #[cfg(all(target_arch = "loongarch64", feature = "lsx"))]
         if crate::cpu_features::is_enabled_lsx() {
+            return self.copy_match_help::<16>(offset_from_end, length);
+        }
+
+        #[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+        if crate::cpu_features::is_enabled_altivec() {
             return self.copy_match_help::<16>(offset_from_end, length);
         }
 
@@ -499,6 +509,11 @@ mod test {
 
         #[cfg(all(target_arch = "loongarch64", feature = "lsx"))]
         if crate::cpu_features::is_enabled_lsx() {
+            helper!(Writer::copy_match_help::<16>);
+        }
+
+        #[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+        if crate::cpu_features::is_enabled_altivec() {
             helper!(Writer::copy_match_help::<16>);
         }
 
