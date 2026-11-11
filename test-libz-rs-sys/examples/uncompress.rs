@@ -3,7 +3,7 @@
 // we use the libz_sys but configure zlib-ng in zlib compat mode
 use libz_sys as libz_ng_sys;
 
-use std::{ffi::c_ulong, path::PathBuf};
+use std::path::PathBuf;
 
 fn main() {
     let mut it = std::env::args();
@@ -17,7 +17,7 @@ fn main() {
 
             let mut dest_vec = vec![0u8; 1 << 28];
 
-            let mut dest_len = dest_vec.len() as c_ulong;
+            let mut dest_len = dest_vec.len() as _;
             let dest = dest_vec.as_mut_ptr();
 
             let source = input.as_ptr();
