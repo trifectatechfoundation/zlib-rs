@@ -82,9 +82,11 @@ jobs:
             codecov: false
             packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-binfmt
 
-          - target: "powerpc64le-unknown-linux-gnu"
+          - rust: nightly
+            target: "powerpc64le-unknown-linux-gnu"
             os: ubuntu-26.04
             codecov: false
+            flags: "--features=altivec"
             packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-binfmt
 
           - rust: nightly
@@ -251,6 +253,7 @@ jobs:
           - aarch64-unknown-linux-gnu
           - wasm32-unknown-unknown
           - loongarch64-unknown-linux-gnu
+          - powerpc64le-unknown-linux-gnu
 
     steps:
       - name: Checkout sources
