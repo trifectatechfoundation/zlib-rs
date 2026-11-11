@@ -112,6 +112,15 @@ pub fn is_enabled_lsx() -> bool {
 }
 
 #[inline(always)]
+pub fn is_enabled_power9_altivec() -> bool {
+    #[cfg(target_arch = "powerpc64")]
+    #[cfg(all(feature = "std", feature = "altivec"))]
+    return std::arch::is_powerpc_feature_detected!("power9-altivec");
+
+    false
+}
+
+#[inline(always)]
 pub fn is_enabled_simd128() -> bool {
     #[cfg(target_arch = "wasm32")]
     return cfg!(target_feature = "simd128");
