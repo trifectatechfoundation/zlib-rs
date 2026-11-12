@@ -70,9 +70,16 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           rustc --version
-          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
+          CC=gcc cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress .
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
+          cp blogpost-compress blogpost-compress-ng-gcc
+          cp blogpost-uncompress blogpost-uncompress-ng-gcc
+          CC=clang cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
+          cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-ng-clang
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-ng-clang
+          cp blogpost-compress blogpost-compress-ng-gcc
+          cp blogpost-uncompress blogpost-uncompress-ng-gcc
           # switch the C implementation from zlib-ng to zlib-chromium
           # sed on macOS is a bit annoying
           if sed --version 2>/dev/null | grep -q GNU; then
@@ -80,9 +87,12 @@ jobs:
           else
               printf '%s\n' '/^libz-sys =/c\' 'libz-sys = { git = "https://github.com/folkertdev/libz-chromium-sys", rev = "121d1d87fa72adfe347fb0dbc0e467786ff39549", default-features = false, features = ["zlib-ng"] }' | sed -i '' -f - Cargo.toml
           fi
-          cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
-          cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium
-          cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium
+          CC=gcc cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
+          cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium-gcc
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium-gcc
+          CC=clang cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
+          cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium-clang
+          cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium-clang
       - name: Benchmark
         uses: trifectatechfoundation/benchmarker-action@main # zizmor: ignore[unpinned-uses] controlled by us
         with:
