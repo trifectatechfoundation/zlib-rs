@@ -8,6 +8,8 @@ mod avx512;
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
 mod avx512_vnni;
+#[cfg(target_arch = "x86_64")]
+mod avx_vnni;
 mod generic;
 #[cfg(all(target_arch = "loongarch64", feature = "lsx"))]
 mod lsx;
@@ -21,6 +23,13 @@ pub fn adler32(start_checksum: u32, data: &[u8]) -> u32 {
     #[cfg(target_arch = "x86_64")]
     if cfg!(all(target_feature = "avx512f", target_feature = "avx512bw")) {
         return avx512::adler32_avx512(start_checksum, data);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    if crate::cpu_features::is_enabled_avx_vnni() {
+        // AVX-VNNI computes the sum2 dot-product in one dpbusd instead of the
+        // maddubs + madd + add the plain AVX2 path uses.
+        return avx_vnni::adler32_avx_vnni(start_checksum, data);
     }
 
     #[cfg(target_arch = "x86_64")]
