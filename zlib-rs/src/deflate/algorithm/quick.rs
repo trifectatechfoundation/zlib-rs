@@ -111,7 +111,7 @@ pub fn deflate_quick(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSt
                 let match_start = &state.window.filled()[hash_head as usize..];
 
                 if str_val == first_four_bytes!(match_start, 0) {
-                    let mut match_len = crate::deflate::compare256::compare256_slice(
+                    let mut match_len = crate::deflate::compare256::compare256_quick_slice(
                         &state.window.filled()[state.strstart + 2..],
                         &match_start[2..],
                     ) + 2;
