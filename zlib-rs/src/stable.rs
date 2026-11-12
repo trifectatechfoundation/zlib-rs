@@ -126,6 +126,15 @@ impl Inflate {
             },
         };
 
+        Self::new_with_config(config)
+    }
+
+    /// Create a new instance with the provided [`InflateConfig`].
+    ///
+    /// In most cases it is recommended to use the standard [`Inflate::new`] constructor unless you know how to compute `window_bits`
+    ///
+    /// This allocates, so should be done with care.
+    pub fn new_with_config(config: InflateConfig) -> Self {
         Self {
             inner: crate::inflate::InflateStream::new(config),
             total_in: 0,
@@ -145,6 +154,14 @@ impl Inflate {
         self.total_out = 0;
 
         crate::inflate::reset_with_config(&mut self.inner, config);
+    }
+
+    /// Reset the state to allow handling a new stream with the same configuration
+    pub fn reset_same_config(&mut self) {
+        self.total_in = 0;
+        self.total_out = 0;
+
+        crate::inflate::reset(&mut self.inner);
     }
 
     /// Decompress `input` and write all decompressed bytes into `output`,
