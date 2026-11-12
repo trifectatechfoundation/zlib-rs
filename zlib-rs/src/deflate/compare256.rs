@@ -30,6 +30,11 @@ fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
         return unsafe { lsx::compare256(src0, src1) };
     }
 
+    #[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+    if crate::cpu_features::is_enabled_power9_altivec() {
+        return unsafe { power9::compare256(src0, src1) };
+    }
+
     #[cfg(target_arch = "wasm32")]
     if crate::cpu_features::is_enabled_simd128() {
         return wasm32::compare256(src0, src1);
@@ -406,6 +411,77 @@ mod lsx {
     #[test]
     fn test_compare256() {
         if crate::cpu_features::is_enabled_lsx() {
+            let str1 = [b'a'; super::MAX_COMPARE_SIZE];
+            let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
+
+            for i in 0..str1.len() {
+                str2[i] = 0;
+
+                let match_len = unsafe { compare256(&str1, &str2) };
+                assert_eq!(match_len, i);
+
+                str2[i] = b'a';
+            }
+        }
+    }
+}
+
+#[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+mod power9 {
+    use core::arch::powerpc64::{vec_cmpne, vec_xl};
+
+    #[target_feature(enable = "power9-altivec")]
+    pub fn compare256(src0: &[u8; 256], src1: &[u8; 256]) -> usize {
+        let src0 = src0.chunks_exact(16);
+        let src1 = src1.chunks_exact(16);
+
+        let mut len = 0;
+
+        unsafe {
+            for (chunk0, chunk1) in src0.zip(src1) {
+                // AltiVec requires aligned loads and will silently round down
+                // the address, so use the unaligned VSX loads.
+                let a = vec_xl(0, chunk0.as_ptr());
+                let b = vec_xl(0, chunk1.as_ptr());
+
+                // Every byte in vc will either be all ones or all zeroes
+                // Ones if the elements are not equal, zero if they are equal
+                let vc = vec_cmpne(a, b);
+
+                // ...therefore the number of consecutive bytes where the LSB
+                // is zero is the length of the match
+                let match_len: usize;
+
+                #[cfg(target_endian = "little")]
+                core::arch::asm!(
+                    "vctzlsbb {ret}, {vec}",
+                    ret = out(reg) match_len,
+                    vec = in(vreg) vc,
+                    options(pure, nomem, nostack, preserves_flags)
+                );
+
+                #[cfg(target_endian = "big")]
+                core::arch::asm!(
+                    "vclzlsbb {ret}, {vec}",
+                    ret = out(reg) match_len,
+                    vec = in(vreg) vc,
+                    options(pure, nomem, nostack, preserves_flags)
+                );
+
+                if match_len != 16 {
+                    return len + match_len;
+                }
+
+                len += 16;
+            }
+        }
+
+        256
+    }
+
+    #[test]
+    fn test_compare256() {
+        if crate::cpu_features::is_enabled_power9_altivec() {
             let str1 = [b'a'; super::MAX_COMPARE_SIZE];
             let mut str2 = [b'a'; super::MAX_COMPARE_SIZE];
 

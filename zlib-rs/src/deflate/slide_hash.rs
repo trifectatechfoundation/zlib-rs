@@ -26,6 +26,11 @@ fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         return unsafe { lsx::slide_hash_chain(table, wsize) };
     }
 
+    #[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+    if crate::cpu_features::is_enabled_altivec() {
+        return unsafe { altivec::slide_hash_chain(table, wsize) };
+    }
+
     #[cfg(target_arch = "wasm32")]
     if crate::cpu_features::is_enabled_simd128() {
         // SAFETY: the simd128 target feature is enabled.
@@ -94,6 +99,19 @@ mod lsx {
     pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
         // 32 means that 4 128-bit values can be processed per iteration. That appear to be the
         // optimal amount for LSX.
+        super::generic_slide_hash_chain::<32>(table, wsize);
+    }
+}
+
+#[cfg(all(target_arch = "powerpc64", feature = "altivec"))]
+mod altivec {
+    /// # Safety
+    ///
+    /// Behavior is undefined if the `altivec` target feature is not enabled.
+    #[target_feature(enable = "altivec")]
+    pub unsafe fn slide_hash_chain(table: &mut [u16], wsize: u16) {
+        // 32 means that 4 128-bit values can be processed per iteration. That appear to be the
+        // optimal amount for AltiVec.
         super::generic_slide_hash_chain::<32>(table, wsize);
     }
 }

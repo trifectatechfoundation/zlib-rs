@@ -31,6 +31,9 @@ jobs:
       # powerpc64le-unknown-linux-gnu
       CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_LINKER: powerpc64le-linux-gnu-gcc
       CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_RUNNER: qemu-ppc64le -L /usr/powerpc64le-linux-gnu
+      # powerpc64-unknown-linux-gnu
+      CARGO_TARGET_POWERPC64_UNKNOWN_LINUX_GNU_LINKER: powerpc64-linux-gnu-gcc
+      CARGO_TARGET_POWERPC64_UNKNOWN_LINUX_GNU_RUNNER: qemu-ppc64 -L /usr/powerpc64-linux-gnu
       # loongarch64-unknown-linux-gnu
       CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER: loongarch64-linux-gnu-gcc
       CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-loongarch64 -L /usr/loongarch64-linux-gnu
@@ -82,10 +85,19 @@ jobs:
             codecov: false
             packages: gcc-s390x-linux-gnu g++-s390x-linux-gnu qemu-user qemu-user-binfmt
 
-          - target: "powerpc64le-unknown-linux-gnu"
+          - rust: nightly
+            target: "powerpc64le-unknown-linux-gnu"
             os: ubuntu-26.04
             codecov: false
+            flags: "--features=altivec"
             packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-binfmt
+
+          - rust: nightly
+            target: "powerpc64-unknown-linux-gnu"
+            os: ubuntu-26.04
+            codecov: false
+            flags: "--features=altivec"
+            packages: gcc-powerpc64-linux-gnu g++-powerpc64-linux-gnu qemu-user qemu-user-binfmt
 
           - rust: nightly
             target: "loongarch64-unknown-linux-gnu"
@@ -251,6 +263,8 @@ jobs:
           - aarch64-unknown-linux-gnu
           - wasm32-unknown-unknown
           - loongarch64-unknown-linux-gnu
+          - powerpc64le-unknown-linux-gnu
+          - powerpc64-unknown-linux-gnu
 
     steps:
       - name: Checkout sources
