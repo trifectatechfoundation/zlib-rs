@@ -3287,7 +3287,7 @@ mod stable_api {
         }
 
         // Due to NoFlush there is data to write, but no buffer to write it into.
-        assert_eq!(d.set_level(9), Err(zlib_rs::DeflateError::StreamError));
+        assert_eq!(d.set_level(9), Ok(zlib_rs::Status::BufError));
     }
 
     /// Test that the Deflate state does not retain the dictionary.
