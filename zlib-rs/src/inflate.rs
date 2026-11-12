@@ -2542,7 +2542,9 @@ pub unsafe fn copy<'a>(
     dest: &mut MaybeUninit<InflateStream<'a>>,
     source: &InflateStream<'a>,
 ) -> ReturnCode {
-    if source.next_out.is_null() || (source.next_in.is_null() && source.avail_in != 0) {
+    // The buffer pointers are copied, never read, so a stream that has not run yet (both
+    // null) can be copied too; input claimed without a buffer is the one inconsistent state.
+    if source.next_in.is_null() && source.avail_in != 0 {
         return ReturnCode::StreamError;
     }
 
