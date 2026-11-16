@@ -780,6 +780,7 @@ impl State<'_> {
                         }
 
                         bit_reader.drop_bits(here.bits);
+                        self.back += here.bits as usize;
 
                         if here.op & 64 != 0 {
                             restore!();
@@ -1505,6 +1506,7 @@ impl State<'_> {
                         }
 
                         self.bit_reader.drop_bits(here.bits);
+                        self.back += here.bits as usize;
 
                         if here.op & 64 != 0 {
                             mode = Mode::Bad;
