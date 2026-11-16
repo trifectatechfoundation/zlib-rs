@@ -119,6 +119,7 @@ impl<'a> Writer<'a> {
         }
     }
 
+    #[cfg_attr(not(target_arch = "x86_64"), inline(always))]
     fn extend_from_window_runtime_dispatch(
         &mut self,
         window: &super::window::Window,
@@ -226,6 +227,7 @@ impl<'a> Writer<'a> {
         }
     }
 
+    #[cfg_attr(not(target_arch = "x86_64"), inline(always))]
     fn copy_match_runtime_dispatch(&mut self, offset_from_end: usize, length: usize) {
         // NOTE: the dynamic check for avx512 makes avx2 slower. Measure this carefully before re-enabling
         //
