@@ -151,7 +151,7 @@ impl<'a> BitReader<'a> {
     pub fn start_sync_search(&mut self) -> ([u8; 4], usize) {
         let mut buf = [0u8; 4];
 
-        self.bit_buffer <<= self.bits_used & 7;
+        self.bit_buffer >>= self.bits_used & 7;
         self.bits_used -= self.bits_used & 7;
 
         let mut len = 0;
