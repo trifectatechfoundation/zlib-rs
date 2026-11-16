@@ -47,6 +47,10 @@ jobs:
             target: "loongarch64-unknown-linux-musl"
             flags: "--features=lsx"
             rust: nightly
+          - name: linux-ppc64le
+            os: [benchmark, ppc64le, linux]
+            target: "powerpc64le-unknown-linux-musl"
+            rust: nightly
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
