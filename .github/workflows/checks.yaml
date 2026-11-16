@@ -142,11 +142,15 @@ jobs:
         with:
           packages: "${{ matrix.packages }}"
           version: 2
-      - name: Download wasmtime & wasi-sdk
-        if: ${{ contains(matrix.target, 'wasm') }}
+      - name: Install wasmtime
+        if: startsWith(matrix.target, 'wasm')
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: wasmtime
+      - name: Download wasi-sdk
+        if: startsWith(matrix.target, 'wasm')
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
-          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+          set -o pipefail
           curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz | tar xz --directory /tmp
 
       # build
