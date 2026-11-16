@@ -12,6 +12,7 @@
                      Avoid some compiler warnings for input and output buffers
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
