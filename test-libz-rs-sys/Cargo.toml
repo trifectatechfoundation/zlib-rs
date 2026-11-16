@@ -18,6 +18,7 @@ rust-allocator = ["libz-rs-sys/rust-allocator", "libz-rs-sys/rust-allocator"]
 gz = ["libz-rs-sys/gz", "dep:libc"]
 gzprintf = ["libz-rs-sys/gzprintf"]
 lsx = ["zlib-rs/lsx"]
+altivec = ["zlib-rs/altivec"]
 
 [dependencies]
 zlib-rs = { workspace = true, default-features = false, features = ["std", "c-allocator", "rust-allocator", "__internal-test", "__internal-api"] }
