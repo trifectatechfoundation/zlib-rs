@@ -50,6 +50,7 @@ jobs:
           - name: linux-ppc64le
             os: [benchmark, ppc64le, linux]
             target: "powerpc64le-unknown-linux-musl"
+            flags: "--features=altivec"
             rust: nightly
     steps:
       - name: Checkout sources
