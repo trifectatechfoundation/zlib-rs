@@ -4,14 +4,17 @@ const EARLY_EXIT_TRIGGER_LEVEL: i8 = 5;
 
 /// Find the (length, offset) in the window of the longest match for the string
 /// at offset cur_match
+#[inline]
 pub fn longest_match(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
     longest_match_help::<false>(state, cur_match)
 }
 
+#[inline]
 pub fn longest_match_slow(state: &crate::deflate::State, cur_match: u16) -> (usize, u16) {
     longest_match_help::<true>(state, cur_match)
 }
 
+#[inline]
 fn longest_match_help<const SLOW: bool>(
     state: &crate::deflate::State,
     mut cur_match: u16,
