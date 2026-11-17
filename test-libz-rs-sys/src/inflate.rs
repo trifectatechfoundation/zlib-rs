@@ -3020,6 +3020,106 @@ fn inflate_copy_after_half_input() {
 }
 
 #[test]
+fn test_inflate_sync_preserves_buffered_bytes_after_bit_alignment() {
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        for padding in 0..8 {
+            let buffered = (0x00ff_0000u32 << padding) | ((1u32 << padding) - 1);
+            let mut tail = [0xffu8];
+
+            unsafe {
+                assert_eq!(
+                    inflateInit2_(
+                        stream.as_mut_ptr(),
+                        -15,
+                        zlibVersion(),
+                        core::mem::size_of::<z_stream>() as i32,
+                    ),
+                    Z_OK
+                );
+
+                let stream = stream.assume_init_mut();
+
+                assert_eq!(inflatePrime(stream, 16, (buffered & 0xffff) as i32), Z_OK);
+                assert_eq!(
+                    inflatePrime(stream, 8 + padding, (buffered >> 16) as i32),
+                    Z_OK
+                );
+                stream.next_in = tail.as_mut_ptr();
+                stream.avail_in = 1;
+                let result = inflateSync(stream);
+                assert_eq!(inflateEnd(stream), Z_OK);
+                assert_eq!(result, Z_OK, "alignment padding: {padding}");
+                assert_eq!(stream.next_in, tail.as_mut_ptr().add(1));
+                assert_eq!(stream.avail_in, 0);
+                assert_eq!((stream.total_in, stream.total_out), (1, 0));
+            }
+        }
+    })
+}
+
+#[test]
+fn test_inflate_sync() {
+    enum Version {
+        Complete,
+        Partial,
+        Control,
+    }
+
+    #[track_caller]
+    fn helper(version: Version) {
+        assert_eq_rs_ng!({
+            let mut stream = MaybeUninit::<z_stream>::zeroed();
+            let mut backing = [0u8];
+
+            assert_eq!(
+                inflateInit2_(
+                    stream.as_mut_ptr(),
+                    -15,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as i32,
+                ),
+                Z_OK
+            );
+
+            let stream = stream.assume_init_mut();
+
+            if let Version::Partial = version {
+                assert_eq!(inflatePrime(stream, 8, 0), Z_OK);
+            } else {
+                assert_eq!(inflatePrime(stream, 16, 0), Z_OK);
+                assert_eq!(inflatePrime(stream, 16, 0xffff), Z_OK);
+            }
+            stream.next_in = match version {
+                Version::Control => backing.as_mut_ptr(),
+                Version::Partial | Version::Complete => core::ptr::null_mut(),
+            };
+            stream.avail_in = 0;
+            let supplied = stream.next_in;
+            let result = inflateSync(stream);
+            let cursor = stream.next_in;
+            let accounting = (stream.avail_in, stream.total_in, stream.total_out);
+
+            assert_eq!(inflateEnd(stream), Z_OK);
+            assert_eq!(
+                result,
+                match version {
+                    Version::Partial => Z_DATA_ERROR,
+                    Version::Complete | Version::Control => Z_OK,
+                }
+            );
+            assert_eq!(cursor, supplied);
+            assert_eq!(accounting, (0, 0, 0));
+        })
+    }
+
+    helper(Version::Complete);
+    helper(Version::Partial);
+    helper(Version::Control);
+}
+
+#[test]
 fn inflate_validate_toggles_checksum_update() {
     let input = include_bytes!("test-data/compression-corpus/The fastest WASM zlib.md.gzip-9.gz");
 
@@ -3176,44 +3276,4 @@ fn inflate_validate_toggles_checksum_update() {
 
         assert_eq!(inflateEnd(stream), Z_OK);
     });
-}
-
-#[test]
-fn test_inflate_sync_preserves_buffered_bytes_after_bit_alignment() {
-    assert_eq_rs_ng!({
-        let mut stream = MaybeUninit::<z_stream>::zeroed();
-
-        for padding in 0..8 {
-            let buffered = (0x00ff_0000u32 << padding) | ((1u32 << padding) - 1);
-            let mut tail = [0xffu8];
-
-            unsafe {
-                assert_eq!(
-                    inflateInit2_(
-                        stream.as_mut_ptr(),
-                        -15,
-                        zlibVersion(),
-                        core::mem::size_of::<z_stream>() as i32,
-                    ),
-                    Z_OK
-                );
-
-                let stream = stream.assume_init_mut();
-
-                assert_eq!(inflatePrime(stream, 16, (buffered & 0xffff) as i32), Z_OK);
-                assert_eq!(
-                    inflatePrime(stream, 8 + padding, (buffered >> 16) as i32),
-                    Z_OK
-                );
-                stream.next_in = tail.as_mut_ptr();
-                stream.avail_in = 1;
-                let result = inflateSync(stream);
-                assert_eq!(inflateEnd(stream), Z_OK);
-                assert_eq!(result, Z_OK, "alignment padding: {padding}");
-                assert_eq!(stream.next_in, tail.as_mut_ptr().add(1));
-                assert_eq!(stream.avail_in, 0);
-                assert_eq!((stream.total_in, stream.total_out), (1, 0));
-            }
-        }
-    })
 }

@@ -2490,8 +2490,12 @@ pub fn sync(stream: &mut InflateStream) -> ReturnCode {
     }
 
     // search available input
-    // SAFETY: user guarantees that pointer and length are valid.
-    let slice = unsafe { core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize) };
+    let slice = if stream.next_in.is_null() || stream.avail_in == 0 {
+        &[]
+    } else {
+        // SAFETY: user guarantees that pointer and length are valid.
+        unsafe { core::slice::from_raw_parts(stream.next_in, stream.avail_in as usize) }
+    };
 
     let len;
     (state.have, len) = syncsearch(state.have, slice);
