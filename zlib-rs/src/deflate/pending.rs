@@ -17,6 +17,7 @@ impl<'a> Pending<'a> {
     pub fn reset_keep(&mut self) {
         // keep the buffer as it is
         self.pending = 0;
+        self.out = 0;
     }
 
     pub fn pending(&self) -> &[u8] {
