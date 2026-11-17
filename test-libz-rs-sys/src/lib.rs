@@ -41,6 +41,16 @@ macro_rules! assert_eq_rs_ng {
                 ) -> core::ffi::c_int;
 
                 #[allow(unused)]
+                fn deflatePending(
+                    strm: z_streamp,
+                    pending: *mut core::ffi::c_uint,
+                    bits: *mut core::ffi::c_int,
+                ) -> core::ffi::c_int;
+
+                #[allow(unused)]
+                fn deflateResetKeep(strm: *mut z_stream) -> core::ffi::c_int;
+
+                #[allow(unused)]
                 fn inflateGetDictionary(
                     strm: *const z_stream,
                     dictionary: *mut core::ffi::c_uchar,

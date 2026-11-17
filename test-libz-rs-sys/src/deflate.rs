@@ -3258,6 +3258,105 @@ mod deflate_reset_deterministic {
     }
 }
 
+/// See https://github.com/trifectatechfoundation/zlib-rs/issues/599.
+fn reset_after_partial_gzip_header(keep: bool) {
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::zeroed();
+        let mut extra = [0x5au8; 600];
+        let mut input = *b"ABCABC";
+        let mut partial = [0u8; 511];
+        let mut compressed = [0u8; 2048];
+        let mut pending = 0;
+        let mut bits = 0;
+
+        assert_eq!(
+            deflateInit2_(
+                stream.as_mut_ptr(),
+                6,
+                Z_DEFLATED,
+                31,
+                1,
+                Z_DEFAULT_STRATEGY,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            ),
+            Z_OK
+        );
+
+        let stream = stream.assume_init_mut();
+
+        let mut header = MaybeUninit::<gz_header>::zeroed().assume_init();
+        header.extra = extra.as_mut_ptr();
+        header.extra_len = extra.len() as u32;
+        assert_eq!(deflateSetHeader(stream, &mut header), Z_OK);
+
+        stream.next_in = input.as_mut_ptr();
+        stream.avail_in = 0;
+        stream.next_out = partial.as_mut_ptr();
+        stream.avail_out = partial.len() as u32;
+        assert_eq!(deflate(stream, Z_NO_FLUSH), Z_OK);
+        assert_eq!((stream.total_in, stream.total_out), (0, 511));
+        assert_eq!(deflatePending(stream, &mut pending, &mut bits), Z_OK);
+        assert_eq!((pending, bits), (1, 0));
+
+        let result = if keep {
+            deflateResetKeep(stream)
+        } else {
+            deflateReset(stream)
+        };
+        assert_eq!(result, Z_OK);
+        assert_eq!((stream.total_in, stream.total_out), (0, 0));
+        assert_eq!(deflatePending(stream, &mut pending, &mut bits), Z_OK);
+        assert_eq!((pending, bits), (0, 0));
+        // Isolate pending capacity from retention of the custom gzip header.
+        assert_eq!(deflateSetHeader(stream, core::ptr::null_mut()), Z_OK);
+
+        stream.next_in = input.as_mut_ptr();
+        stream.avail_in = input.len() as u32;
+        stream.next_out = compressed.as_mut_ptr();
+        stream.avail_out = compressed.len() as u32;
+        let result = deflate(stream, Z_FINISH);
+        let compressed_len = stream.total_out as usize;
+        assert_eq!(deflateEnd(stream), Z_OK);
+        assert_eq!(result, Z_STREAM_END);
+        assert_eq!(stream.avail_in, 0);
+        assert_eq!(stream.total_in, input.len() as _);
+
+        let mut decoder = MaybeUninit::<z_stream>::zeroed();
+        let mut decoded = [0u8; 32];
+        assert_eq!(
+            inflateInit2_(
+                decoder.as_mut_ptr(),
+                31,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            ),
+            Z_OK
+        );
+
+        let decoder = decoder.assume_init_mut();
+        decoder.next_in = compressed.as_mut_ptr();
+        decoder.avail_in = compressed_len as u32;
+        decoder.next_out = decoded.as_mut_ptr();
+        decoder.avail_out = decoded.len() as u32;
+        let result = inflate(decoder, Z_FINISH);
+        assert_eq!(inflateEnd(decoder), Z_OK);
+        assert_eq!(result, Z_STREAM_END);
+        assert_eq!(decoder.avail_in, 0);
+        assert_eq!(&decoded[..decoder.total_out as usize], &input);
+    })
+}
+
+#[test]
+fn reset_reclaims_pending_capacity_after_partial_gzip_header() {
+    reset_after_partial_gzip_header(false);
+}
+
+#[test]
+fn reset_keep_reclaims_pending_capacity_after_partial_gzip_header() {
+    reset_after_partial_gzip_header(true);
+}
+
 mod stable_api {
     use core::mem::MaybeUninit;
 
