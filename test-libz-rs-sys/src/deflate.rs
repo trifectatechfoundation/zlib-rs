@@ -3357,6 +3357,111 @@ fn reset_keep_reclaims_pending_capacity_after_partial_gzip_header() {
     reset_after_partial_gzip_header(true);
 }
 
+mod deflate_prime {
+    use super::*;
+
+    fn compress_with_primes(primes: &[(i32, i32)]) -> Vec<u8> {
+        // FIXME: use assert_eq_rs_ng when upgrading zlib-ng from 2.3.3.
+        unsafe {
+            use libz_rs_sys::*;
+
+            let mut stream = MaybeUninit::<z_stream>::zeroed();
+            let mut input = *b"ABCABC";
+            let mut output = [0u8; 128];
+
+            assert_eq!(
+                deflateInit2_(
+                    stream.as_mut_ptr(),
+                    6,
+                    Z_DEFLATED,
+                    -15,
+                    8,
+                    Z_DEFAULT_STRATEGY,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as i32,
+                ),
+                Z_OK
+            );
+
+            let stream = stream.assume_init_mut();
+
+            for &(bits, value) in primes {
+                assert_eq!(deflatePrime(stream, bits, value), Z_OK);
+            }
+            stream.next_in = input.as_mut_ptr();
+            stream.avail_in = input.len() as u32;
+            stream.next_out = output.as_mut_ptr();
+            stream.avail_out = output.len() as u32;
+            let result = deflate(stream, Z_FINISH);
+            assert_eq!(deflateEnd(stream), Z_OK);
+            assert_eq!(result, Z_STREAM_END);
+            assert_eq!(stream.avail_in, 0);
+
+            output[..stream.total_out as usize].to_vec()
+        }
+    }
+
+    #[test]
+    fn zero_width_prime_preserves_compressed_output() {
+        let mut expected = compress_with_primes(&[]);
+
+        assert_eq_rs_ng!({
+            let mut stream = MaybeUninit::<z_stream>::zeroed();
+            let mut decoded = [0u8; 32];
+
+            assert_eq!(
+                inflateInit2_(
+                    stream.as_mut_ptr(),
+                    -15,
+                    zlibVersion(),
+                    core::mem::size_of::<z_stream>() as i32,
+                ),
+                Z_OK
+            );
+
+            let stream = stream.assume_init_mut();
+            stream.next_in = expected.as_mut_ptr();
+            stream.avail_in = expected.len() as u32;
+            stream.next_out = decoded.as_mut_ptr();
+            stream.avail_out = decoded.len() as u32;
+            let result = inflate(stream, Z_FINISH);
+            assert_eq!(inflateEnd(stream), Z_OK);
+            assert_eq!(result, Z_STREAM_END);
+            assert_eq!(&decoded[..stream.total_out as usize], b"ABCABC");
+
+            for value in [-1, i32::MIN, i32::MAX, 0, 1] {
+                assert_eq!(
+                    compress_with_primes(&[(0, value)]),
+                    expected,
+                    "zero-width value: {value}"
+                );
+            }
+        })
+    }
+
+    #[test]
+    fn prime_ignores_bits_above_requested_width() {
+        for prefix in [None, Some((3, 5)), Some((8, 0xa5))] {
+            for bits in [1, 7, 8, 15, 16] {
+                for value in [-1, i32::MIN, i32::MAX, 0x1234_5678] {
+                    let mut actual = Vec::new();
+                    if let Some(prefix) = prefix {
+                        actual.push(prefix);
+                    }
+                    let mut expected = actual.clone();
+                    actual.push((bits, value));
+                    expected.push((bits, value & ((1 << bits) - 1)));
+                    assert_eq!(
+                        compress_with_primes(&actual),
+                        compress_with_primes(&expected),
+                        "prefix: {prefix:?}, bits: {bits}, value: {value}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 mod stable_api {
     use core::mem::MaybeUninit;
 
