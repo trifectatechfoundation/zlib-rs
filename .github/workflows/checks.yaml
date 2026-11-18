@@ -716,14 +716,17 @@ jobs:
 
   miri-simd:
     name: "Miri SIMD"
-    runs-on: ubuntu-24.04-arm # so we don't need to install gcc 
     strategy:
       matrix:
         include:
           - target: aarch64-unknown-linux-gnu
+            os: ubuntu-26.04-arm
           # Errors out on miri atm, see https://github.com/rust-lang/miri/pull/5075.
           # - target: aarch64_be-unknown-linux-gnu
           - target: loongarch64-unknown-linux-gnu
+            os: ubuntu-26.04
+            packages: gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu
+    runs-on: ${{ matrix.os }}
     env:
       QUICKCHECK_TESTS: 10
     steps:
@@ -731,6 +734,13 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
+
+      - name: Cache apt packages
+        if: matrix.packages != ''
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
+        with:
+          packages: "${{ matrix.packages }}"
+          version: 2
 
       - name: Install Miri
         run: |
@@ -748,9 +758,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crc"
       - name: Test loongarch64
         if: ${{ contains(matrix.target, 'loongarch64') }}
-        # FIXME: the -p zlib-rs is needed because github's ubuntu
-        # does not have loongarch64 gcc for building our C dependencies.
-        run: "cargo +nightly miri test  --target ${{ matrix.target }} -p zlib-rs -- crc32 adler32 compare256"
+        run: "cargo +nightly miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
 
   run-flate2-test-suite:
     name: run flate2 test suite
