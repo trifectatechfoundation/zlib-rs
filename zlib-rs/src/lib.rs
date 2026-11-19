@@ -1,9 +1,5 @@
 #![doc = core::include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(
-    all(any(miri, feature = "lsx"), target_arch = "loongarch64"),
-    feature(stdarch_loongarch)
-)]
 
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
