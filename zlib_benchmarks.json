@@ -78,30 +78,6 @@
                     "./blogpost-compress-ng-clang 7 ng silesia-small.tar",
                     "./blogpost-compress-ng-clang 8 ng silesia-small.tar",
                     "./blogpost-compress-ng-clang 9 ng silesia-small.tar"
-                ],
-                "zlib-chromium-gcc": [
-                    "./blogpost-compress-chromium-gcc 0 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 1 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 2 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 3 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 4 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 5 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 6 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 7 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 8 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-gcc 9 ng silesia-small.tar"
-                ],
-                "zlib-chromium-clang": [
-                    "./blogpost-compress-chromium-clang 0 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 1 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 2 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 3 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 4 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 5 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 6 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 7 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 8 ng silesia-small.tar",
-                    "./blogpost-compress-chromium-clang 9 ng silesia-small.tar"
                 ]
             }
         },
@@ -232,42 +208,6 @@
             "benchmark": "compression",
             "measure": "cycles",
             "before": "zlib-ng-clang",
-            "after": "zlib-rs",
-            "runs": [
-                { "label": "level 0", "index": 0 },
-                { "label": "level 1", "index": 1 },
-                { "label": "level 2", "index": 2 },
-                { "label": "level 3", "index": 3 },
-                { "label": "level 4", "index": 4 },
-                { "label": "level 5", "index": 5 },
-                { "label": "level 6", "index": 6 },
-                { "label": "level 7", "index": 7 },
-                { "label": "level 8", "index": 8 },
-                { "label": "level 9", "index": 9 }
-            ]
-        },
-        {
-            "benchmark": "compression",
-            "measure": "cycles",
-            "before": "zlib-chromium-gcc",
-            "after": "zlib-rs",
-            "runs": [
-                { "label": "level 0", "index": 0 },
-                { "label": "level 1", "index": 1 },
-                { "label": "level 2", "index": 2 },
-                { "label": "level 3", "index": 3 },
-                { "label": "level 4", "index": 4 },
-                { "label": "level 5", "index": 5 },
-                { "label": "level 6", "index": 6 },
-                { "label": "level 7", "index": 7 },
-                { "label": "level 8", "index": 8 },
-                { "label": "level 9", "index": 9 }
-            ]
-        },
-        {
-            "benchmark": "compression",
-            "measure": "cycles",
-            "before": "zlib-chromium-clang",
             "after": "zlib-rs",
             "runs": [
                 { "label": "level 0", "index": 0 },
