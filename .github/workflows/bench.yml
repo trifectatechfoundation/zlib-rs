@@ -75,11 +75,13 @@ jobs:
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress .
           cp blogpost-compress blogpost-compress-ng-gcc
           cp blogpost-uncompress blogpost-uncompress-ng-gcc
+          cargo clean
           CC=clang cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-ng-clang
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-ng-clang
           cp blogpost-compress blogpost-compress-ng-gcc
           cp blogpost-uncompress blogpost-uncompress-ng-gcc
+          cargo clean
           # switch the C implementation from zlib-ng to zlib-chromium
           # sed on macOS is a bit annoying
           if sed --version 2>/dev/null | grep -q GNU; then
@@ -90,6 +92,7 @@ jobs:
           CC=gcc cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium-gcc
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium-gcc
+          cargo clean
           CC=clang cargo build --target ${{matrix.target}} -p test-libz-rs-sys --release --examples ${{ matrix.flags }}
           cp target/${{matrix.target}}/release/examples/blogpost-compress blogpost-compress-chromium-clang
           cp target/${{matrix.target}}/release/examples/blogpost-uncompress blogpost-uncompress-chromium-clang
