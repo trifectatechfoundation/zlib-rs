@@ -22,8 +22,12 @@ const X2N_TABLE: [u32; 32] = [
 ];
 
 // Return a(x) multiplied by b(x) modulo p(x), where p(x) is the CRC polynomial,
-// reflected. For speed, this requires that a not be zero.
+// reflected.
 pub(crate) const fn multmodp(a: u32, mut b: u32) -> u32 {
+    if a == 0 {
+        return 0;
+    }
+
     let mut m = 1 << 31;
     let mut p = 0;
 
@@ -65,6 +69,24 @@ mod test {
     use super::*;
 
     use crate::crc32::crc32;
+
+    #[test]
+    fn zero_crc_operator_is_total() {
+        for first in [0, 1, 0x1234_5678, u32::MAX] {
+            for second in [0, 1, 0x9abc_def0, u32::MAX] {
+                assert_eq!(crc32_combine_op(first, second, 0), second);
+            }
+        }
+    }
+
+    #[test]
+    fn identity_crc_operator() {
+        for first in [0, 1, 0x1234_5678, u32::MAX] {
+            for second in [0, 1, 0x9abc_def0, u32::MAX] {
+                assert_eq!(crc32_combine_op(first, second, 0x8000_0000), first ^ second);
+            }
+        }
+    }
 
     #[test]
     fn test_crc32_combine() {

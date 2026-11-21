@@ -273,6 +273,8 @@ pub const extern "C" fn crc32_combine_gen(len2: z_off_t) -> c_ulong {
 /// Give the same result as [`crc32_combine`], using `op` in place of `len2`.
 /// `op` is is generated from `len2` by [`crc32_combine_gen`].
 /// This will be faster than [`crc32_combine`] if the generated `op` is used more than once.
+///
+/// A zero `op`, although not produced by [`crc32_combine_gen`], returns `crc2`.
 #[cfg_attr(feature = "export-symbols", export_name = prefix!(crc32_combine_op))]
 pub const extern "C" fn crc32_combine_op(crc1: c_ulong, crc2: c_ulong, op: c_ulong) -> c_ulong {
     zlib_rs::crc32::crc32_combine_op(crc1 as u32, crc2 as u32, op as u32) as c_ulong
