@@ -3473,3 +3473,83 @@ fn gzip_inflate_rejects_distance_beyond_configured_window() {
         assert_eq!(inflateEnd(stream), Z_OK);
     });
 }
+
+#[test]
+fn inflate_back_too_far_back() {
+    struct Input {
+        data: &'static [u8],
+        pos: usize,
+    }
+
+    const STREAM: [u8; 6] = [
+        // Raw deflate stream https://datatracker.ietf.org/doc/html/rfc1951#section-3
+        //
+        // [0..2]   block header: BFINAL=1, BTYPE=01
+        // [3..10]  literal 0x00 (code 0b00110000, 8 bits, MSB-first)
+        // [11..18] literal 0x00
+        //
+        // See section 3.2.5
+        // [19..25] length=3 (code 257: 0b0000001, 7 bits, MSB-first)
+        // [26..30] distance code 18 (5-bit fixed: 0b10010, MSB-first)
+        // [31..38] 8 extra distance bits = 0 (distance = 513 + 0 = 513)
+        // [39..45] end-of-block (code 256: 0b0000000, 7 bits)
+        0b01100011, 0b01100000, 0b00000000, 0b00100110, 0b00000000, 0b00000000,
+    ];
+
+    unsafe extern "C" fn input_cb(desc: *mut c_void, buf: *mut *const u8) -> u32 {
+        let input = desc.cast::<Input>().as_mut().unwrap();
+
+        if input.pos >= input.data.len() {
+            *buf = core::ptr::null();
+            return 0;
+        }
+
+        // Feed 1 byte at a time to keep infback on the slow path.
+        *buf = &input.data[input.pos] as *const u8;
+        input.pos += 1;
+
+        1
+    }
+
+    unsafe extern "C" fn output_cb(_: *mut c_void, _: *mut u8, _: u32) -> i32 {
+        0
+    }
+
+    // FIXME: use assert_eq_rs_ng when zlib-ng has a release.
+    unsafe {
+        use libz_rs_sys::*;
+
+        let window_bits = 9; /* buffer_size = 512, less than distance 513 */
+
+        let mut strm = MaybeUninit::<z_stream>::zeroed();
+        let mut window = vec![0u8; 1 << window_bits];
+
+        let mut input = Input {
+            data: &STREAM,
+            pos: 0,
+        };
+
+        let ret = inflateBackInit_(
+            strm.as_mut_ptr(),
+            window_bits,
+            window.as_mut_ptr(),
+            zlibVersion(),
+            core::mem::size_of::<z_stream>() as _,
+        );
+
+        assert_eq!(ret, Z_OK);
+
+        let ret = inflateBack(
+            strm.as_mut_ptr(),
+            Some(input_cb),
+            &mut input as *mut Input as *mut c_void,
+            Some(output_cb),
+            core::ptr::null_mut(),
+        );
+
+        // The input is not actually valid, it is just meant to trigger the bug.
+        assert_eq!(ret, Z_DATA_ERROR);
+
+        inflateBackEnd(strm.as_mut_ptr());
+    }
+}
