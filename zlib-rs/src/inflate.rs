@@ -1804,7 +1804,7 @@ impl State<'_> {
                         let msg = "repeated call with bad state\0";
                         #[cfg(all(feature = "std", test))]
                         dbg!(msg);
-                        self.error_message = Some(msg);
+                        self.error_message.get_or_insert(msg);
 
                         break 'label ReturnCode::DataError;
                     }

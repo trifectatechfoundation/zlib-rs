@@ -126,3 +126,22 @@ fn gzip_inflate_rejects_distance_beyond_configured_window() {
 
     panic!("inflate made no terminal progress");
 }
+
+/// Previously this returned an inaccurate error message.
+#[test]
+fn invalid_distance_error_message() {
+    let input: [u8; 38] = [
+        0x78, 0x9c, 0x73, 0x04, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    for cap in [64, 259, 260, 4096] {
+        let mut d = Inflate::new(true, 15);
+        let mut out = vec![0u8; cap];
+
+        let result = d.decompress(&input, &mut out, InflateFlush::NoFlush);
+        assert_eq!(result, Err(InflateError::DataError));
+        assert_eq!(d.error_message(), Some("invalid distance too far back"));
+    }
+}
