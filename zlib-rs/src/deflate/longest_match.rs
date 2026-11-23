@@ -310,7 +310,7 @@ fn longest_match_help<const SLOW: bool>(
                  * us include one more byte into hash - the byte which will be checked
                  * in main loop now, and which allows to grow match by 1.
                  */
-                let [scan0, scan1, scan2, ..] = scan[len - (STD_MIN_MATCH + 1)..] else {
+                let [scan0, scan1, scan2, ..] = scan[len - (STD_MIN_MATCH - 1)..] else {
                     panic!("index out of bounds");
                 };
 
@@ -321,7 +321,7 @@ fn longest_match_help<const SLOW: bool>(
 
                 pos = state.head.as_slice()[hash as usize];
                 if pos < cur_match {
-                    match_offset = (len - (STD_MIN_MATCH + 1)) as Pos;
+                    match_offset = (len - (STD_MIN_MATCH - 1)) as Pos;
                     if pos <= limit_base + match_offset {
                         return break_matching(state, best_len, match_start);
                     }
