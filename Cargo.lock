@@ -121,7 +121,7 @@ checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
 name = "libz-rs-sys"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "libc",
  "zlib-rs",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "test-libz-rs-sys"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "crc32fast",
  "libc",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "arbitrary",
  "crc32fast",
