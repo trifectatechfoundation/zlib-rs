@@ -967,14 +967,15 @@ impl State<'_> {
                         self.bit_reader.drop_bits(4);
                         let len = self.bit_reader.bits(4) as u8 + 8;
 
+                        if len as i32 > MAX_WBITS || (self.wbits != 0 && len > self.wbits) {
+                            mode = Mode::Bad;
+                            break 'label self.bad("invalid window size\0");
+                        }
+
+                        // A value of zero will use the window size from the zlib header.
                         if self.wbits == 0 {
                             self.wbits = len;
                             self.window.set_size(1 << len);
-                        }
-
-                        if len as i32 > MAX_WBITS || len > self.wbits {
-                            mode = Mode::Bad;
-                            break 'label self.bad("invalid window size\0");
                         }
 
                         self.dmax = 1 << len;

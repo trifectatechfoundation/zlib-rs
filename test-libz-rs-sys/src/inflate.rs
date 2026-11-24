@@ -3473,3 +3473,37 @@ fn gzip_inflate_rejects_distance_beyond_configured_window() {
         assert_eq!(inflateEnd(stream), Z_OK);
     });
 }
+
+#[test]
+fn inflate_rejects_window_bits_0_window_over_32_kib() {
+    assert_eq_rs_ng!({
+        let mut stream = MaybeUninit::<z_stream>::zeroed();
+
+        // A value of zero will use the window size from the zlib header.
+        let window_bits = 0;
+
+        assert_eq!(
+            inflateInit2_(
+                stream.as_mut_ptr(),
+                window_bits,
+                zlibVersion(),
+                core::mem::size_of::<z_stream>() as i32,
+            ),
+            Z_OK
+        );
+
+        let stream = stream.assume_init_mut();
+        // 64KiB window
+        let mut input = [0x88, 0x98];
+        let mut output = [0u8; 256];
+
+        stream.next_in = input.as_mut_ptr();
+        stream.avail_in = input.len() as u32;
+
+        stream.next_out = output.as_mut_ptr();
+        stream.avail_out = output.len() as u32;
+
+        assert_eq!(inflate(stream, Z_NO_FLUSH), Z_DATA_ERROR);
+        assert_eq!(inflateEnd(stream), Z_OK);
+    });
+}
