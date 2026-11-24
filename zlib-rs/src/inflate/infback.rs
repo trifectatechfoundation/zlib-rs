@@ -614,14 +614,13 @@ pub unsafe fn back(
                     dropbits!(extra as u8);
                 }
 
-                if INFLATE_STRICT
-                    && state.offset
-                        > state.window.buffer_size()
-                            - (if state.window.have() < state.window.buffer_size() {
-                                left
-                            } else {
-                                0
-                            })
+                if state.offset
+                    > state.window.buffer_size()
+                        - (if state.window.have() < state.window.buffer_size() {
+                            left
+                        } else {
+                            0
+                        })
                 {
                     state.mode = Mode::Bad;
                     state.bad("invalid distance too far back\0");
