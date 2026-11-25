@@ -1,5 +1,13 @@
 #![doc = core::include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(
+    all(any(miri, feature = "altivec"), target_arch = "powerpc64"),
+    feature(
+        stdarch_powerpc_feature_detection,
+        stdarch_powerpc,
+        powerpc_target_feature
+    )
+)]
 
 #[cfg(any(feature = "rust-allocator", feature = "c-allocator"))]
 extern crate alloc;
