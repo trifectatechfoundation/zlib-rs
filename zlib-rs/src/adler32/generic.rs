@@ -60,11 +60,10 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
         return adler32_len_16(adler, buf, sum2);
     }
 
-    let mut it = buf.chunks_exact(NMAX as usize);
-    for big_chunk in it.by_ref() {
+    let (big_chunks, rest) = slice_as_chunks::<_, { NMAX as usize }>(buf);
+    for big_chunk in big_chunks {
         const N: usize = if UNROLL_MORE { 16 } else { 8 } as usize;
-        let it = big_chunk.chunks_exact(N);
-        for chunk in it {
+        for chunk in slice_as_chunks::<_, N>(big_chunk).0 {
             if N == 16 {
                 do16!(adler, sum2, chunk);
             } else {
@@ -77,7 +76,7 @@ pub fn adler32_rust(mut adler: u32, buf: &[u8]) -> u32 {
     }
 
     /* do remaining bytes (less than NMAX, still just one modulo) */
-    adler32_len_64(adler, it.remainder(), sum2)
+    adler32_len_64(adler, rest, sum2)
 }
 
 pub(crate) fn adler32_len_1(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
@@ -113,4 +112,38 @@ pub(crate) fn adler32_len_64(mut adler: u32, buf: &[u8], mut sum2: u32) -> u32 {
 
     /* Process tail (len < 16).  */
     adler32_len_16(adler, it.remainder(), sum2)
+}
+
+// FIXME use the method on slices once available.
+fn slice_as_chunks<T, const N: usize>(slice: &[T]) -> (&[[T; N]], &[T]) {
+    assert!(N != 0, "chunk size must be non-zero");
+    let len_rounded_down = slice.len() / N * N;
+    // SAFETY: The rounded-down value is always the same or smaller than the
+    // original length, and thus must be in-bounds of the slice.
+    let (multiple_of_n, remainder) = unsafe { slice_split_at_unchecked(slice, len_rounded_down) };
+    // SAFETY: We already panicked for zero, and ensured by construction
+    // that the length of the subslice is a multiple of N.
+    let array_slice = unsafe { slice_as_chunks_unchecked(multiple_of_n) };
+    (array_slice, remainder)
+}
+
+unsafe fn slice_as_chunks_unchecked<T, const N: usize>(slice: &[T]) -> &[[T; N]] {
+    // SAFETY: Caller must guarantee that `N` is nonzero and exactly divides the slice length
+    let new_len = slice.len() / N;
+    // SAFETY: We cast a slice of `new_len * N` elements into
+    // a slice of `new_len` many `N` elements chunks.
+    unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), new_len) }
+}
+
+pub unsafe fn slice_split_at_unchecked<T>(slice: &[T], mid: usize) -> (&[T], &[T]) {
+    let len = slice.len();
+    let ptr = slice.as_ptr();
+
+    // SAFETY: Caller has to check that `0 <= mid <= self.len()`
+    unsafe {
+        (
+            core::slice::from_raw_parts(ptr, mid),
+            core::slice::from_raw_parts(ptr.add(mid), len - mid),
+        )
+    }
 }
