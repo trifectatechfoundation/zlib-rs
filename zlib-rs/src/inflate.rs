@@ -2276,9 +2276,11 @@ pub fn init(stream: &mut z_stream, config: InflateConfig) -> ReturnCode {
     let buf = unsafe { allocation_start.as_ptr().add(align_offset) };
 
     let window_allocation = unsafe { buf.add(allocs.window_pos) };
-    let window = unsafe {
-        Window::from_padded_raw_parts(window_allocation, (1 << MAX_WBITS) + 64, 1 << MAX_WBITS)
-    };
+    let window_len = (1 << MAX_WBITS) + 64;
+    // Window accessors borrow the full backing buffer, including unused history and padding.
+    unsafe { window_allocation.write_bytes(0, window_len) };
+    let window =
+        unsafe { Window::from_padded_raw_parts(window_allocation, window_len, 1 << MAX_WBITS) };
     state.window = window;
 
     let state_allocation = unsafe { buf.add(allocs.state_pos).cast::<State>() };
@@ -2730,6 +2732,72 @@ pub unsafe fn get_dictionary(stream: &InflateStream<'_>, dictionary: *mut u8) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn init_initializes_window_with_nonzero_allocation() {
+        use core::ffi::{c_uint, c_void};
+        use core::mem::MaybeUninit;
+
+        struct Allocation {
+            bytes: Vec<MaybeUninit<u8>>,
+            freed: bool,
+        }
+
+        unsafe extern "C" fn allocate(
+            opaque: *mut c_void,
+            items: c_uint,
+            size: c_uint,
+        ) -> *mut c_void {
+            let allocation = unsafe { &mut *opaque.cast::<Allocation>() };
+            assert!(allocation.bytes.is_empty());
+            allocation.bytes = vec![MaybeUninit::new(0xa5); items as usize * size as usize + 2];
+            // Exercise the alignment adjustment and leave a canary at each end.
+            unsafe { allocation.bytes.as_mut_ptr().add(1).cast() }
+        }
+
+        unsafe extern "C" fn free(opaque: *mut c_void, ptr: *mut c_void) {
+            let allocation = unsafe { &mut *opaque.cast::<Allocation>() };
+            assert_eq!(ptr, unsafe { allocation.bytes.as_mut_ptr().add(1).cast() });
+            assert!(!allocation.freed);
+            allocation.freed = true;
+        }
+
+        for window_bits in [-15, 15, 31] {
+            let mut allocation = Allocation {
+                bytes: Vec::new(),
+                freed: false,
+            };
+            let mut stream = z_stream {
+                zalloc: Some(allocate),
+                zfree: Some(free),
+                opaque: core::ptr::addr_of_mut!(allocation).cast(),
+                ..z_stream::default()
+            };
+            assert_eq!(
+                init(&mut stream, InflateConfig { window_bits }),
+                ReturnCode::Ok
+            );
+
+            let stream = unsafe { InflateStream::from_stream_mut(&mut stream) }.unwrap();
+            let window = &stream.state.window;
+            // The custom allocation is initialized even before the fix.
+            let backing = unsafe {
+                core::slice::from_raw_parts(window.as_ptr(), (1 << MAX_WBITS) + Window::padding())
+            };
+            let initialized = backing.iter().all(|&byte| byte == 0);
+            assert_eq!(window.have(), 0);
+            assert_eq!(window.next(), 0);
+            assert!(end(stream).state.is_null());
+
+            assert!(allocation.freed);
+            assert_eq!(unsafe { allocation.bytes[0].assume_init() }, 0xa5);
+            assert_eq!(
+                unsafe { allocation.bytes.last().unwrap().assume_init() },
+                0xa5
+            );
+            assert!(initialized, "window_bits={window_bits}");
+        }
+    }
 
     #[test]
     fn uncompress_buffer_overflow() {
