@@ -30,12 +30,11 @@ impl<'a> SymBuf<'a> {
         self.filled == 0
     }
 
-    /// Clears the buffer, resetting the filled region to empty.
-    ///
-    /// The number of initialized bytes is not changed, and the contents of the buffer are not modified.
+    /// Zeroes the buffer, initializing its storage and resetting the filled region to empty.
     #[inline]
     pub fn clear(&mut self) {
-        self.buf.as_mut_slice().fill(0);
+        // The first clear runs before the backing storage has been initialized.
+        unsafe { self.buf.as_mut_ptr().write_bytes(0, self.buf.len()) };
         self.filled = 0;
     }
 
@@ -78,6 +77,41 @@ impl<'a> SymBuf<'a> {
         Self {
             buf: unsafe { WeakSliceMut::from_raw_parts_mut(ptr, self.buf.len()) },
             filled: self.filled,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::mem::MaybeUninit;
+
+    use super::*;
+
+    #[test]
+    fn clear_initializes_uninitialized_symbol_storage() {
+        for lit_bufsize in [4, 128, 32768] {
+            let len = lit_bufsize * 3;
+            let mut storage = vec![MaybeUninit::<u8>::uninit(); len + 2];
+            storage[0].write(0xa5);
+            storage[len + 1].write(0xa5);
+            let mut symbols =
+                unsafe { SymBuf::from_raw_parts(storage.as_mut_ptr().add(1).cast(), lit_bufsize) };
+
+            symbols.clear();
+            assert!(symbols.is_empty());
+            assert!(symbols.buf.as_slice().iter().all(|&byte| byte == 0));
+            symbols.push_dist(257, 7);
+            symbols.push_lit(b'A');
+            assert!(symbols.iter().eq([(257, 7), (0, b'A')]));
+
+            symbols.clear();
+            assert!(symbols.is_empty());
+            assert!(symbols.iter().next().is_none());
+            symbols.push_lit(b'B');
+            assert!(symbols.iter().eq([(0, b'B')]));
+
+            assert_eq!(unsafe { storage[0].assume_init() }, 0xa5);
+            assert_eq!(unsafe { storage[len + 1].assume_init() }, 0xa5);
         }
     }
 }
